@@ -130,7 +130,6 @@ StyledEditApp::StyledEditApp()
 		fOpenPanelEncodingMenu = NULL;
 
 	fWindowCount = 0;
-	fNextUntitledWindow = 1;
 	fBadArguments = false;
 
 	float factor = be_plain_font->Size() / 12.0f;
@@ -179,10 +178,32 @@ StyledEditApp::MessageReceived(BMessage* message)
 }
 
 
+static int32
+GetNextUntitled()
+{
+	int nextUntitled = 1;
+
+	BString untitled(B_TRANSLATE("Untitled "));
+	BString title = untitled;
+	title << nextUntitled;
+
+	int32 numWindows = be_app->CountWindows();
+	for (int32 i = 0; i < numWindows; i++) {
+		if (be_app->WindowAt(i)->Title() == title)
+		{
+			title = untitled;
+			title << ++nextUntitled;
+		}
+	}
+
+	return nextUntitled;
+}
+
+
 void
 StyledEditApp::OpenDocument()
 {
-	new StyledEditWindow(sWindowRect, fNextUntitledWindow++, fOpenAsEncoding);
+	new StyledEditWindow(sWindowRect, GetNextUntitled(), fOpenAsEncoding);
 	cascade();
 	fWindowCount++;
 }
