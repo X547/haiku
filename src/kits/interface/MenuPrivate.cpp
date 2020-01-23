@@ -168,10 +168,10 @@ MenuPrivate::SetItemMargins(float left, float top, float right, float bottom)
 }
 
 
-int
-MenuPrivate::State(BMenuItem** item) const
+bool
+MenuPrivate::IsTracking() const
 {
-	return fMenu->_State(item);
+	return fMenu->fTrackState != NULL;
 }
 
 
