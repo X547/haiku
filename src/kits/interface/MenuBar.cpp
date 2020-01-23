@@ -173,6 +173,9 @@ BMenuBar::AllDetached()
 void
 BMenuBar::WindowActivated(bool state)
 {
+	if (!state) {
+		BPrivate::MenuPrivate(this).QuitTracking(false);
+	}
 	BView::WindowActivated(state);
 }
 
@@ -550,152 +553,32 @@ BMenuBar::_TrackTask(void* arg)
 BMenuItem*
 BMenuBar::_Track(int32* action, int32 startIndex, bool showMenu)
 {
-	// TODO: Cleanup, merge some "if" blocks if possible
 	BMenuItem* item = NULL;
-	fState = MENU_STATE_TRACKING;
-	fChosenItem = NULL;
-		// we will use this for keyboard selection
 
-	BPoint where;
-	uint32 buttons;
+	if (startIndex == -1 && showMenu)
+		startIndex = 0;
+
 	if (LockLooper()) {
-		if (startIndex != -1) {
-			be_app->ObscureCursor();
-			_SelectItem(ItemAt(startIndex), true, false);
-		}
-		GetMouse(&where, &buttons);
+		_StealFocus();
 		UnlockLooper();
 	}
 
-	while (fState != MENU_STATE_CLOSED) {
-		bigtime_t snoozeAmount = 40000;
-		if (!LockLooper())
-			break;
-
-		item = dynamic_cast<_BMCMenuBar_*>(this) != NULL ? ItemAt(0)
-			: _HitTestItems(where, B_ORIGIN);
-
-		if (_OverSubmenu(fSelected, ConvertToScreen(where))
-			|| fState == MENU_STATE_KEY_TO_SUBMENU) {
-			// call _Track() from the selected sub-menu when the mouse cursor
-			// is over its window
-			BMenu* submenu = fSelected->Submenu();
-			UnlockLooper();
-			snoozeAmount = 30000;
-			submenu->_SetStickyMode(_IsStickyMode());
-			int localAction;
-			fChosenItem = submenu->_Track(&localAction);
-
-			// The mouse could have meen moved since the last time we
-			// checked its position, or buttons might have been pressed.
-			// Unfortunately our child menus don't tell
-			// us the new position.
-			// TODO: Maybe have a shared struct between all menus
-			// where to store the current mouse position ?
-			// (Or just use the BView mouse hooks)
-			BPoint newWhere;
-			if (LockLooper()) {
-				GetMouse(&newWhere, &buttons);
-				UnlockLooper();
-			}
-
-			// Needed to make BMenuField child menus "sticky"
-			// (see ticket #953)
-			if (localAction == MENU_STATE_CLOSED) {
-				if (fExtraRect != NULL && fExtraRect->Contains(where)
-					&& point_distance(newWhere, where) < 9) {
-					// 9 = 3 pixels ^ 2 (since point_distance() returns the
-					// square of the distance)
-					_SetStickyMode(true);
-					fExtraRect = NULL;
-				} else
-					fState = MENU_STATE_CLOSED;
-			}
-			if (!LockLooper())
-				break;
-		} else if (item != NULL) {
-			if (item->Submenu() != NULL && item != fSelected) {
-				if (item->Submenu()->Window() == NULL) {
-					// open the menu if it's not opened yet
-					_SelectItem(item);
-				} else {
-					// Menu was already opened, close it and bail
-					_SelectItem(NULL);
-					fState = MENU_STATE_CLOSED;
-					fChosenItem = NULL;
-				}
-			} else {
-				// No submenu, just select the item
-				_SelectItem(item);
-			}
-		} else if (item == NULL && fSelected != NULL
-			&& !_IsStickyMode() && Bounds().Contains(where)) {
-			_SelectItem(NULL);
-			fState = MENU_STATE_TRACKING;
-		}
-
-		UnlockLooper();
-
-		if (fState != MENU_STATE_CLOSED) {
-			BPoint newWhere = where;
-			uint32 newButtons = buttons;
-
-			do {
-				// If user doesn't move the mouse or change buttons loop
-				// here so that we don't interfere with keyboard menu
-				// navigation
-				snooze(snoozeAmount);
-				if (!LockLooper())
-					break;
-
-				GetMouse(&newWhere, &newButtons);
-				UnlockLooper();
-			} while (newWhere == where && newButtons == buttons
-				&& fState == MENU_STATE_TRACKING);
-
-			if (newButtons != 0 && _IsStickyMode()) {
-				if (item == NULL || (item->Submenu() != NULL
-						&& item->Submenu()->Window() != NULL)) {
-					// clicked outside the menu bar or on item with already
-					// open sub menu
-					fState = MENU_STATE_CLOSED;
-				} else
-					_SetStickyMode(false);
-			} else if (newButtons == 0 && !_IsStickyMode()) {
-				if ((fSelected != NULL && fSelected->Submenu() == NULL)
-					|| item == NULL) {
-					// clicked on an item without a submenu or clicked and
-					// released the mouse button outside the menu bar
-					fChosenItem = fSelected;
-					fState = MENU_STATE_CLOSED;
-				} else
-					_SetStickyMode(true);
-			}
-			where = newWhere;
-			buttons = newButtons;
-		}
-	}
+	item = BMenu::_Track(action, startIndex);
 
 	if (LockLooper()) {
 		if (fSelected != NULL)
 			_SelectItem(NULL);
 
-		if (fChosenItem != NULL)
-			fChosenItem->Invoke();
+		if (item != NULL)
+			item->Invoke();
 
 		_RestoreFocus();
 		UnlockLooper();
 	}
 
-	if (_IsStickyMode())
-		_SetStickyMode(false);
-
 	_DeleteMenuWindow();
 
-	if (action != NULL)
-		*action = fState;
-
-	return fChosenItem;
+	return item;
 }
 
 
@@ -747,7 +630,6 @@ BMenuBar::_InitData(menu_layout layout)
 
 	fBorders = BControlLook::B_ALL_BORDERS;
 	fLastBounds = new BRect(Bounds());
-	_SetIgnoreHidden(true);
 	SetLowUIColor(B_MENU_BACKGROUND_COLOR);
 	SetViewColor(B_TRANSPARENT_COLOR);
 }

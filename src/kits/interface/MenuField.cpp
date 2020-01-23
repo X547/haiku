@@ -495,6 +495,11 @@ BMenuField::KeyDown(const char* bytes, int32 numBytes)
 
 			fMenuBar->StartMenuBar(0, true, true, &bounds);
 
+			fMenuTaskID = spawn_thread((thread_func)_thread_entry,
+				"_m_task_", B_NORMAL_PRIORITY, this);
+			if (fMenuTaskID >= 0)
+				resume_thread(fMenuTaskID);
+
 			bounds = Bounds();
 			bounds.right = fDivider;
 
@@ -1075,7 +1080,7 @@ BMenuField::_DrawLabel(BRect updateRect)
 	rgb_color textColor;
 
 	BPrivate::MenuPrivate menuPrivate(fMenuBar);
-	if (menuPrivate.State() != MENU_STATE_CLOSED) {
+	if (menuPrivate.IsTracking()) {
 		// highlight the background of the label grey (like BeOS R5)
 		SetLowColor(ui_color(B_MENU_SELECTED_BACKGROUND_COLOR));
 		BRect fillRect(rect.InsetByCopy(0, kVMargin));
