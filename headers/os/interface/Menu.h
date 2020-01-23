@@ -17,6 +17,7 @@ class BMenuItem;
 
 
 namespace BPrivate {
+	class MenuTrackState;
 	class BMenuWindow;
 	class ExtraMenuData;
 	class TriggerList;
@@ -194,10 +195,9 @@ private:
 			BMenu&				operator=(const BMenu& other);
 
 			void				_InitData(BMessage* archive);
-			bool				_Show(bool selectFirstItem = false,
-									bool keyDown = false);
+			bool				_Show(bool selectFirstItem = false);
 			void				_Hide();
-			BMenuItem*			_Track(int* action, long start = -1);
+			BMenuItem*			_Track(int32* action, int32 start = -1);
 			void				_ScriptReceived(BMessage* message);
 			void				_ItemScriptReceived(BMessage* message,
 									BMenuItem* item);
@@ -212,14 +212,12 @@ private:
 									BRect& navAreaRectAbove,
 									BRect& navAreaBelow);
 
+			bool				_HitNavigationArea(BPoint position, BMenuItem* item);
+
 			void				_UpdateStateOpenSelect(BMenuItem* item,
 									BPoint position, BRect& navAreaRectAbove,
 									BRect& navAreaBelow,
-									bigtime_t& selectedTime,
-									bigtime_t& navigationAreaTime);
-			void				_UpdateStateClose(BMenuItem* item,
-									const BPoint& where,
-									const uint32& buttons);
+									bool isTimeout);
 
 			bool				_AddItem(BMenuItem* item, int32 index);
 			bool				_RemoveItems(int32 index, int32 count,
@@ -256,8 +254,7 @@ private:
 			void				_Uninstall();
 			void				_SelectItem(BMenuItem* item,
 									bool showSubmenu = true,
-									bool selectFirstItem = false,
-									bool keyDown = false);
+									bool selectFirstItem = false);
 			bool				_SelectNextItem(BMenuItem* item, bool forward);
 			BMenuItem*			_NextItem(BMenuItem* item, bool forward) const;
 			void				_SetIgnoreHidden(bool ignoreHidden)
@@ -277,13 +274,11 @@ private:
 									uint32& trigger,
 									BPrivate::TriggerList& triggers);
 			void				_UpdateWindowViewSize(const bool &updatePosition);
-			bool				_AddDynamicItems(bool keyDown = false);
-			bool				_OkToProceed(BMenuItem* item,
-									bool keyDown = false);
+			bool				_AddDynamicItems();
+			bool				_OkToProceed(BMenuItem* item);
 
-			bool				_CustomTrackingWantsToQuit();
+			void				_CallTrackingHook();
 
-			int					_State(BMenuItem** _item = NULL) const;
 			void				_InvokeItem(BMenuItem* item, bool now = false);
 			void				_QuitTracking(bool onlyThis = true);
 
@@ -297,7 +292,7 @@ private:
 	static	uint32				sCommandKey;
 	static	uint32				sMenuKey;
 
-			BMenuItem*			fChosenItem;
+			BPrivate::MenuTrackState* fTrackState;
 			BList				fItems;
 			BRect				fPad;
 			BMenuItem*			fSelected;
