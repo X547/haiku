@@ -21,6 +21,8 @@
 #include <MessageRunner.h>
 #include <Window.h>
 
+#include <MenuPrivate.h>
+
 
 static const float kPopUpIndicatorWidth = 13.0f;
 
@@ -76,6 +78,10 @@ _BMCFilter_::~_BMCFilter_()
 filter_result
 _BMCFilter_::Filter(BMessage* message, BHandler** handler)
 {
+	BPrivate::MenuPrivate menuPrivate(fMenuField->MenuBar());
+	if (menuPrivate.IsTracking())
+		return B_DISPATCH_MESSAGE;
+
 	if (message->what == B_MOUSE_DOWN) {
 		if (BView* view = dynamic_cast<BView*>(*handler)) {
 			BPoint point;
