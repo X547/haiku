@@ -8,6 +8,7 @@ Preference DriveSetup :
 	AbstractParametersPanel.cpp
 	ChangeParametersPanel.cpp
 	CreateParametersPanel.cpp
+	CreateRamDiskPanel.cpp
 	DiskView.cpp
 	DriveSetup.cpp
 	EncryptionUtils.cpp

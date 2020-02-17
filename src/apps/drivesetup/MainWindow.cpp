@@ -15,6 +15,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
 
 #include <Alert.h>
 #include <Application.h>
@@ -40,6 +41,8 @@
 #include <VolumeRoster.h>
 
 #include <fs_volume.h>
+#include <file_systems/ram_disk/ram_disk.h>
+#include <AutoDeleter.h>
 #include <tracker_private.h>
 
 #include "ChangeParametersPanel.h"
@@ -49,6 +52,7 @@
 #include "InitParametersPanel.h"
 #include "PartitionList.h"
 #include "Support.h"
+#include "CreateRamDiskPanel.h"
 
 
 #undef B_TRANSLATION_CONTEXT
@@ -63,6 +67,9 @@ enum {
 	MSG_CREATE					= 'crtp',
 	MSG_CHANGE					= 'chgp',
 	MSG_INITIALIZE				= 'init',
+	MSG_CREATE_VIRTUAL_DISK		= 'ctvd',
+	MSG_OPEN_VIRTUAL_DISK		= 'opvd',
+	MSG_CREATE_RAM_DISK			= 'ctrd',
 	MSG_DELETE					= 'delt',
 	MSG_EJECT					= 'ejct',
 	MSG_OPEN_DISKPROBE			= 'opdp',
@@ -214,6 +221,12 @@ MainWindow::MainWindow()
 	fMenuBar = new BMenuBar(Bounds(), "root menu");
 
 	// create all the menu items
+	fCreateVirtualDiskMenuItem = new BMenuItem(B_TRANSLATE("Create virtual disk" B_UTF8_ELLIPSIS),
+		new BMessage(MSG_CREATE_VIRTUAL_DISK));
+	fOpenVirtualDiskMenuItem = new BMenuItem(B_TRANSLATE("Open virtual disk" B_UTF8_ELLIPSIS),
+		new BMessage(MSG_OPEN_VIRTUAL_DISK));
+	fCreateRamDiskMenuItem = new BMenuItem(B_TRANSLATE("Create RAM disk" B_UTF8_ELLIPSIS),
+		new BMessage(MSG_CREATE_RAM_DISK));
 	fWipeMenuItem = new BMenuItem(B_TRANSLATE("Wipe (not implemented)"),
 		new BMessage(MSG_FORMAT));
 	fEjectMenuItem = new BMenuItem(B_TRANSLATE("Eject"),
@@ -251,6 +264,10 @@ MainWindow::MainWindow()
 
 	fDiskMenu->AddSeparatorItem();
 
+	fDiskMenu->AddItem(fCreateVirtualDiskMenuItem);
+	fDiskMenu->AddItem(fOpenVirtualDiskMenuItem);
+	fDiskMenu->AddItem(fCreateRamDiskMenuItem);
+	fDiskMenu->AddSeparatorItem();
 	fDiskMenu->AddItem(fEjectMenuItem);
 	// fDiskMenu->AddItem(fSurfaceTestMenuItem);
 	fDiskMenu->AddItem(fRescanMenuItem);
@@ -381,6 +398,21 @@ MainWindow::MessageReceived(BMessage* message)
 			if (message->FindString("disk system", &diskSystemName) != B_OK)
 				break;
 			_Initialize(fCurrentDisk, fCurrentPartitionID, diskSystemName);
+			break;
+		}
+
+		case MSG_CREATE_VIRTUAL_DISK:
+			_CreateVirtualDisk();
+			break;
+
+		case MSG_OPEN_VIRTUAL_DISK:
+			printf("MSG_OPEN_VIRTUAL_DISK\n");
+			break;
+
+		case MSG_CREATE_RAM_DISK: {
+			BWindow *wnd = new CreateRamDiskPanel(this);
+			wnd->Show();
+			//_CreateRamDisk();
 			break;
 		}
 
@@ -1473,3 +1505,40 @@ MainWindow::_UpdateWindowZoomLimits()
 	SetZoomLimits(maxWidth, maxHeight);
 }
 
+
+void
+MainWindow::_CreateVirtualDisk()
+{
+	const char *path = "/boot/home/downloads/haiku-master-hrev53759-x86_gcc2h-anyboot/haiku-master-hrev53759-x86_gcc2h-anyboot.iso";
+	BDiskDeviceRoster roster;
+	partition_id id = roster.RegisterFileDevice(path);
+	if (id < 0) {
+		fprintf(stderr, "Error: Failed to register file disk device: %s\n",
+			strerror(id));
+	}
+}
+
+
+void
+MainWindow::_CreateRamDisk()
+{
+	const char *ctrlDevPath = "/dev/" RAM_DISK_CONTROL_DEVICE_NAME;
+
+	ram_disk_ioctl_register request;
+	request.size = 1024*1024*1024 /* 1GB */;
+	request.path[0] = '\0';
+	request.id = -1;
+
+	int fd = open(ctrlDevPath, O_RDONLY);
+	if (fd < 0) {
+		fprintf(stderr, "Error: Failed to open RAM disk control device \"%s\": "
+			"%s\n", ctrlDevPath, strerror(errno));
+		return;
+	}
+	FileDescriptorCloser fdCloser(fd);
+
+	// issue the request
+	if (ioctl(fd, RAM_DISK_IOCTL_REGISTER, &request) < 0)
+		fprintf(stderr, "Error: Failed to create RAM disk device: %s\n",
+			strerror(errno));
+}
