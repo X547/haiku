@@ -93,6 +93,8 @@ private:
 			float				_ColumnListViewHeight(BColumnListView* list,
 									BRow* currentRow);
 			void				_UpdateWindowZoomLimits();
+			void				_CreateVirtualDisk();
+			void				_CreateRamDisk();
 
 private:
 			BDiskDeviceRoster	fDiskDeviceRoster;
@@ -113,6 +115,9 @@ private:
 
 			BMenuBar* 			fMenuBar;
 
+			BMenuItem*			fCreateVirtualDiskMenuItem;
+			BMenuItem*			fOpenVirtualDiskMenuItem;
+			BMenuItem*			fCreateRamDiskMenuItem;
 			BMenuItem*			fWipeMenuItem;
 			BMenuItem*			fEjectMenuItem;
 			BMenuItem*			fSurfaceTestMenuItem;
