@@ -1430,8 +1430,6 @@ BPoint
 DrawingEngine::DrawStringDry(const char* string, int32 length,
 	const BPoint& pt, escapement_delta* delta)
 {
-	ASSERT_PARALLEL_LOCKED();
-
 	BPoint penLocation = pt;
 
 	// try a fast path first
@@ -1451,8 +1449,6 @@ BPoint
 DrawingEngine::DrawStringDry(const char* string, int32 length,
 	const BPoint* offsets)
 {
-	ASSERT_PARALLEL_LOCKED();
-
 	BPoint penLocation;
 	fPainter->BoundingBox(string, length, offsets, &penLocation, NULL);
 
