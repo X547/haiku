@@ -673,6 +673,8 @@ BrowserWindow::BrowserWindow(BRect frame, SettingsMessage* appSettings,
 		AddShortcut(numStr[0], B_COMMAND_KEY, selectTab);
 	}
 
+// BKeymap is not working for libbe_test
+#ifndef HAIKU_TARGET_PLATFORM_LIBBE_TEST
 	BKeymap keymap;
 	keymap.SetToCurrent();
 	BObjectList<const char> unmodified(3, true);
@@ -689,6 +691,7 @@ BrowserWindow::BrowserWindow(BRect frame, SettingsMessage* appSettings,
 		}
 	}
 	unmodified.MakeEmpty();
+#endif
 
 	be_app->PostMessage(WINDOW_OPENED);
 }
