@@ -685,6 +685,8 @@ BrowserWindow::BrowserWindow(BRect frame, SettingsMessage* appSettings,
 	// Add shortcut to cycle through tabs like in every other web browser
 	AddShortcut(B_TAB, B_COMMAND_KEY, new BMessage(CYCLE_TABS));
 
+	// BKeymap is not working for libbe_test
+#ifndef HAIKU_TARGET_PLATFORM_LIBBE_TEST
 	BKeymap keymap;
 	keymap.SetToCurrent();
 	BObjectList<const char> unmodified(3, true);
@@ -701,6 +703,7 @@ BrowserWindow::BrowserWindow(BRect frame, SettingsMessage* appSettings,
 		}
 	}
 	unmodified.MakeEmpty();
+#endif
 
 	be_app->PostMessage(WINDOW_OPENED);
 }
