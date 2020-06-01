@@ -88,6 +88,7 @@ public:
 
 			void				MakeEmpty();
 
+			BGradient*			Copy() const;
 			status_t			Flatten(BDataIO* stream) const;
 	static	status_t			Unflatten(BGradient *&output, BDataIO* stream);
 
