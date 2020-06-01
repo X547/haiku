@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 #include <DataIO.h>
 #include <Message.h>
@@ -487,6 +488,42 @@ BGradient::MakeEmpty()
 }
 
 
+static BGradient*
+gradient_for_type(BGradient::Type type)
+{
+	switch (type) {
+		case BGradient::TYPE_LINEAR:
+			return new (std::nothrow) BGradientLinear();
+		case BGradient::TYPE_RADIAL:
+			return new (std::nothrow) BGradientRadial();
+		case BGradient::TYPE_RADIAL_FOCUS:
+			return new (std::nothrow) BGradientRadialFocus();
+		case BGradient::TYPE_DIAMOND:
+			return new (std::nothrow) BGradientDiamond();
+		case BGradient::TYPE_CONIC:
+			return new (std::nothrow) BGradientConic();
+		case BGradient::TYPE_NONE:
+			return new (std::nothrow) BGradient();
+	}
+	return NULL;
+}
+
+
+BGradient*
+BGradient::Copy() const
+{
+	BGradient* gradient = gradient_for_type(fType);
+	if (gradient == NULL)
+		return gradient;
+
+	gradient->fType = fType;
+	gradient->SetColorStops(*this);
+	memcpy(&gradient->fData, &fData, sizeof(fData));
+
+	return gradient;
+}
+
+
 status_t
 BGradient::Flatten(BDataIO* stream) const
 {
@@ -532,27 +569,6 @@ BGradient::Flatten(BDataIO* stream) const
 			break;
 	}
 	return B_OK;
-}
-
-
-static BGradient*
-gradient_for_type(BGradient::Type type)
-{
-	switch (type) {
-		case BGradient::TYPE_LINEAR:
-			return new (std::nothrow) BGradientLinear();
-		case BGradient::TYPE_RADIAL:
-			return new (std::nothrow) BGradientRadial();
-		case BGradient::TYPE_RADIAL_FOCUS:
-			return new (std::nothrow) BGradientRadialFocus();
-		case BGradient::TYPE_DIAMOND:
-			return new (std::nothrow) BGradientDiamond();
-		case BGradient::TYPE_CONIC:
-			return new (std::nothrow) BGradientConic();
-		case BGradient::TYPE_NONE:
-			return new (std::nothrow) BGradient();
-	}
-	return NULL;
 }
 
 
