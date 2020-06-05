@@ -64,8 +64,8 @@ using std::nothrow;
 
 using namespace BPrivate;
 
-//! The minimal time interval for message runners (50 ms).
-static const bigtime_t kMininalTimeInterval = 50000LL;
+//! The minimal time interval for message runners (1 us).
+static const bigtime_t kMininalTimeInterval = 1LL;
 
 
 static bigtime_t
@@ -101,7 +101,7 @@ public:
 	/*!	\brief Hook method invoked when the event is executed.
 
 		Implements Event. Calls MessageRunnerManager::_DoEvent().
-		
+
 		\param queue The event queue executing the event.
 		\return \c true, if the object shall be deleted, \c false otherwise.
 	*/
