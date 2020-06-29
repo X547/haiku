@@ -105,7 +105,7 @@ Printer::ResolveSpecifier(BMessage* msg, int32 index, BMessage* spec,
 status_t
 Printer::GetSupportedSuites(BMessage* msg)
 {
-	msg->AddString("suites", "application/x-vnd.OpenBeOS-printer");
+	msg->AddString("suites", "application/x-vnd.Haiku-printer");
 
 	static bool localized = false;
 	if (!localized) {

@@ -99,7 +99,7 @@ Transport::ResolveSpecifier(BMessage* msg, int32 index, BMessage* spec,
 status_t
 Transport::GetSupportedSuites(BMessage* msg)
 {
-	msg->AddString("suites", "application/x-vnd.OpenBeOS-transport");
+	msg->AddString("suites", "application/x-vnd.Haiku-transport");
 
 	static bool localized = false;
 	if (!localized) {
