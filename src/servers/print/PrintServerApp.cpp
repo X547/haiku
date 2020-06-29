@@ -315,6 +315,9 @@ PrintServerApp::SetupPrinterList()
 void
 PrintServerApp::MessageReceived(BMessage* msg)
 {
+	if (msg->HasSpecifiers())
+		return HandleScriptingCommand(msg);
+
 	switch(msg->what) {
 		case PSRV_GET_ACTIVE_PRINTER:
 		case PSRV_MAKE_PRINTER_ACTIVE_QUIETLY:
@@ -325,15 +328,6 @@ PrintServerApp::MessageReceived(BMessage* msg)
 		case PSRV_PRINT_SPOOLED_JOB:
 		case PSRV_GET_DEFAULT_SETTINGS:
 			Handle_BeOSR5_Message(msg);
-			break;
-
-		case B_GET_PROPERTY:
-		case B_SET_PROPERTY:
-		case B_CREATE_PROPERTY:
-		case B_DELETE_PROPERTY:
-		case B_COUNT_PROPERTIES:
-		case B_EXECUTE_PROPERTY:
-			HandleScriptingCommand(msg);
 			break;
 
 		default:
