@@ -35,12 +35,12 @@ static property_info prop_list[] = {
 	{ "Printer", { B_DELETE_PROPERTY }, { B_INDEX_SPECIFIER, B_NAME_SPECIFIER,
 		B_REVERSE_INDEX_SPECIFIER },
 		B_TRANSLATE_MARK("Delete a specific printer") },
-	{ "Printers", { B_COUNT_PROPERTIES }, { B_DIRECT_SPECIFIER },
+	{ "Printer", { B_COUNT_PROPERTIES }, { B_DIRECT_SPECIFIER },
 		B_TRANSLATE_MARK("Return the number of available printers") },
 	{ "Transport", { B_GET_PROPERTY }, { B_INDEX_SPECIFIER, B_NAME_SPECIFIER,
 		B_REVERSE_INDEX_SPECIFIER },
 		B_TRANSLATE_MARK("Retrieve a specific transport") },
-	{ "Transports", { B_COUNT_PROPERTIES }, { B_DIRECT_SPECIFIER },
+	{ "Transport", { B_COUNT_PROPERTIES }, { B_DIRECT_SPECIFIER },
 		B_TRANSLATE_MARK("Return the number of available transports") },
 	{ "UseConfigWindow", { B_GET_PROPERTY, B_SET_PROPERTY },
 		{ B_DIRECT_SPECIFIER },
@@ -53,94 +53,87 @@ static property_info prop_list[] = {
 void
 PrintServerApp::HandleScriptingCommand(BMessage* msg)
 {
-	BString propName;
-	BMessage spec;
-	int32 idx;
+	BMessage reply(B_REPLY);
+	status_t err = B_BAD_SCRIPT_SYNTAX;
+	int32 index;
+	BMessage specifier;
+	int32 what;
+	const char* property;
 
-	if (msg->GetCurrentSpecifier(&idx,&spec) == B_OK &&
-		spec.FindString("property",&propName) == B_OK) {
-		switch(msg->what) {
-			case B_GET_PROPERTY:
-				if (propName == "ActivePrinter") {
-					BMessage reply(B_REPLY);
-					reply.AddString("result", fDefaultPrinter
-						? fDefaultPrinter->Name() : "");
-					reply.AddInt32("error", B_OK);
-					msg->SendReply(&reply);
-				} else if (propName == "UseConfigWindow") {
-					BMessage reply(B_REPLY);
-					reply.AddString("result", fUseConfigWindow
-						? "true" : "false");
-					reply.AddInt32("error", B_OK);
-					msg->SendReply(&reply);
-				}
-				break;
-
-			case B_SET_PROPERTY:
-				if (propName == "ActivePrinter") {
-					BString newActivePrinter;
-					if (msg->FindString("data", &newActivePrinter) == B_OK) {
-						BMessage reply(B_REPLY);
-						reply.AddInt32("error",
-							SelectPrinter(newActivePrinter.String()));
-						msg->SendReply(&reply);
-					}
-				} else if (propName == "UseConfigWindow") {
-					bool useConfigWindow;
-					if (msg->FindBool("data", &useConfigWindow) == B_OK) {
-						fUseConfigWindow = useConfigWindow;
-						BMessage reply(B_REPLY);
-						reply.AddInt32("error", fUseConfigWindow);
-						msg->SendReply(&reply);
-					}
-				}
-				break;
-
-			case B_CREATE_PROPERTY:
-				if (propName == "Printer") {
-					BString name, driver, transport, config;
-
-					if (msg->FindString("name", &name) == B_OK
-						&& msg->FindString("driver", &driver) == B_OK
-						&& msg->FindString("transport", &transport) == B_OK
-						&& msg->FindString("config", &config) == B_OK) {
-						BMessage reply(B_REPLY);
-						reply.AddInt32("error", CreatePrinter(name.String(),
-							driver.String(), "Local", transport.String(),
-							config.String()));
-						msg->SendReply(&reply);
-					}
-				}
-				break;
-
-			case B_DELETE_PROPERTY: {
-					Printer* printer = GetPrinterFromSpecifier(&spec);
-					status_t rc = B_BAD_VALUE;
-
-					if (printer != NULL)
-						rc=printer->Remove();
-
-					BMessage reply(B_REPLY);
-					reply.AddInt32("error", rc);
-					msg->SendReply(&reply);
-				}
-				break;
-
-			case B_COUNT_PROPERTIES:
-				if (propName == "Printers") {
-					BMessage reply(B_REPLY);
-					reply.AddInt32("result", Printer::CountPrinters());
-					reply.AddInt32("error", B_OK);
-					msg->SendReply(&reply);
-				} else if (propName == "Transports") {
-					BMessage reply(B_REPLY);
-					reply.AddInt32("result", Transport::CountTransports());
-					reply.AddInt32("error", B_OK);
-					msg->SendReply(&reply);
-				}
-				break;
-		}
+	if (msg->GetCurrentSpecifier(&index, &specifier, &what, &property)
+			!= B_OK) {
+		return Inherited::MessageReceived(msg);
 	}
+
+	BPropertyInfo propInfo(prop_list);
+	switch (propInfo.FindMatch(msg, index, &specifier, what, property)) {
+		case 0: // ActivePrinter: GET, SET
+			switch (msg->what) {
+				case B_GET_PROPERTY:
+					err = reply.AddString("result", fDefaultPrinter
+						? fDefaultPrinter->Name() : "");
+					break;
+				case B_SET_PROPERTY: {
+					BString newActivePrinter;
+					err = msg->FindString("data", &newActivePrinter);
+					if (err >= B_OK)
+						err = SelectPrinter(newActivePrinter.String());
+					break;
+				}
+			}
+			break;
+		case 2: { // Printer: CREATE
+			BString name, driver, transport, config;
+			err = msg->FindString("name", &name);
+			if (err >= B_OK)
+				err = msg->FindString("driver", &driver);
+			if (err >= B_OK)
+				err = msg->FindString("transport", &transport);
+			if (err >= B_OK)
+				err = msg->FindString("config", &config);
+			if (err >= B_OK)
+				err = CreatePrinter(name, driver, "Local", transport, config);
+			break;
+		}
+		case 3: { // Printer: DELETE
+			Printer* printer = GetPrinterFromSpecifier(&specifier);
+			if (printer == NULL)
+				err = B_BAD_VALUE;
+			if (err >= B_OK)
+				err = printer->Remove();
+			break;
+		}
+		case 4: // Printers: COUNT
+			err = reply.AddInt32("result", Printer::CountPrinters());
+			break;
+		case 6: // Transports: COUNT
+			err = reply.AddInt32("result", Transport::CountTransports());
+			break;
+		case 7: // UseConfigWindow: GET, SET
+			switch (msg->what) {
+				case B_GET_PROPERTY:
+					err = reply.AddString("result", fUseConfigWindow ? "true"
+						: "false");
+					break;
+				case B_SET_PROPERTY:
+					bool useConfigWindow;
+					err = msg->FindBool("data", &useConfigWindow);
+					if (err >= B_OK)
+						fUseConfigWindow = useConfigWindow;
+					break;
+			}
+			break;
+		default:
+			return Inherited::MessageReceived(msg);
+	}
+
+	if (err < B_OK) {
+		reply.what = B_MESSAGE_NOT_UNDERSTOOD;
+		reply.AddString("message", strerror(err));
+	}
+
+	reply.AddInt32("error", err);
+	msg->SendReply(&reply);
 }
 
 
@@ -256,7 +249,7 @@ PrintServerApp::ResolveSpecifier(BMessage* msg, int32 index, BMessage* spec,
 status_t
 PrintServerApp::GetSupportedSuites(BMessage* msg)
 {
-	msg->AddString("suites", "suite/vnd.OpenBeOS-printserver");
+	msg->AddString("suites", "suite/vnd.Haiku-printserver");
 
 	static bool localized = false;
 	if (!localized) {
