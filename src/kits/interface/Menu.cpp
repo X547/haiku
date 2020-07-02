@@ -1728,6 +1728,7 @@ void BMenu::_ScriptReceived(BMessage* message)
 							RemoveItem(index);
 						else
 							RemoveItem(item);
+						delete item;
 					}
 				}
 			}
@@ -1800,6 +1801,7 @@ void BMenu::_ScriptReceived(BMessage* message)
 						RemoveItem(index);
 					else
 						RemoveItem(item);
+					delete item;
 				}
 			}
 			break;
