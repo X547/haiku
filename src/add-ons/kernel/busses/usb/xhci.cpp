@@ -804,6 +804,11 @@ XHCI::SubmitNormalRequest(Transfer *transfer)
 	// things simple by setting trbSize to the MBP. (XHCI 1.2 § 4.11.7.1 p235.)
 	size_t trbSize = endpoint->max_burst_payload;
 
+	if (trbSize == 0) {
+		TRACE_ALWAYS("[!] trbSize == 0\n");
+		return B_BAD_VALUE;
+	}
+
 	if (isochronousData != NULL) {
 		if (isochronousData->packet_count == 0)
 			return B_BAD_VALUE;
@@ -824,6 +829,12 @@ XHCI::SubmitNormalRequest(Transfer *transfer)
 
 	// Normal Stage
 	const size_t maxPacketSize = pipe->MaxPacketSize();
+
+	if (maxPacketSize == 0) {
+		TRACE_ALWAYS("[!] maxPacketSize == 0\n");
+		return B_BAD_VALUE;
+	}
+
 	size_t remaining = transfer->DataLength();
 	for (int32 i = 0; i < trbCount; i++) {
 		int32 trbLength = (remaining < trbSize) ? remaining : trbSize;
