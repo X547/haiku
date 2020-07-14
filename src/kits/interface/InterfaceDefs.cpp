@@ -653,10 +653,8 @@ get_click_speed(const char* mouse_name, bigtime_t* speed)
 	status_t err = command.AddString("mouse_name", mouse_name);
 	if (err == B_OK)
 		err = _control_input_server_(&command, &reply);
-	if (err != B_OK)
-		return err;
 
-	if (reply.FindInt64("speed", speed) != B_OK)
+	if (err != B_OK || reply.FindInt64("speed", speed) != B_OK)
 		*speed = 500000;
 
 	return B_OK;
