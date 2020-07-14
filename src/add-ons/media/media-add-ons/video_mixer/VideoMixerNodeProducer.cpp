@@ -99,7 +99,7 @@ status_t VideoMixerNode::GetNextOutput(	/* cookie starts as 0 */
 				int32 *cookie,
 				media_output *out_output)
 {
-	fprintf(stderr,"VideoMixerNode(BBufferProducer)::GetNextOutput (%ld)\n",*cookie);
+	fprintf(stderr,"VideoMixerNode(BBufferProducer)::GetNextOutput (%" B_PRId32 ")\n",*cookie);
 	
 	// only 1 output
 	if (*cookie != 0) {
@@ -240,7 +240,7 @@ void VideoMixerNode::Connect(
 void VideoMixerNode::ComputeInternalLatency() {
 	fprintf(stderr,"VideoMixerNode(BBufferProducer)::ComputeInternalLatency\n");
 	fInternalLatency = 100; // just guess
-	fprintf(stderr,"  internal latency guessed = %lld\n",fInternalLatency);
+	fprintf(stderr,"  internal latency guessed = %" B_PRIdBIGTIME "\n",fInternalLatency);
 }
 
 void VideoMixerNode::Disconnect(

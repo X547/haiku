@@ -49,7 +49,7 @@ void VideoMixerNode::HandleEvent(
 			HandleParameter(event,lateness,realTimeEvent);
 			break;
 		default:
-			fprintf(stderr,"  unknown event type: %ld\n",event->type);
+			fprintf(stderr,"  unknown event type: %" B_PRId32 "\n",event->type);
 			break;
 	}
 }
@@ -99,7 +99,7 @@ status_t VideoMixerNode::HandleSeek(
 						bigtime_t lateness,
 						bool realTimeEvent)
 {
-	fprintf(stderr,"VideoMixerNode(BMediaEventLooper)::HandleSeek(t=%lld,d=%ld,bd=%lld)\n",event->event_time, event->data, event->bigdata);
+	fprintf(stderr,"VideoMixerNode(BMediaEventLooper)::HandleSeek(t=%" B_PRIdBIGTIME ",d=%" B_PRId32 ",bd=%" B_PRId64 ")\n",event->event_time, event->data, event->bigdata);
 	return B_OK;
 }
 						

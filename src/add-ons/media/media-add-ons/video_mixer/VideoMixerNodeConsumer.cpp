@@ -45,7 +45,7 @@ status_t VideoMixerNode::GetNextInput(
 				int32 *cookie,
 				media_input *out_input)
 {
-	fprintf(stderr,"VideoMixerNode(BBufferConsumer)::GetNextInput (%ld)\n",*cookie);
+	fprintf(stderr,"VideoMixerNode(BBufferConsumer)::GetNextInput (%" B_PRId32 ")\n",*cookie);
 	
 	// Cookie 0 is the connecting input, all others are connected inputs
 	if (uint32(*cookie) == fConnectedInputs.size()) {
@@ -168,7 +168,7 @@ status_t VideoMixerNode::Connected(
 
 	// compute the latency or just guess
 	fInternalLatency = 500; // just a guess
-	fprintf(stderr,"  internal latency guessed = %lld\n", fInternalLatency);
+	fprintf(stderr,"  internal latency guessed = %" B_PRIdBIGTIME "\n", fInternalLatency);
 	
 	SetEventLatency(fInternalLatency);
 
