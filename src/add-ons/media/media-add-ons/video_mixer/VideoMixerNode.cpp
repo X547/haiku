@@ -93,7 +93,7 @@ VideoMixerNode::CreateInput(uint32 inputID) {
 	ClearInput(input);
 
 	// don't overwrite available space, and be sure to terminate
-	sprintf(input->name, "VideoMixer Input %ld", inputID);
+	sprintf(input->name, "VideoMixer Input %" B_PRIu32, inputID);
 	
 	return input;
 }
@@ -185,7 +185,7 @@ BMediaAddOn *VideoMixerNode::AddOn(
 
 void VideoMixerNode::Start(bigtime_t performance_time)
 {
-	fprintf(stderr,"VideoMixerNode::Start(pt=%lld)\n", performance_time);
+	fprintf(stderr,"VideoMixerNode::Start(pt=%" B_PRIdBIGTIME ")\n", performance_time);
 	BMediaEventLooper::Start(performance_time);
 }
 
@@ -194,9 +194,9 @@ void VideoMixerNode::Stop(
 				bool immediate)
 {
 	if (immediate) {
-		fprintf(stderr,"VideoMixerNode::Stop(pt=%lld,<immediate>)\n", performance_time);
+		fprintf(stderr,"VideoMixerNode::Stop(pt=%" B_PRIdBIGTIME ",<immediate>)\n", performance_time);
 	} else {
-		fprintf(stderr,"VideoMixerNode::Stop(pt=%lld,<scheduled>)\n", performance_time);
+		fprintf(stderr,"VideoMixerNode::Stop(pt=%" B_PRIdBIGTIME ",<scheduled>)\n", performance_time);
 	}
 	BMediaEventLooper::Stop(performance_time, immediate);
 }
@@ -205,7 +205,7 @@ void VideoMixerNode::Seek(
 				bigtime_t media_time,
 				bigtime_t performance_time)
 {
-	fprintf(stderr,"VideoMixerNode::Seek(mt=%lld,pt=%lld)\n", media_time,performance_time);
+	fprintf(stderr,"VideoMixerNode::Seek(mt=%" B_PRIdBIGTIME ",pt=%" B_PRIdBIGTIME ")\n", media_time,performance_time);
 	BMediaEventLooper::Seek(media_time, performance_time);
 }
 
@@ -219,7 +219,7 @@ void VideoMixerNode::TimeWarp(
 				bigtime_t at_real_time,
 				bigtime_t to_performance_time)
 {
-	fprintf(stderr,"VideoMixerNode::TimeWarp(rt=%lld,pt=%lld)\n", at_real_time, to_performance_time);
+	fprintf(stderr,"VideoMixerNode::TimeWarp(rt=%" B_PRIdBIGTIME ",pt=%" B_PRIdBIGTIME ")\n", at_real_time, to_performance_time);
 	BMediaEventLooper::TimeWarp(at_real_time, to_performance_time);
 }
 
@@ -305,8 +305,8 @@ void VideoMixerNode::GetFlavor(flavor_info *outInfo, int32 id)
 
 	if (outInfo != NULL) {
 		outInfo->internal_id = id;
-		strcpy(outInfo->name, "Haiku VideoMixer");
-		strcpy(outInfo->info, "A VideoMixerNode node mixes multiple video"
+		outInfo->name = strdup("Haiku VideoMixer");
+		outInfo->info = strdup("A VideoMixerNode node mixes multiple video"
 			" streams into a single stream.");
 		outInfo->kinds = B_BUFFER_CONSUMER | B_BUFFER_PRODUCER;
 		outInfo->flavor_flags = B_FLAVOR_IS_LOCAL;
