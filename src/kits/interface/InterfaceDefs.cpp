@@ -579,10 +579,7 @@ get_click_speed(bigtime_t *speed)
 	BMessage reply;
 
 	status_t err = _control_input_server_(&command, &reply);
-	if (err != B_OK)
-		return err;
-
-	if (reply.FindInt64("speed", speed) != B_OK)
+	if (err != B_OK || reply.FindInt64("speed", speed) != B_OK)
 		*speed = 500000;
 
 	return B_OK;
