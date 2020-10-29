@@ -168,7 +168,15 @@ BButton::Draw(BRect updateRect)
 void
 BButton::MouseDown(BPoint where)
 {
-	if (!IsEnabled())
+	if (!IsEnabled() || IsTracking())
+		return;
+
+	uint32 buttons = 0;
+
+	if (Looper() != NULL && Looper()->CurrentMessage() != NULL)
+		Looper()->CurrentMessage()->FindInt32("buttons", &(int32&)buttons);
+	
+	if (buttons != B_PRIMARY_MOUSE_BUTTON)
 		return;
 
 	if (fBehavior == B_POP_UP_BEHAVIOR && _PopUpRect().Contains(where)) {
@@ -191,7 +199,6 @@ BButton::MouseDown(BPoint where)
 		SetMouseEventMask(B_POINTER_EVENTS, B_LOCK_WINDOW_FOCUS);
 	} else {
 		BRect bounds = Bounds();
-		uint32 buttons;
 		bool inside = false;
 
 		do {
@@ -208,7 +215,7 @@ BButton::MouseDown(BPoint where)
 				if ((Value() == B_CONTROL_ON) != inside)
 					SetValue(inside ? B_CONTROL_ON : B_CONTROL_OFF);
 			}
-		} while (buttons != 0);
+		} while ((buttons & B_PRIMARY_MOUSE_BUTTON) != 0);
 
 		if (inside) {
 			if (toggleBehavior) {
@@ -396,6 +403,14 @@ void
 BButton::MouseUp(BPoint where)
 {
 	if (!IsTracking())
+		return;
+
+	uint32 buttons = 0;
+
+	if (Looper() != NULL && Looper()->CurrentMessage() != NULL)
+		Looper()->CurrentMessage()->FindInt32("buttons", &(int32&)buttons);
+	
+	if ((buttons & B_PRIMARY_MOUSE_BUTTON) != 0)
 		return;
 
 	if (Bounds().Contains(where)) {
