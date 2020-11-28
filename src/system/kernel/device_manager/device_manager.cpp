@@ -753,13 +753,13 @@ publish_device(device_node *node, const char *path, const char *moduleName)
 	}
 
 	node->AddDevice(device);
-	
+
 	device_attr_private* attr;
 
 	attr = new(std::nothrow) device_attr_private();
 	if (attr != NULL) {
 		char buf[256];
-		sprintf(buf, "dev/%ld/path", device->ID());
+		sprintf(buf, "dev/%" B_PRIdINO "/path", device->ID());
 		attr->name = strdup(buf);
 		attr->type = B_STRING_TYPE;
 		attr->value.string = strdup(path);
@@ -769,7 +769,7 @@ publish_device(device_node *node, const char *path, const char *moduleName)
 	attr = new(std::nothrow) device_attr_private();
 	if (attr != NULL) {
 		char buf[256];
-		sprintf(buf, "dev/%ld/driver", device->ID());
+		sprintf(buf, "dev/%" B_PRIdINO "/driver", device->ID());
 		attr->name = strdup(buf);
 		attr->type = B_STRING_TYPE;
 		attr->value.string = strdup(moduleName);
@@ -2202,21 +2202,21 @@ device_node::RemoveDevice(Device* device)
 {
 	char attrName[256];
 	device_attr_private* attr;
-	
-	sprintf(attrName, "dev/%ld/path", device->ID());
+
+	sprintf(attrName, "dev/%" B_PRIdINO "/path", device->ID());
 	attr = find_attr(this, attrName, false, B_STRING_TYPE);
 	if (attr != NULL) {
 		fAttributes.Remove(attr);
 		delete attr;
 	}
-	
-	sprintf(attrName, "dev/%ld/driver", device->ID());
+
+	sprintf(attrName, "dev/%" B_PRIdINO "/driver", device->ID());
 	attr = find_attr(this, attrName, false, B_STRING_TYPE);
 	if (attr != NULL) {
 		fAttributes.Remove(attr);
 		delete attr;
 	}
-	
+
 	fDevices.Remove(device);
 }
 
