@@ -1,5 +1,7 @@
 SubDir HAIKU_TOP src apps launchbox ;
 
+AddSubDirSupportedPlatforms libbe_test ;
+
 UsePrivateHeaders shared ;
 
 Application LaunchBox :
@@ -11,7 +13,7 @@ Application LaunchBox :
 	PadView.cpp
 	Panel.cpp
 	support.cpp
-	: be translation shared [ TargetLibsupc++ ] localestub
+	: be translation shared [ TargetLibstdc++ ] [ TargetLibsupc++ ] localestub
 	: LaunchBox.rdef
 ;
 
