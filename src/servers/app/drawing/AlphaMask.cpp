@@ -320,12 +320,16 @@ VectorAlphaMask<VectorMaskType>::_RenderSource(const IntRect& canvasBounds)
 {
 	fBounds = static_cast<VectorMaskType*>(this)->DetermineBoundingBox();
 
+#if 0
 	if (fBounds.Width() > canvasBounds.Width()
 		|| fBounds.Height() > canvasBounds.Height()) {
 		fBounds = fBounds & canvasBounds;
 		fClippedToCanvas = true;
 	} else
 		fClippedToCanvas = false;
+#else
+	fClippedToCanvas = false;
+#endif
 
 	if (fPreviousMask != NULL)
 		fBounds = fBounds & _PreviousMaskBounds();
