@@ -1,5 +1,7 @@
 SubDir HAIKU_TOP src apps deskbar ;
 
+AddSubDirSupportedPlatforms libbe_test ;
+
 UsePrivateHeaders app interface locale shared tracker ;
 UsePrivateHeaders private shared ;
 SubDirHdrs $(HAIKU_TOP) src kits tracker ;

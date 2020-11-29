@@ -1,5 +1,7 @@
 SubDir HAIKU_TOP src apps webpositive ;
 
+AddSubDirSupportedPlatforms libbe_test ;
+
 SubDirC++Flags $(defines) -Wno-error=sequence-point -Wno-error=format-truncation ;
 SubDirCcFlags $(defines) -Wno-error=sequence-point -Wno-error=format-truncation ;
 

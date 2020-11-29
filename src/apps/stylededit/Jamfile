@@ -1,5 +1,9 @@
 SubDir HAIKU_TOP src apps stylededit ;
 
+if $(TARGET_PLATFORM) = libbe_test {
+	SetSubDirSupportedPlatforms libbe_test ;
+}
+
 UsePrivateHeaders textencoding ;
 UsePrivateSystemHeaders ;
 UsePrivateHeaders tracker shared ;
@@ -26,7 +30,7 @@ Application StyledEdit :
 	StyledEditView.cpp
 	StyledEditWindow.cpp
 	: shared be translation tracker libtextencoding.so localestub
-		[ TargetLibsupc++ ]
+		[ TargetLibstdc++ ] [ TargetLibsupc++ ]
 	: $(styled_edit_rsrc)
 	;
 
