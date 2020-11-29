@@ -1,5 +1,9 @@
 SubDir HAIKU_TOP src apps processcontroller ;
 
+if $(TARGET_PLATFORM) = libbe_test {
+SetSubDirSupportedPlatforms libbe_test ;
+}
+
 UsePrivateSystemHeaders ;
 UsePrivateHeaders app interface shared ;
 
@@ -21,7 +25,7 @@ Application ProcessController :
 	ThreadBarMenu.cpp
 	ThreadBarMenuItem.cpp
 	Utilities.cpp
-	: be shared [ TargetLibsupc++ ] localestub
+	: be shared [ TargetLibstdc++ ] [ TargetLibsupc++ ] localestub
 	: ProcessController.rdef
 ;
 
