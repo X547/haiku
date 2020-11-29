@@ -414,7 +414,6 @@ BSizeColumn::BSizeColumn(const char* title, float width, float minWidth,
 void
 BSizeColumn::DrawField(BField* _field, BRect rect, BView* parent)
 {
-	char str[256];
 	float width = rect.Width() - (2 * kTEXT_MARGIN);
 	BFont font;
 	BString string;
@@ -422,9 +421,9 @@ BSizeColumn::DrawField(BField* _field, BRect rect, BView* parent)
 
 	parent->GetFont(&font);
 	if (size < kKB_SIZE) {
-		sprintf(str, "%" B_PRId64 " bytes", size);
-		if (font.StringWidth(str) > width)
-			sprintf(str, "%" B_PRId64 " B", size);
+		string.SetToFormat("%" B_PRId64 " bytes", size);
+		if (font.StringWidth(string) > width)
+			string.SetToFormat("%" B_PRId64 " B", size);
 	} else {
 		const char*	suffix;
 		float float_value;
@@ -446,12 +445,12 @@ BSizeColumn::DrawField(BField* _field, BRect rect, BView* parent)
 			if (!kSIZE_FORMATS[index])
 				break;
 
-			sprintf(str, kSIZE_FORMATS[index], float_value, suffix);
+			string.SetToFormat(kSIZE_FORMATS[index], float_value, suffix);
 			// strip off an insignificant zero so we don't get readings
 			// such as 1.00
 			char *period = 0;
 			char *tmp (NULL);
-			for (tmp = str; *tmp; tmp++) {
+			for (tmp = (char*)string.String(); *tmp; tmp++) {
 				if (*tmp == '.')
 					period = tmp;
 			}
@@ -460,12 +459,11 @@ BSizeColumn::DrawField(BField* _field, BRect rect, BView* parent)
 				for (tmp = &period[2]; *tmp; tmp++)
 					*tmp = tmp[1];
 			}
-			if (font.StringWidth(str) <= width)
+			if (font.StringWidth(string) <= width)
 				break;
 		}
 	}
 
-	string = str;
 	parent->TruncateString(&string, B_TRUNCATE_MIDDLE, width + 2);
 	DrawString(string.String(), parent, rect);
 }
@@ -521,13 +519,11 @@ BIntegerColumn::BIntegerColumn(const char* title, float width, float minWidth,
 void
 BIntegerColumn::DrawField(BField *field, BRect rect, BView* parent)
 {
-	char formatted[256];
 	float width = rect.Width() - (2 * kTEXT_MARGIN);
 	BString string;
 
-	sprintf(formatted, "%d", (int)((BIntegerField*)field)->Value());
+	string.SetToFormat("%d", (int)((BIntegerField*)field)->Value());
 
-	string = formatted;
 	parent->TruncateString(&string, B_TRUNCATE_MIDDLE, width + 2);
 	DrawString(string.String(), parent, rect);
 }
