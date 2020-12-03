@@ -626,16 +626,15 @@ BTextWidget::Draw(BRect eraseRect, BRect textRect, float, BPoseView* view,
 
 		// set high color
 		rgb_color highColor;
-		// for active views, the selection is drawn as inverse text (background color for the text,
-		// solid black for the background).
-		// For inactive windows, the text is drawn normally, then the selection rect is
-		// alpha-blended on top of it.
-		// This all happens in BPose::Draw before and after calling this function, here we are
-		// only concerned with setting the correct color for the text.
-		if (selected && view->Window()->IsActive())
+		if (view->IsDesktopWindow()) {
+			if (selected)
+				highColor = ui_color(B_DOCUMENT_BACKGROUND_COLOR);
+			else
+				highColor = view->DeskTextColor();
+		} else if (selected && view->Window()->IsActive()) {
 			highColor = ui_color(B_DOCUMENT_BACKGROUND_COLOR);
-		else
-			highColor = view->DeskTextColor();
+		} else
+			highColor = kBlack;
 
 		if (clipboardMode == kMoveSelectionTo && !selected) {
 			drawView->SetDrawingMode(B_OP_ALPHA);
