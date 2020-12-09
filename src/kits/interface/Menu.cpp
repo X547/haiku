@@ -634,7 +634,7 @@ BMenu::MessageReceived(BMessage* message)
 							fTrackState->navigationAreaTimer.Unset();
 							_SelectItem(item, true);
 						} else {
-							if (fTrackState->navigationAreaTimer.Get() != NULL)
+							if (fTrackState->navigationAreaTimer.IsSet())
 								fTrackState->navigationAreaTimer.SetTo(new(std::nothrow) BMessageRunner(BMessenger(this), BMessage(navigationAreaTimeoutMsg), kNavigationAreaTimeout, 1));
 						}
 					}
@@ -654,7 +654,7 @@ BMenu::MessageReceived(BMessage* message)
 		}
 
 		case navigationAreaTimeoutMsg: {
-			if (fTrackState->navigationAreaTimer.Get() != NULL) {
+			if (fTrackState->navigationAreaTimer.IsSet()) {
 				fTrackState->navigationAreaTimer.Unset();
 				BPoint where;
 				GetMouse(&where, NULL);
