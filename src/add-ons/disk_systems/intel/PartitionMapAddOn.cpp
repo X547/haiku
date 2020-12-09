@@ -373,7 +373,7 @@ PartitionMapHandle::ValidateCreateChild(off_t* _offset, off_t* _size,
 	if (handle == NULL)
 		return B_ERROR;
 	get_driver_boolean_parameter(handle, "active", false, true);
-	delete_driver_settings(handle);
+	unload_driver_settings(handle);
 
 	// do we have a spare primary partition?
 	if (fPartitionMap.CountNonEmptyPrimaryPartitions() == 4)
@@ -489,7 +489,7 @@ PartitionMapHandle::CreateChild(off_t offset, off_t size,
 		return B_ERROR;
 
 	bool active = get_driver_boolean_parameter(handle, "active", false, true);
-	delete_driver_settings(handle);
+	unload_driver_settings(handle);
 
 	// get a spare primary partition
 	PrimaryPartition* primary = NULL;

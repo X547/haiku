@@ -953,9 +953,11 @@ get_driver_settings(void *handle)
 	return &((settings_handle *)handle)->settings;
 }
 
+#ifdef HAIKU_HOST_PLATFORM_HAIKU
 
-status_t
-delete_driver_settings(void *_handle)
-{
-	return unload_driver_settings(_handle);
-}
+// Obsolete function, use unload_driver_settings instead. Introduced by
+// accident in hrev3530 (2003) and present in public headers for a long time.
+extern "C" __typeof(unload_driver_settings) delete_driver_settings
+	__attribute__((weak, alias ("unload_driver_settings")));
+
+#endif
