@@ -326,13 +326,12 @@ PackageVolumeInfo::_ParseActivatedPackagesFile(Directory* packagesDirectory,
 	snprintf(path, sizeof(path), "%s/%s/%s",
 		kAdministrativeDirectory, state->Name() != NULL ? state->Name() : "",
 		kActivatedPackagesFile);
-	int fd = open_from(packagesDirectory, path, O_RDONLY);
-	if (fd < 0)
-		return fd;
-	FileDescriptorCloser fdCloser(fd);
+	FileDescriptorCloser fd(open_from(packagesDirectory, path, O_RDONLY));
+	if (!fd.IsSet())
+		return fd.Get();
 
 	struct stat st;
-	if (fstat(fd, &st) != 0)
+	if (fstat(fd.Get(), &st) != 0)
 		return errno;
 	if (!S_ISREG(st.st_mode))
 		return B_ENTRY_NOT_FOUND;
@@ -340,7 +339,7 @@ PackageVolumeInfo::_ParseActivatedPackagesFile(Directory* packagesDirectory,
 	// read the file until we find the system package line
 	size_t remainingBytes = 0;
 	for (;;) {
-		ssize_t bytesRead = read(fd, path + remainingBytes,
+		ssize_t bytesRead = read(fd.Get(), path + remainingBytes,
 			sizeof(path) - remainingBytes - 1);
 		if (bytesRead <= 0)
 			return B_ENTRY_NOT_FOUND;

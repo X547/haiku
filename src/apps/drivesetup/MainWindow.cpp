@@ -1529,16 +1529,15 @@ MainWindow::_CreateRamDisk()
 	request.path[0] = '\0';
 	request.id = -1;
 
-	int fd = open(ctrlDevPath, O_RDONLY);
-	if (fd < 0) {
+	FileDescriptorCloser fd(open(ctrlDevPath, O_RDONLY));
+	if (!fd.IsSet()) {
 		fprintf(stderr, "Error: Failed to open RAM disk control device \"%s\": "
 			"%s\n", ctrlDevPath, strerror(errno));
 		return;
 	}
-	FileDescriptorCloser fdCloser(fd);
 
 	// issue the request
-	if (ioctl(fd, RAM_DISK_IOCTL_REGISTER, &request) < 0)
+	if (ioctl(fd.Get(), RAM_DISK_IOCTL_REGISTER, &request) < 0)
 		fprintf(stderr, "Error: Failed to create RAM disk device: %s\n",
 			strerror(errno));
 }

@@ -56,14 +56,12 @@ main(int argc, char** argv)
 		usage(1);
 	const char* path = argv[optind++];
 
-	int fd = open(path, O_RDONLY);
-	if (fd < 0) {
+	FileDescriptorCloser fd(open(path, O_RDONLY));
+	if (!fd.IsSet()) {
 		fprintf(stderr, "%s: Could not access path: %s\n", kProgramName,
 			strerror(errno));
 		return EXIT_FAILURE;
 	}
-
-	FileDescriptorCloser closer(fd);
 
 	fs_trim_data trimData;
 	trimData.range_count = 1;
@@ -71,7 +69,7 @@ main(int argc, char** argv)
 	trimData.ranges[0].size = UINT64_MAX;
 	trimData.trimmed_size = 0;
 
-	if (ioctl(fd, B_TRIM_DEVICE, &trimData, sizeof(fs_trim_data)) != 0) {
+	if (ioctl(fd.Get(), B_TRIM_DEVICE, &trimData, sizeof(fs_trim_data)) != 0) {
 		fprintf(stderr, "%s: Trimming failed: %s\n", kProgramName,
 			strerror(errno));
 		return EXIT_FAILURE;
