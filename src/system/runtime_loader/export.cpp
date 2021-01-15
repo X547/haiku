@@ -9,6 +9,7 @@
 
 #include "runtime_loader_private.h"
 #include "elf_tls.h"
+#include "images.h"
 
 
 // exported via the rld_export structure in user space program arguments
@@ -90,6 +91,7 @@ rldexport_init(void)
 {
 	gRuntimeLoader.program_args = gProgramArgs;
 	gRuntimeLoader.commpage_address = __gCommPageAddress;
+	gRuntimeLoader.loaded_images = &get_loaded_images();
 }
 
 
