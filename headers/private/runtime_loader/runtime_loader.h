@@ -23,6 +23,7 @@
 
 struct user_space_program_args;
 struct SymbolLookupInfo;
+struct image_queue_t;
 
 struct rld_export {
 	// runtime loader API export
@@ -59,6 +60,7 @@ struct rld_export {
 	const void* commpage_address;
 	int abi_version;
 	int api_version;
+	struct image_queue_t *loaded_images;
 };
 
 extern struct rld_export *__gRuntimeLoader;
