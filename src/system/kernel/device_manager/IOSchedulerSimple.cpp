@@ -94,6 +94,8 @@ IOSchedulerSimple::IOSchedulerSimple(DMAResource* resource)
 	fRequestOwners(NULL),
 	fBlockSize(0),
 	fPendingOperations(0),
+	fReadBytes(0),
+	fWriteBytes(0),
 	fTerminating(false)
 {
 	mutex_init(&fLock, "I/O scheduler");
@@ -293,8 +295,27 @@ IOSchedulerSimple::OperationCompleted(IOOperation* operation, status_t status,
 
 	operation->SetStatus(status, transferredBytes);
 
+	// statistics
+	if (operation->IsRead())
+		fReadBytes += transferredBytes;
+	else
+		fWriteBytes += transferredBytes;
+
 	fCompletedOperations.Add(operation);
 	fFinishedOperationCondition.NotifyAll();
+}
+
+
+status_t
+IOSchedulerSimple::GetStats(device_io_stats* stats, size_t statsSize) const
+{
+	if (stats == NULL || statsSize != sizeof(device_io_stats))
+		return B_BAD_VALUE;
+
+	stats->read_bytes = fReadBytes;
+	stats->write_bytes = fWriteBytes;
+
+	return B_OK;
 }
 
 

@@ -1165,6 +1165,9 @@ usb_disk_attach(device_node *node, usb_device newDevice, void **cookie)
 		memset(lun->product_name, 0, sizeof(lun->product_name));
 		memset(lun->product_revision, 0, sizeof(lun->product_revision));
 
+		lun->read_bytes = 0;
+		lun->write_bytes = 0;
+
 		usb_disk_reset_capacity(lun);
 
 		// initialize this lun
@@ -1794,6 +1797,18 @@ usb_disk_ioctl(void *cookie, uint32 op, void *buffer, size_t length)
 				strerror(result));
 			return result;
 		}
+
+		case B_GET_IO_STATS:
+		{
+			if (length > sizeof(device_io_stats))
+				return B_BAD_VALUE;
+
+			device_io_stats stats;
+			stats.read_bytes = lun->read_bytes;
+			stats.write_bytes = lun->write_bytes;
+
+			return user_memcpy(buffer, &stats, length);
+		}
 	}
 
 	TRACE_ALWAYS("unhandled ioctl %" B_PRId32 "\n", op);
@@ -1918,6 +1933,11 @@ usb_disk_io(void *cookie, io_request *request)
 	} else {
 		status = usb_disk_bounced_io(lun, request);
 	}
+
+	if (request->IsWrite())
+		lun->write_bytes += request->TransferredBytes();
+	else
+		lun->read_bytes += request->TransferredBytes();
 
 	deviceLocker.Unlock();
 	ioLocker.Unlock();

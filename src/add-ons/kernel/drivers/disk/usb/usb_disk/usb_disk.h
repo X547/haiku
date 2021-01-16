@@ -92,6 +92,10 @@ struct device_lun_s {
 	char		vendor_name[8];
 	char		product_name[16];
 	char		product_revision[4];
+
+	// statistics
+	uint64		read_bytes;
+	uint64		write_bytes;
 };
 
 

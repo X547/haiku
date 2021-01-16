@@ -107,6 +107,7 @@ enum {
 	B_GET_VECTOR_ICON,				/* retrieves the device's vector icon */
 	B_GET_DEVICE_NAME,				/* get name, string buffer */
 	B_TRIM_DEVICE,					/* trims blocks, see fs_trim_data */
+	B_GET_IO_STATS,					/* get IO statistics, see device_io_stats */
 
 	B_GET_NEXT_OPEN_DEVICE = 1000,	/* obsolete, will be removed */
 	B_ADD_FIXED_DRIVER,				/* obsolete, will be removed */
@@ -181,6 +182,13 @@ typedef struct {
 		uint64	size;
 	} ranges[1];
 } fs_trim_data;
+
+
+/* B_GET_IO_STATS data structure */
+typedef struct {
+	uint64 read_bytes;
+	uint64 write_bytes;
+} device_io_stats;
 
 
 #ifdef __cplusplus

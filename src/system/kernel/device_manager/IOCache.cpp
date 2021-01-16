@@ -47,7 +47,9 @@ IOCache::IOCache(DMAResource* resource, size_t cacheLineSize)
 	fArea(-1),
 	fCache(NULL),
 	fPages(NULL),
-	fVecs(NULL)
+	fVecs(NULL),
+	fReadBytes(0),
+	fWriteBytes(0)
 {
 	ASSERT(resource != NULL);
 	TRACE("%p->IOCache::IOCache(%p, %" B_PRIuSIZE ")\n", this, resource,
@@ -206,11 +208,32 @@ IOCache::OperationCompleted(IOOperation* operation, status_t status,
 	operation->SetStatus(status, transferredBytes);
 
 	if (status == B_OK) {
+		// statistics
+		if (transferredBytes == operation->Length()) {
+			if (operation->IsRead())
+				fReadBytes += transferredBytes;
+			else
+				fWriteBytes += transferredBytes;
+		}
+
 		// always fail in case of partial transfers
 		((Operation*)operation)->finishedCondition.NotifyAll(
 			transferredBytes == operation->Length() ? B_OK : B_ERROR);
 	} else
 		((Operation*)operation)->finishedCondition.NotifyAll(status);
+}
+
+
+status_t
+IOCache::GetStats(device_io_stats* stats, size_t statsSize) const
+{
+	if (stats == NULL || statsSize != sizeof(device_io_stats))
+		return B_BAD_VALUE;
+
+	stats->read_bytes = fReadBytes;
+	stats->write_bytes = fWriteBytes;
+
+	return B_OK;
 }
 
 
