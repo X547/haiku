@@ -35,6 +35,9 @@ public:
 									// has been completed successfully or failed
 									// for some reason
 
+	virtual status_t			GetStats(device_io_stats* stats,
+									size_t statsSize) const;
+
 	virtual	void				Dump() const;
 
 private:
@@ -90,6 +93,8 @@ private:
 			off_t				fIterationBandwidth;
 			off_t				fMinOwnerBandwidth;
 			off_t				fMaxOwnerBandwidth;
+			uint64				fReadBytes;
+			uint64				fWriteBytes;
 	volatile bool				fTerminating;
 };
 

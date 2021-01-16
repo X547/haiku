@@ -59,6 +59,9 @@ public:
 									// has been completed successfully or failed
 									// for some reason
 
+	virtual status_t			GetStats(device_io_stats* stats,
+									size_t statsSize) const = 0;
+
 	virtual	void				Dump() const = 0;
 
 protected:
