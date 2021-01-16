@@ -1403,6 +1403,9 @@ usb_disk_device_added(usb_device newDevice, void **cookie)
 		memset(lun->product_name, 0, sizeof(lun->product_name));
 		memset(lun->product_revision, 0, sizeof(lun->product_revision));
 
+		lun->read_bytes = 0;
+		lun->write_bytes = 0;
+
 		usb_disk_reset_capacity(lun);
 
 		// initialize this lun
@@ -1974,6 +1977,18 @@ usb_disk_ioctl(void *cookie, uint32 op, void *buffer, size_t length)
 				strerror(result));
 			return result;
 		}
+
+		case B_GET_IO_STATS:
+		{
+			if (length > sizeof(device_io_stats))
+				return B_BAD_VALUE;
+
+			device_io_stats stats;
+			stats.read_bytes = lun->read_bytes;
+			stats.write_bytes = lun->write_bytes;
+
+			return user_memcpy(buffer, &stats, length);
+		}
 	}
 
 	TRACE_ALWAYS("unhandled ioctl %" B_PRId32 "\n", op);
@@ -2021,6 +2036,7 @@ usb_disk_read(void *cookie, off_t position, void *buffer, size_t *length)
 
 	mutex_unlock(&device->lock);
 	if (result == B_OK) {
+		lun->read_bytes += *length;
 		TRACE("read successful with %ld bytes\n", *length);
 		return B_OK;
 	}
@@ -2077,6 +2093,7 @@ usb_disk_write(void *cookie, off_t position, const void *buffer,
 
 	mutex_unlock(&device->lock);
 	if (result == B_OK) {
+		lun->write_bytes += *length;
 		TRACE("write successful with %ld bytes\n", *length);
 		return B_OK;
 	}
