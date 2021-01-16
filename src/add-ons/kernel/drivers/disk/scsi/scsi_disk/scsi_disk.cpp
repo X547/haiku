@@ -377,6 +377,20 @@ das_ioctl(void* cookie, uint32 op, void* buffer, size_t length)
 			return user_memcpy(buffer, &iconData, sizeof(device_icon));
 		}
 
+		case B_GET_IO_STATS:
+		{
+			if (length > sizeof(device_io_stats))
+				return B_BAD_VALUE;
+
+			device_io_stats stats;
+			status_t status
+				= handle->info->io_scheduler->GetStats(&stats, length);
+			if (status < B_OK)
+				return status;
+
+			return user_memcpy(buffer, &stats, length);
+		}
+
 		case B_EJECT_DEVICE:
 		case B_SCSI_EJECT:
 			return load_eject(info, false);

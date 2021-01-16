@@ -36,6 +36,9 @@ public:
 									status_t status,
 									generic_size_t transferredBytes);
 
+	virtual status_t			GetStats(device_io_stats* stats,
+									size_t statsSize) const;
+
 	virtual	void				Dump() const;
 
 private:
@@ -78,6 +81,8 @@ private:
 			VMCache*			fCache;
 			vm_page**			fPages;
 			generic_io_vec*		fVecs;
+			uint64				fReadBytes;
+			uint64				fWriteBytes;
 };
 
 
