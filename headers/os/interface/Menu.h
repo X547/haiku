@@ -202,16 +202,8 @@ private:
 									const BMessage& specifier, int32 what,
 									BMenuItem* item);
 
-			void				_UpdateNavigationArea(BPoint position,
-									BRect& navAreaRectAbove,
-									BRect& navAreaBelow);
-
+			void				_UpdateNavigationArea(BPoint position);
 			bool				_HitNavigationArea(BPoint position, BMenuItem* item);
-
-			void				_UpdateStateOpenSelect(BMenuItem* item,
-									BPoint position, BRect& navAreaRectAbove,
-									BRect& navAreaBelow,
-									bool isTimeout);
 
 			bool				_AddItem(BMenuItem* item, int32 index);
 			bool				_RemoveItems(int32 index, int32 count,
@@ -297,7 +289,7 @@ private:
 			float				fAscent;
 			float				fDescent;
 			float				fFontHeight;
-			uint32				fState;
+			uint32				fQuitTracking;
 			menu_layout			fLayout;
 			BRect*				fExtraRect;
 			float				fMaxContentWidth;
