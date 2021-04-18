@@ -982,6 +982,9 @@ BMenu::AddItem(BMenuItem* item, BRect frame)
 bool
 BMenu::AddItem(BMenu* submenu)
 {
+	if (submenu->Superitem() != NULL)
+		return AddItem(submenu->Superitem(), CountItems());
+
 	BMenuItem* item = new (nothrow) BMenuItem(submenu);
 	if (item == NULL)
 		return false;
@@ -1004,6 +1007,9 @@ BMenu::AddItem(BMenu* submenu, int32 index)
 			"be called if the menu layout is not B_ITEMS_IN_MATRIX");
 	}
 
+	if (submenu->Superitem() != NULL)
+		return AddItem(submenu->Superitem(), index);
+
 	BMenuItem* item = new (nothrow) BMenuItem(submenu);
 	if (item == NULL)
 		return false;
@@ -1025,6 +1031,9 @@ BMenu::AddItem(BMenu* submenu, BRect frame)
 		debugger("BMenu::AddItem(BMenu*, BRect) this method can only "
 			"be called if the menu layout is B_ITEMS_IN_MATRIX");
 	}
+
+	if (submenu->Superitem() != NULL)
+		return AddItem(submenu->Superitem(), frame);
 
 	BMenuItem* item = new (nothrow) BMenuItem(submenu);
 	if (item == NULL)
