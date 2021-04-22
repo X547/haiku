@@ -15,6 +15,24 @@
 #include <string.h>
 
 
+struct HtifRegs
+{
+	uint32 toHostLo, toHostHi;
+	uint32 fromHostLo, fromHostHi;
+};
+
+HtifRegs *volatile gHtifRegs = (HtifRegs *volatile)0x40008000;
+
+
+uint64_t HtifCmd(uint32_t device, uint8_t cmd, uint32_t arg)
+{
+	uint64_t htifTohost = ((uint64_t)device << 56) + ((uint64_t)cmd << 48) + arg;
+	gHtifRegs->toHostLo = htifTohost % ((uint64_t)1 << 32);
+	gHtifRegs->toHostHi = htifTohost / ((uint64_t)1 << 32);
+	return (uint64_t)gHtifRegs->fromHostLo + ((uint64_t)gHtifRegs->fromHostHi << 32);
+}
+
+
 void
 arch_debug_remove_interrupt_handler(uint32 line)
 {
@@ -59,6 +77,7 @@ arch_debug_serial_getchar(void)
 void
 arch_debug_serial_putchar(const char c)
 {
+	HtifCmd(1, 1, c);
 }
 
 
@@ -75,7 +94,7 @@ arch_debug_serial_puts(const char *s)
 void
 arch_debug_serial_early_boot_message(const char *string)
 {
-	// this function will only be called in fatal situations
+	arch_debug_serial_puts(string); 
 }
 
 

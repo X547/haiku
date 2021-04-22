@@ -36,7 +36,7 @@ arch_vm_translation_map_init(kernel_args *args,
 	for (uint32 i = 0; i < args->num_physical_memory_ranges; i++) {
 		phys_addr_t start = args->physical_memory_range[i].start;
 		phys_addr_t end = start + args->physical_memory_range[i].size;
-		TRACE("  %#10" B_PRIxPHYSADDR " - %#10" B_PRIxPHYSADDR "\n", start,
+		TRACE("  %" B_PRIxPHYSADDR " - %" B_PRIxPHYSADDR "\n", start,
 			end);
 	}
 
@@ -44,7 +44,7 @@ arch_vm_translation_map_init(kernel_args *args,
 	for (uint32 i = 0; i < args->num_physical_allocated_ranges; i++) {
 		phys_addr_t start = args->physical_allocated_range[i].start;
 		phys_addr_t end = start + args->physical_allocated_range[i].size;
-		TRACE("  %#10" B_PRIxPHYSADDR " - %#10" B_PRIxPHYSADDR "\n", start,
+		TRACE("  %" B_PRIxPHYSADDR " - %" B_PRIxPHYSADDR "\n", start,
 			end);
 	}
 
@@ -52,7 +52,7 @@ arch_vm_translation_map_init(kernel_args *args,
 	for (uint32 i = 0; i < args->num_virtual_allocated_ranges; i++) {
 		addr_t start = args->virtual_allocated_range[i].start;
 		addr_t end = start + args->virtual_allocated_range[i].size;
-		TRACE("  %#10" B_PRIxADDR " - %#10" B_PRIxADDR "\n", start, end);
+		TRACE("  %" B_PRIxADDR " - %" B_PRIxADDR "\n", start, end);
 	}
 #endif
 

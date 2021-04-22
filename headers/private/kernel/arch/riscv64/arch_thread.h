@@ -11,8 +11,6 @@
 
 #include <arch/cpu.h>
 
-#warning IMPLEMENT arch_thread.h
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -25,16 +23,16 @@ struct iframe* riscv64_get_user_iframe(void);
 static inline Thread*
 arch_thread_get_current_thread(void)
 {
-#warning IMPLEMENT arch_thread_get_current_thread
-    Thread* t = NULL;
-    return t;
+	Thread* t;
+	asm volatile("mv %0, tp" : "=r" (t));
+	return t;
 }
 
 
 static inline void
 arch_thread_set_current_thread(Thread* t)
 {
-#warning IMPLEMENT arch_thread_set_current_thread
+	asm volatile("mv tp, %0" : : "r" (t));
 }
 
 

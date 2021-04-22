@@ -179,6 +179,9 @@ CPUSet::IsEmpty() const
 #if !DEBUG_SPINLOCKS && !B_DEBUG_SPINLOCK_CONTENTION
 
 
+#include <stdio.h>
+#include <debug.h>
+
 static inline bool
 try_acquire_spinlock_inline(spinlock* lock)
 {
