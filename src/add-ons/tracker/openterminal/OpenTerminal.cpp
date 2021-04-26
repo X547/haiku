@@ -9,6 +9,7 @@
 #include <StorageKit.h>
 #include <SupportKit.h>
 #include <AppKit.h>
+#include <image.h>
 
 #include <vector>
 
@@ -17,27 +18,16 @@
 const char* kTerminalSignature = "application/x-vnd.Haiku-Terminal";
 const directory_which kAppsDirectory = B_SYSTEM_APPS_DIRECTORY;
 
-void
-launch_terminal(BEntry* targetEntry, BPath* terminalPath) {
-
+static void
+launch_terminal(BEntry& targetEntry, BPath& terminalPath) {
 	BPath targetPath;
 
-	if (targetEntry->GetPath(&targetPath) != B_OK)
+	if (targetEntry.GetPath(&targetPath) != B_OK)
 		return;
 
-	// Escape paths which contain an apostraphe
-	BString target(targetPath.Path());
-	target.ReplaceAll("'", "'\\''");
-
-	BString terminal(terminalPath->Path());
-	terminal.ReplaceAll("'", "'\\''");
-
-	// Build the command to "cd '/my/target/folder'; '/path/to/Terminal' &"
-	BString command("cd '");
-	command << target << "'; '" << terminal << "' &";
-
 	// Launch the Terminal.
-	system(command.String());
+	const char *argv[] = {terminalPath.Path(), "-w", targetPath.Path()};
+	resume_thread(load_image(3, argv, (const char**)environ));
 }
 
 
@@ -101,13 +91,13 @@ process_refs(entry_ref base_ref, BMessage* message, void* reserved)
 		// Push entry onto the vector so we can check for duplicates later.
 		entries.push_back(BEntry(entry));
 
-		launch_terminal(&entry, &terminalPath);
+		launch_terminal(entry, terminalPath);
 
 	}
 
 	// If nothing was selected we'll use the base folder.
 	if (i == 0) {
 		if (entry.SetTo(&base_ref) == B_OK)
-			launch_terminal(&entry, &terminalPath);
+			launch_terminal(entry, terminalPath);
 	}
 }
