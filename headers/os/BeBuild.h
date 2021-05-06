@@ -87,6 +87,8 @@
 #endif
 #define _IMPORT
 
+#define ALWAYS_INLINE __attribute__((always_inline)) inline
+
 #define B_DEFINE_SYMBOL_VERSION(function, versionedSymbol)	\
 	__asm__(".symver " function "," versionedSymbol)
 
