@@ -4,7 +4,7 @@
  */
 
 
-#include <unicode/uversion.h>
+// #include <unicode/uversion.h>
 #include <Language.h>
 
 #include <stdlib.h>
@@ -12,22 +12,20 @@
 #include <string.h>
 #include <ctype.h>
 
-#include <iostream>
-
 #include <Catalog.h>
 #include <Locale.h>
 #include <LocaleRoster.h>
 #include <Path.h>
 #include <String.h>
 #include <FindDirectory.h>
-
+/*
 #include <ICUWrapper.h>
 
 #include <unicode/locid.h>
 
 
 U_NAMESPACE_USE
-
+*/
 
 BLanguage::BLanguage()
 	:
@@ -57,21 +55,12 @@ BLanguage::BLanguage(const BLanguage& other)
 
 BLanguage::~BLanguage()
 {
-	delete fICULocale;
 }
 
 
 status_t
 BLanguage::SetTo(const char* language)
 {
-	delete fICULocale;
-	fICULocale = new icu::Locale(language);
-	if (fICULocale == NULL)
-		return B_NO_MEMORY;
-
-	if (fICULocale->isBogus())
-		return B_BAD_VALUE;
-
 	return B_OK;
 }
 
@@ -79,13 +68,7 @@ BLanguage::SetTo(const char* language)
 status_t
 BLanguage::GetNativeName(BString& name) const
 {
-	UnicodeString string;
-	fICULocale->getDisplayName(*fICULocale, string);
-	string.toTitle(NULL, *fICULocale);
-
-	name.Truncate(0);
-	BStringByteSink converter(&name);
-	string.toUTF8(converter);
+	name = "stub";
 
 	return B_OK;
 }
@@ -106,7 +89,7 @@ BLanguage::GetName(BString& name, const BLanguage* displayLanguage) const
 	} else {
 		appLanguage = displayLanguage->Code();
 	}
-
+/*
 	if (status == B_OK) {
 		UnicodeString string;
 		fICULocale->getDisplayName(Locale(appLanguage), string);
@@ -115,7 +98,7 @@ BLanguage::GetName(BString& name, const BLanguage* displayLanguage) const
 		BStringByteSink converter(&name);
 		string.toUTF8(converter);
 	}
-
+*/
 	return status;
 }
 
@@ -145,47 +128,35 @@ BLanguage::GetString(uint32 id) const
 const char*
 BLanguage::Code() const
 {
-	return fICULocale->getLanguage();
+	return "stub";
 }
 
 
 const char*
 BLanguage::CountryCode() const
 {
-	const char* country = fICULocale->getCountry();
-	if (country == NULL || country[0] == '\0')
-		return NULL;
-
-	return country;
+	return "stub";
 }
 
 
 const char*
 BLanguage::ScriptCode() const
 {
-	const char* script = fICULocale->getScript();
-	if (script == NULL || script[0] == '\0')
-		return NULL;
-
-	return script;
+	return "stub";
 }
 
 
 const char*
 BLanguage::Variant() const
 {
-	const char* variant = fICULocale->getVariant();
-	if (variant == NULL || variant[0] == '\0')
-		return NULL;
-
-	return variant;
+	return "stub";
 }
 
 
 const char*
 BLanguage::ID() const
 {
-	return fICULocale->getName();
+	return "stub";
 }
 
 
@@ -214,11 +185,6 @@ BLanguage&
 BLanguage::operator=(const BLanguage& source)
 {
 	if (&source != this) {
-		delete fICULocale;
-
-		fICULocale = source.fICULocale != NULL
-			? source.fICULocale->clone()
-			: NULL;
 		fDirection = source.fDirection;
 	}
 

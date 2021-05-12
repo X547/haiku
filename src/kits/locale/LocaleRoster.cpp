@@ -8,7 +8,7 @@
  */
 
 
-#include <unicode/uversion.h>
+// #include <unicode/uversion.h>
 #include <LocaleRoster.h>
 
 #include <assert.h>
@@ -32,18 +32,18 @@
 #include <String.h>
 #include <TimeZone.h>
 
-#include <ICUWrapper.h>
+// #include <ICUWrapper.h>
 #include <locks.h>
-
+/*
 // ICU includes
 #include <unicode/locdspnm.h>
 #include <unicode/locid.h>
 #include <unicode/timezone.h>
-
+*/
 
 using BPrivate::CatalogAddOnInfo;
 using BPrivate::MutableLocaleRoster;
-U_NAMESPACE_USE
+// U_NAMESPACE_USE
 
 
 /*
@@ -218,13 +218,13 @@ BLocaleRoster::GetAvailableLanguages(BMessage* languages) const
 {
 	if (!languages)
 		return B_BAD_VALUE;
-
+/*
 	int32_t localeCount;
 	const Locale* icuLocaleList = Locale::getAvailableLocales(localeCount);
 
 	for (int i = 0; i < localeCount; i++)
 		languages->AddString("language", icuLocaleList[i].getName());
-
+*/
 	return B_OK;
 }
 
@@ -234,13 +234,13 @@ BLocaleRoster::GetAvailableCountries(BMessage* countries) const
 {
 	if (!countries)
 		return B_BAD_VALUE;
-
+/*
 	int32 i;
 	const char* const* countryList = uloc_getISOCountries();
 
 	for (i = 0; countryList[i] != NULL; i++)
 		countries->AddString("country", countryList[i]);
-
+*/
 	return B_OK;
 }
 
@@ -252,7 +252,7 @@ BLocaleRoster::GetAvailableTimeZones(BMessage* timeZones) const
 		return B_BAD_VALUE;
 
 	status_t status = B_OK;
-
+/*
 	StringEnumeration* zoneList = TimeZone::createEnumeration();
 
 	UErrorCode icuStatus = U_ZERO_ERROR;
@@ -270,7 +270,7 @@ BLocaleRoster::GetAvailableTimeZones(BMessage* timeZones) const
 		status = B_ERROR;
 
 	delete zoneList;
-
+*/
 	return status;
 }
 
@@ -282,7 +282,7 @@ BLocaleRoster::GetAvailableTimeZonesWithRegionInfo(BMessage* timeZones) const
 		return B_BAD_VALUE;
 
 	status_t status = B_OK;
-
+/*
 	UErrorCode icuStatus = U_ZERO_ERROR;
 
 	StringEnumeration* zoneList = TimeZone::createTimeZoneIDEnumeration(
@@ -311,7 +311,7 @@ BLocaleRoster::GetAvailableTimeZonesWithRegionInfo(BMessage* timeZones) const
 		status = B_ERROR;
 
 	delete zoneList;
-
+*/
 	return status;
 }
 
@@ -324,7 +324,7 @@ BLocaleRoster::GetAvailableTimeZonesForCountry(BMessage* timeZones,
 		return B_BAD_VALUE;
 
 	status_t status = B_OK;
-
+/*
 	StringEnumeration* zoneList = TimeZone::createEnumeration(countryCode);
 		// countryCode == NULL will yield all timezones not bound to a country
 
@@ -343,7 +343,7 @@ BLocaleRoster::GetAvailableTimeZonesForCountry(BMessage* timeZones,
 		status = B_ERROR;
 
 	delete zoneList;
-
+*/
 	return status;
 }
 

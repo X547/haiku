@@ -10,10 +10,10 @@
 
 
 #include <UnicodeChar.h>
-
+/*
 #include <unicode/uchar.h>
 #include <unicode/utf8.h>
-
+*/
 
 BUnicodeChar::BUnicodeChar()
 {
@@ -24,7 +24,7 @@ BUnicodeChar::BUnicodeChar()
 int8
 BUnicodeChar::Type(uint32 c)
 {
-	return u_charType(c);
+	return B_UNICODE_UNASSIGNED;
 }
 
 
@@ -33,7 +33,7 @@ BUnicodeChar::Type(uint32 c)
 bool
 BUnicodeChar::IsAlpha(uint32 c)
 {
-	return u_isalpha(c);
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
 }
 
 
@@ -44,7 +44,7 @@ BUnicodeChar::IsAlpha(uint32 c)
 bool
 BUnicodeChar::IsAlNum(uint32 c)
 {
-	return u_isalnum(c);
+	return IsAlpha(c) || IsDigit(c);
 }
 
 
@@ -52,7 +52,7 @@ BUnicodeChar::IsAlNum(uint32 c)
 bool
 BUnicodeChar::IsLower(uint32 c)
 {
-	return u_isULowercase(c);
+	return (c >= 'a' && c <= 'z');
 }
 
 
@@ -60,7 +60,7 @@ BUnicodeChar::IsLower(uint32 c)
 bool
 BUnicodeChar::IsUpper(uint32 c)
 {
-	return u_isUUppercase(c);
+	return (c >= 'A' && c <= 'Z');
 }
 
 
@@ -69,7 +69,7 @@ BUnicodeChar::IsUpper(uint32 c)
 bool
 BUnicodeChar::IsTitle(uint32 c)
 {
-	return u_istitle(c);
+	return true;
 }
 
 
@@ -80,7 +80,7 @@ BUnicodeChar::IsTitle(uint32 c)
 bool
 BUnicodeChar::IsDigit(uint32 c)
 {
-	return u_isdigit(c);
+	return (c >= '0' && c <= '9');
 }
 
 
@@ -93,7 +93,7 @@ BUnicodeChar::IsDigit(uint32 c)
 bool
 BUnicodeChar::IsHexDigit(uint32 c)
 {
-	return u_isxdigit(c);
+	return BUnicodeChar::IsDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 }
 
 
@@ -104,7 +104,7 @@ BUnicodeChar::IsHexDigit(uint32 c)
 bool
 BUnicodeChar::IsDefined(uint32 c)
 {
-	return u_isdefined(c);
+	return true;
 }
 
 
@@ -114,7 +114,7 @@ BUnicodeChar::IsDefined(uint32 c)
 bool
 BUnicodeChar::IsBase(uint32 c)
 {
-	return u_isbase(c);
+	return true;
 }
 
 
@@ -129,7 +129,7 @@ BUnicodeChar::IsBase(uint32 c)
 bool
 BUnicodeChar::IsControl(uint32 c)
 {
-	return u_iscntrl(c);
+	return c < 32;
 }
 
 
@@ -138,7 +138,7 @@ BUnicodeChar::IsControl(uint32 c)
 bool
 BUnicodeChar::IsPunctuation(uint32 c)
 {
-	return u_ispunct(c);
+	return c == '.' || c == ',' || c == '?' || c == '!' || c == ';' || c == ':';
 }
 
 
@@ -148,7 +148,7 @@ BUnicodeChar::IsPunctuation(uint32 c)
 bool
 BUnicodeChar::IsSpace(uint32 c)
 {
-	return u_isJavaSpaceChar(c);
+	return c == ' ';
 }
 
 
@@ -170,7 +170,7 @@ BUnicodeChar::IsSpace(uint32 c)
 bool
 BUnicodeChar::IsWhitespace(uint32 c)
 {
-	return u_isWhitespace(c);
+	return IsSpace(c);
 }
 
 
@@ -179,7 +179,7 @@ BUnicodeChar::IsWhitespace(uint32 c)
 bool
 BUnicodeChar::IsPrintable(uint32 c)
 {
-	return u_isprint(c);
+	return !IsControl(c);
 }
 
 
@@ -188,57 +188,51 @@ BUnicodeChar::IsPrintable(uint32 c)
 uint32
 BUnicodeChar::ToLower(uint32 c)
 {
-	return u_tolower(c);
+	if (!IsUpper(c)) return c;
+	return c - 'A' + 'a';
 }
 
 
 uint32
 BUnicodeChar::ToUpper(uint32 c)
 {
-	return u_toupper(c);
+	if (!IsLower(c)) return c;
+	return c - 'a' + 'A';
 }
 
 
 uint32
 BUnicodeChar::ToTitle(uint32 c)
 {
-	return u_totitle(c);
+	return c;
 }
 
 
 int32
 BUnicodeChar::DigitValue(uint32 c)
 {
-	return u_digit(c, 10);
+	return c - '0';
 }
 
 
 unicode_east_asian_width
 BUnicodeChar::EastAsianWidth(uint32 c)
 {
-	return (unicode_east_asian_width)u_getIntPropertyValue(c,
-			UCHAR_EAST_ASIAN_WIDTH);
+	return B_UNICODE_EA_HALFWIDTH;
 }
 
 
 void
 BUnicodeChar::ToUTF8(uint32 c, char** out)
 {
-	int i = 0;
-	U8_APPEND_UNSAFE(*out, i, c);
-	*out += i;
+	**out++ = (char)(c & 0x7f);
 }
 
 
 uint32
 BUnicodeChar::FromUTF8(const char** in)
 {
-	int i = 0;
-	uint32 c = 0;
-	U8_NEXT_UNSAFE(*in, i, c);
-	*in += i;
-
-	return c;
+	return **in++;
 }
 
 
