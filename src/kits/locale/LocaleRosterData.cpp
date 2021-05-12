@@ -8,7 +8,7 @@
  */
 
 
-// #include <unicode/uversion.h>
+#include <unicode/uversion.h>
 #include <LocaleRosterData.h>
 
 #include <Autolock.h>
@@ -30,13 +30,13 @@
 #include <String.h>
 #include <StringList.h>
 #include <TimeZone.h>
-/*
+
 // ICU includes
 #include <unicode/locid.h>
 #include <unicode/timezone.h>
-*/
 
-// U_NAMESPACE_USE
+
+U_NAMESPACE_USE
 
 
 namespace BPrivate {
@@ -574,7 +574,7 @@ LocaleRosterData::_SetDefaultFormattingConventions(
 	const BFormattingConventions& newFormattingConventions)
 {
 	fDefaultLocale.SetFormattingConventions(newFormattingConventions);
-/*
+
 	UErrorCode icuError = U_ZERO_ERROR;
 	Locale icuLocale = Locale::createCanonical(newFormattingConventions.ID());
 	if (icuLocale.isBogus())
@@ -583,7 +583,7 @@ LocaleRosterData::_SetDefaultFormattingConventions(
 	Locale::setDefault(icuLocale, icuError);
 	if (!U_SUCCESS(icuError))
 		return B_ERROR;
-*/
+
 	return B_OK;
 }
 
@@ -592,12 +592,12 @@ status_t
 LocaleRosterData::_SetDefaultTimeZone(const BTimeZone& newZone)
 {
 	fDefaultTimeZone = newZone;
-/*
+
 	TimeZone* timeZone = TimeZone::createTimeZone(newZone.ID().String());
 	if (timeZone == NULL)
 		return B_ERROR;
 	TimeZone::adoptDefault(timeZone);
-*/
+
 	return B_OK;
 }
 

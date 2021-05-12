@@ -6,11 +6,11 @@ UsePrivateHeaders locale shared ;
 UsePublicHeaders locale storage ;
 
 local sources =
-	# cat.cpp
+	cat.cpp
 	Catalog.cpp
 	CatalogData.cpp
 	Collator.cpp
-	# Country.cpp
+	Country.cpp
 	DefaultCatalog.cpp
 	EditableCatalog.cpp
 	FormattingConventions.cpp
@@ -21,20 +21,20 @@ local sources =
 	LocaleRoster.cpp
 	LocaleRosterData.cpp
 	MutableLocaleRoster.cpp
-	# TextEncoding.cpp
+	TextEncoding.cpp
 	TimeZone.cpp
 
 	# in progress
 	DateFormat.cpp
 	DateTimeFormat.cpp
 	DurationFormat.cpp
-	# NumberFormat.cpp
+	NumberFormat.cpp
 	StringFormat.cpp
 	TimeFormat.cpp
 	TimeUnitFormat.cpp
 	Format.cpp # Used by some of the above.
 	UnicodeChar.cpp # Already used in FirstBootPrompt.
-	# RelativeDateTimeFormat.cpp
+	RelativeDateTimeFormat.cpp
 	;
 
 local architectureObject ;
@@ -42,7 +42,7 @@ for architectureObject in [ MultiArchSubDirSetup ] {
 	on $(architectureObject) {
 		local architecture = $(TARGET_PACKAGING_ARCH) ;
 
-		# UseBuildFeatureHeaders icu ;
+		UseBuildFeatureHeaders icu ;
 
 		Includes [ FGristFiles $(sources) ]
 			: [ BuildFeatureAttribute icu : headers ] ;

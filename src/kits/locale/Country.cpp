@@ -20,6 +20,7 @@
 #include <unicode/ulocdata.h>
 #include <ICUWrapper.h>
 
+#include <iostream>
 #include <map>
 #include <monetary.h>
 #include <new>
