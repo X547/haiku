@@ -85,6 +85,7 @@ private:
 struct MenuTrackState {
 	thread_id trackThread;
 	BLocker locker;
+	bool quit;
 	BMenu* rootMenu;
 	BMenu* curMenu;
 	BMenu* cursorMenu; // menu that holding pointer event mask

@@ -54,7 +54,7 @@
 
 #define USE_CACHED_MENUWINDOW 1
 
-#define SHOW_NAVIGATION_AREA 1
+#define SHOW_NAVIGATION_AREA 0
 
 using BPrivate::gSystemCatalog;
 
@@ -68,8 +68,6 @@ using BPrivate::gSystemCatalog;
 
 using std::nothrow;
 using BPrivate::BMenuWindow;
-
-typedef AutoLocker<BHandler, AutoLockerHandlerLocking<BHandler> > HandlerLocker;
 
 namespace BPrivate {
 
@@ -240,7 +238,6 @@ BMenu::BMenu(const char* name, menu_layout layout)
 	fAscent(-1.0f),
 	fDescent(-1.0f),
 	fFontHeight(-1.0f),
-	fQuitTracking(false),
 	fLayout(layout),
 	fExtraRect(NULL),
 	fMaxContentWidth(0.0f),
@@ -278,7 +275,6 @@ BMenu::BMenu(const char* name, float width, float height)
 	fAscent(-1.0f),
 	fDescent(-1.0f),
 	fFontHeight(-1.0f),
-	fQuitTracking(false),
 	fLayout(B_ITEMS_IN_MATRIX),
 	fExtraRect(NULL),
 	fMaxContentWidth(0.0f),
@@ -313,7 +309,6 @@ BMenu::BMenu(BMessage* archive)
 	fAscent(-1.0f),
 	fDescent(-1.0f),
 	fFontHeight(-1.0f),
-	fQuitTracking(false),
 	fLayout(B_ITEMS_IN_ROW),
 	fExtraRect(NULL),
 	fMaxContentWidth(0.0f),
@@ -452,8 +447,11 @@ BMenu::Draw(BRect updateRect)
 	#if SHOW_NAVIGATION_AREA
 	if (fTrackState != NULL) {
 		BRect above, below;
-		above = ConvertFromScreen(fTrackState->navAreaRectAbove);
-		below = ConvertFromScreen(fTrackState->navAreaRectBelow);
+		{
+			AutoLocker<BLocker> locker(fTrackState->locker);
+			above = ConvertFromScreen(fTrackState->navAreaRectAbove);
+			below = ConvertFromScreen(fTrackState->navAreaRectBelow);
+		}
 		bool isLeft = above.left == 0;
 		PushState();
 		SetDrawingMode(B_OP_ALPHA);
@@ -581,14 +579,8 @@ BMenu::MessageReceived(BMessage* message)
 						fTrackState->cursorInside = true;
 						break;
 					case B_EXITED_VIEW:
-						if (fTrackState->cursorMenu == this) {
-							fTrackState->navAreaRectAbove = BRect();
-							fTrackState->navAreaRectBelow = BRect();
-#if SHOW_NAVIGATION_AREA
-							Invalidate();
-#endif
+						if (fTrackState->cursorMenu == this)
 							fTrackState->cursorInside = false;
-						}
 
 						if ((fSelected != NULL) && (fSelected->Submenu() == NULL))
 							_SelectItem(NULL);
@@ -625,9 +617,8 @@ BMenu::MessageReceived(BMessage* message)
 						if (!_HitNavigationArea(where, item)) {
 							fTrackState->navigationAreaTimer.Unset();
 							_SelectItem(item, true);
-							_UpdateNavigationArea(where);
 						} else {
-							if (!fTrackState->navigationAreaTimer.IsSet())
+							if (fTrackState->navigationAreaTimer.IsSet())
 								fTrackState->navigationAreaTimer.SetTo(new(std::nothrow) BMessageRunner(BMessenger(this), BMessage(navigationAreaTimeoutMsg), kNavigationAreaTimeout, 1));
 						}
 					}
@@ -645,9 +636,8 @@ BMenu::MessageReceived(BMessage* message)
 			BView::MessageReceived(message);
 			break;
 		}
-
+		
 		case navigationAreaTimeoutMsg: {
-			printf("navigationAreaTimeoutMsg\n");
 			if (fTrackState->navigationAreaTimer.IsSet()) {
 				fTrackState->navigationAreaTimer.Unset();
 				BPoint where;
@@ -659,8 +649,6 @@ BMenu::MessageReceived(BMessage* message)
 						_SelectItem(NULL);
 				} else
 					_SelectItem(item, true);
-
-				_UpdateNavigationArea(where);
 
 				{
 					AutoLocker<BLocker> locker(fTrackState->locker);
@@ -1483,7 +1471,6 @@ BMenu::BMenu(BRect frame, const char* name, uint32 resizingMode, uint32 flags,
 	fAscent(-1.0f),
 	fDescent(-1.0f),
 	fFontHeight(-1.0f),
-	fQuitTracking(false),
 	fLayout(layout),
 	fExtraRect(NULL),
 	fMaxContentWidth(0.0f),
@@ -1720,8 +1707,7 @@ BMenu::_Show(bool selectFirstItem)
 	if (window == NULL)
 		return false;
 
-	AutoLocker<BWindow> lock(window);
-	if (lock.IsLocked()) {
+	if (window->Lock()) {
 		fAttachAborted = false;
 
 		window->AttachMenu(this);
@@ -1741,6 +1727,8 @@ BMenu::_Show(bool selectFirstItem)
 			// window.
 			if (ourWindow)
 				window->Quit();
+			else
+				window->Unlock();
 			return false;
 		}
 
@@ -1754,6 +1742,8 @@ BMenu::_Show(bool selectFirstItem)
 
 		if (selectFirstItem)
 			_SelectItem(ItemAt(0), false);
+
+		window->Unlock();
 	}
 
 	return true;
@@ -1770,18 +1760,21 @@ BMenu::_Hide()
 	if (fSelected != NULL)
 		_SelectItem(NULL);
 
+	BMenu *rootMenu = NULL;
 	if (fTrackState != NULL) {
 		AutoLocker<BLocker> locker(fTrackState->locker);
 		if (fTrackState->cursorMenu == this) {
 			SetEventMask(0, 0);
-			fTrackState->cursorMenu = fTrackState->rootMenu;
+			rootMenu = fTrackState->rootMenu;
+			fTrackState->cursorMenu = rootMenu;
 		}
-		HandlerLocker rootLocker(fTrackState->rootMenu);
-		if (rootLocker.IsLocked())
-			fTrackState->rootMenu->SetEventMask(B_POINTER_EVENTS, 0);
-		fQuitTracking = false;
-		fTrackState = NULL;
 	}
+	if (rootMenu != NULL && rootMenu->LockLooper()) {
+		rootMenu->SetEventMask(B_POINTER_EVENTS, 0);
+		rootMenu->UnlockLooper();
+	}
+
+	fTrackState = NULL;
 
 	window->Hide();
 	window->DetachMenu();
@@ -2138,39 +2131,38 @@ status_t BMenu::_InsertItemAtSpecifier(const BMessage& specifier, int32 what,
 BMenuItem*
 BMenu::_Track(int32* action, int32 start)
 {
-	bool oldTriggerEnabled;
-	{
-		HandlerLocker locker(this);
-		if (!locker.IsLocked()) {
-			printf("Track: menu is not attached to window.\n");
-			return NULL;
-		}
-		if (fTrackState != NULL) {
-			printf("Track: already entered\n");
-			return NULL;
-		}
-		printf("+Track\n");
-		printf("sticky: %d\n", fStickyMode);
-		if (fExtraRect != NULL) {
-			printf("extraRect: "); fExtraRect->PrintToStream();
-		}
-		if (sMenuInfo.click_to_open)
-			_SetStickyMode(true);
-		BPrivate::MenuTrackState trackState;
-		BMenuItem* startItem = ItemAt(start);
-		oldTriggerEnabled = fTriggerEnabled;
-	
-		fTrackState = &trackState;
-		fTrackState->trackThread = find_thread(NULL);
-		fTrackState->rootMenu = this;
-		fTrackState->curMenu = this;
-		fTrackState->cursorMenu = this;
-		fTrackState->invokedItem = NULL;
-		fTrackState->cursorInside = false;
-		fTrackState->cursorObscured = false;
-		fTrackState->navAreaRectAbove = BRect();
-		fTrackState->navAreaRectBelow = BRect();
-		
+	if (fTrackState != NULL) {
+		printf("Track: already entered\n");
+		return NULL;
+	}
+	printf("+Track\n");
+	printf("sticky: %d\n", fStickyMode);
+	if (fExtraRect != NULL) {
+		printf("extraRect: "); fExtraRect->PrintToStream();
+	}
+	if (sMenuInfo.click_to_open)
+		_SetStickyMode(true);
+	BPrivate::MenuTrackState trackState;
+	BMenuItem* item = NULL;
+	BMenuItem* startItem = ItemAt(start);
+	bool oldTriggerEnabled = fTriggerEnabled;
+	thread_id senderThread;
+	bool run = true;
+
+	fTrackState = &trackState;
+	fTrackState->trackThread = find_thread(NULL);
+	fTrackState->quit = false;
+	fTrackState->rootMenu = this;
+	fTrackState->curMenu = this;
+	fTrackState->cursorMenu = this;
+	fTrackState->invokedItem = NULL;
+	fTrackState->cursorInside = false;
+	fTrackState->cursorObscured = false;
+	fTrackState->navAreaRectAbove = BRect();
+	fTrackState->navAreaRectBelow = BRect();
+	//fTrackState->navigationAreaTimer = NULL;
+
+	if (LockLooper()) {
 		SetEventMask(B_POINTER_EVENTS, 0);
 		BPoint where;
 		uint32 btns;
@@ -2187,26 +2179,20 @@ BMenu::_Track(int32* action, int32 start)
 			Invalidate();
 		}
 		_SelectItem(startItem, true, false);
+		UnlockLooper();
 	}
-	while (!fQuitTracking) {
-		thread_id senderThread;
+	while (run) {
 		int32 cmd = receive_data(&senderThread, NULL, 0);
 		switch (cmd) {
 			case MENU_TRACK_CMD_DONE:
-				printf("MENU_TRACK_CMD_DONE, fQuitTracking = %d\n", (int)fQuitTracking);
+				run = false;
 				break;
 		}
 	}
 
-	BMenuItem* item = fTrackState->invokedItem;
+	item = fTrackState->invokedItem;
 
-	{
-		HandlerLocker locker(this);
-		if (!locker.IsLocked()) {
-			debugger("Track: can't lock manu after quit tracking.");
-			return NULL;
-		}
-
+	if (LockLooper()) {
 		// hide submenus
 		_SelectItem(NULL);
 		SetEventMask(0, 0);
@@ -2214,8 +2200,14 @@ BMenu::_Track(int32* action, int32 start)
 			fTriggerEnabled = oldTriggerEnabled;
 			Invalidate();
 		}
-		fQuitTracking = false;
+/*
+		if (fTrackState->navigationAreaTimer != NULL) {
+			delete fTrackState->navigationAreaTimer;
+			fTrackState->navigationAreaTimer = NULL;
+		}
+*/
 		fTrackState = NULL;
+		UnlockLooper();
 	}
 
 	// delete the menu window recycled for all the child menus
@@ -2227,7 +2219,8 @@ BMenu::_Track(int32* action, int32 start)
 
 
 void
-BMenu::_UpdateNavigationArea(BPoint position)
+BMenu::_UpdateNavigationArea(BPoint position, BRect& navAreaRectAbove,
+	BRect& navAreaRectBelow)
 {
 #define NAV_AREA_THRESHOLD    8
 
@@ -2266,18 +2259,9 @@ BMenu::_UpdateNavigationArea(BPoint position)
 	if (fSelected == NULL)
 		return;
 
-	position = ConvertToScreen(position);
+	BView* submenu = fSelected->Submenu()->Parent();
 
-	BRect navAreaRectAbove, navAreaRectBelow;
-	{
-		//AutoLocker<BLocker> locker(fTrackState->locker);
-		navAreaRectAbove = fTrackState->navAreaRectAbove;
-		navAreaRectBelow = fTrackState->navAreaRectBelow;
-	}
-
-	if (fSelected->Submenu() != NULL) {
-		BView* submenu = fSelected->Submenu()->Parent();
-
+	if (submenu != NULL) {
 		BRect menuBounds = ConvertToScreen(Bounds());
 
 		BRect submenuBounds;
@@ -2306,15 +2290,9 @@ BMenu::_UpdateNavigationArea(BPoint position)
 		navAreaRectBelow = BRect();
 	}
 
-	{
-		//AutoLocker<BLocker> locker(fTrackState->locker);
-		fTrackState->navAreaRectAbove = navAreaRectAbove;
-		fTrackState->navAreaRectBelow = navAreaRectBelow;
-	}
-
-#if SHOW_NAVIGATION_AREA
+	#if SHOW_NAVIGATION_AREA
 	Invalidate();
-#endif
+	#endif
 }
 
 
@@ -2332,6 +2310,16 @@ BMenu::_HitNavigationArea(BPoint position, BMenuItem* item)
 	}
 
 	position = ConvertToScreen(position);
+	printf("position: "); position.PrintToStream();
+
+	if (!navAreaRectAbove.IsValid() && !navAreaRectBelow.IsValid() && fSelected != NULL && fSelected->Submenu() != NULL) {
+		printf("_UpdateNavigationArea\n");
+		_UpdateNavigationArea(position, navAreaRectAbove,
+			navAreaRectBelow);
+	}
+	
+	printf("navAreaRectAbove: "); navAreaRectAbove.PrintToStream();
+	printf("navAreaRectBelow: "); navAreaRectBelow.PrintToStream();
 
 	bool inNavArea = false;
 	bool inNavAreaRectAbove = navAreaRectAbove.Contains(position);
@@ -2362,12 +2350,107 @@ BMenu::_HitNavigationArea(BPoint position, BMenuItem* item)
 			  (p1.y - p2.y) * position.x + (p2.x - p1.x) * position.y
 			+ (p1.x - p2.x) * p1.y + (p2.y - p1.y) * p1.x >= 0;
 	}
-
+	
 	printf("inNavArea: %d\n", inNavArea);
+
+	if (!inNavArea && !(item != NULL && item->Frame().Contains(ConvertFromScreen(position)))) {
+		printf("reset nav area\n");
+		navAreaRectAbove = BRect();
+		navAreaRectBelow = BRect();
+	}
+
+	{
+		AutoLocker<BLocker> locker(fTrackState->locker);
+		navAreaRectAbove = fTrackState->navAreaRectAbove = navAreaRectAbove;
+		navAreaRectBelow = fTrackState->navAreaRectBelow = navAreaRectBelow;
+	}
 
 	return inNavArea;
 }
 
+
+void
+BMenu::_UpdateStateOpenSelect(BMenuItem* item, BPoint position,
+	BRect& navAreaRectAbove, BRect& navAreaRectBelow, bool isTimeout)
+{
+	if (fLayout != B_ITEMS_IN_COLUMN) {
+		_SelectItem(item, true);
+		return;
+	}
+	if (item != fSelected) {
+		position = ConvertToScreen(position);
+
+		bool inNavAreaRectAbove = navAreaRectAbove.Contains(position);
+		bool inNavAreaRectBelow = navAreaRectBelow.Contains(position);
+
+		if (fSelected == NULL
+			|| (!inNavAreaRectAbove && !inNavAreaRectBelow)) {
+			_SelectItem(item, true);
+			navAreaRectAbove = BRect();
+			navAreaRectBelow = BRect();
+			{
+				AutoLocker<BLocker> locker(fTrackState->locker);
+				fTrackState->navigationAreaTimer.Unset();
+			}
+			return;
+		}
+
+		bool isLeft = ConvertFromScreen(navAreaRectAbove).left == 0;
+		BPoint p1, p2;
+
+		if (inNavAreaRectAbove) {
+			if (!isLeft) {
+				p1 = navAreaRectAbove.LeftBottom();
+				p2 = navAreaRectAbove.RightTop();
+			} else {
+				p2 = navAreaRectAbove.RightBottom();
+				p1 = navAreaRectAbove.LeftTop();
+			}
+		} else {
+			if (!isLeft) {
+				p2 = navAreaRectBelow.LeftTop();
+				p1 = navAreaRectBelow.RightBottom();
+			} else {
+				p1 = navAreaRectBelow.RightTop();
+				p2 = navAreaRectBelow.LeftBottom();
+			}
+		}
+		bool inNavArea =
+			  (p1.y - p2.y) * position.x + (p2.x - p1.x) * position.y
+			+ (p1.x - p2.x) * p1.y + (p2.y - p1.y) * p1.x >= 0;
+
+		if (!inNavArea || isTimeout) {
+			_SelectItem(item, true);
+
+			if (inNavArea) {
+				_UpdateNavigationArea(position, navAreaRectAbove,
+					navAreaRectBelow);
+			} else {
+				navAreaRectAbove = BRect();
+				navAreaRectBelow = BRect();
+			}
+
+			{
+				AutoLocker<BLocker> locker(fTrackState->locker);
+				fTrackState->navigationAreaTimer.Unset();
+			}
+		}
+	} else if (fSelected->Submenu() != NULL) {
+		{
+			AutoLocker<BLocker> locker(fTrackState->locker);
+			BMessage message(navigationAreaTimeoutMsg);
+			fTrackState->navigationAreaTimer.SetTo(new(std::nothrow) BMessageRunner(BMessenger(this), BMessage(navigationAreaTimeoutMsg), kNavigationAreaTimeout, 1));
+		}
+		
+		_SelectItem(fSelected, true);
+
+		if (!navAreaRectAbove.IsValid() && !navAreaRectBelow.IsValid()) {
+			position = ConvertToScreen(position);
+			_UpdateNavigationArea(position, navAreaRectAbove,
+				navAreaRectBelow);
+		}
+	}
+}
 
 
 bool
@@ -3390,13 +3473,10 @@ BMenu::_CallTrackingHook()
 void
 BMenu::_QuitTracking(bool onlyThis)
 {
-	HandlerLocker locker(this);
-	if (fTrackState == NULL) {
-		fQuitTracking = true;
+	if (fTrackState == NULL)
 		return;
-	}
 
-	HandlerLocker rootLocker(fTrackState->rootMenu);
+	AutoLocker<BLocker> locker(fTrackState->locker);
 
 	if (onlyThis && Supermenu() != NULL) {
 		_SelectItem(NULL);
@@ -3404,9 +3484,8 @@ BMenu::_QuitTracking(bool onlyThis)
 		return;
 	}
 
-	if (!fTrackState->rootMenu->fQuitTracking) {
-		printf("fQuitTracking = true\n");
-		fTrackState->rootMenu->fQuitTracking = true;
+	if (!fTrackState->quit) {
+		fTrackState->quit = true;
 		send_data(fTrackState->trackThread, MENU_TRACK_CMD_DONE, NULL, 0);
 	}
 }
