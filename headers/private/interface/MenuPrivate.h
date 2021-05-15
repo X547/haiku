@@ -11,18 +11,14 @@
 
 
 #include <Menu.h>
-#include <MessageRunner.h>
-#include <Locker.h>
-
-#include <AutoDeleter.h>
 
 
-enum menu_track_command {
-	MENU_TRACK_CMD_DONE
-};
-
-enum {
-	navigationAreaTimeoutMsg = 'nvat',
+enum menu_states {
+	MENU_STATE_TRACKING = 0,
+	MENU_STATE_TRACKING_SUBMENU = 1,
+	MENU_STATE_KEY_TO_SUBMENU = 2,
+	MENU_STATE_KEY_LEAVE_SUBMENU = 3,
+	MENU_STATE_CLOSED = 5
 };
 
 
@@ -52,7 +48,7 @@ public:
 									const;
 			void				SetItemMargins(float, float, float, float);
 
-			bool				IsTracking() const;
+			int					State(BMenuItem** item = NULL) const;
 
 			void				Install(BWindow* window);
 			void				Uninstall();
@@ -80,23 +76,6 @@ private:
 	static	BBitmap*			sMenuItemAlt;
 	static	BBitmap*			sMenuItemMenu;
 
-};
-
-struct MenuTrackState {
-	thread_id trackThread;
-	BLocker locker;
-	bool quit;
-	BMenu* rootMenu;
-	BMenu* curMenu;
-	BMenu* cursorMenu; // menu that holding pointer event mask
-	BMenuItem* invokedItem;
-	bool cursorInside, cursorObscured;
-	BPoint clickPoint, enterPoint;
-	BRect navAreaRectAbove;
-	BRect navAreaRectBelow;
-	bigtime_t selectedTime;
-	bigtime_t navigationAreaTime;
-	ObjectDeleter<BMessageRunner> navigationAreaTimer;
 };
 
 };	// namespace BPrivate

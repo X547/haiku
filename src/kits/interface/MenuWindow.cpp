@@ -15,7 +15,6 @@
 #include <Debug.h>
 #include <Menu.h>
 #include <MenuItem.h>
-#include <MessageRunner.h>
 
 #include <MenuPrivate.h>
 #include <WindowPrivate.h>
@@ -26,24 +25,12 @@ namespace BPrivate {
 class BMenuScroller : public BView {
 public:
 							BMenuScroller(BRect frame);
-							~BMenuScroller();
 
 			bool			IsEnabled() const;
 			void			SetEnabled(bool enabled);
 
-			void			MouseMoved(BPoint where, uint32 transit,
-								const BMessage* dragMessage);
-			void			MessageReceived(BMessage* msg);
-
-protected:
-	virtual	void			DoScroll() = 0;
-
 private:
-			void			_StartScrolling(bool doStart);
-
 			bool			fEnabled;
-			bool			fMouseInside;
-			BMessageRunner*	fScrollRunner;
 };
 
 
@@ -66,8 +53,7 @@ class UpperScroller : public BMenuScroller {
 public:
 							UpperScroller(BRect frame);
 
-			void			DoScroll();
-			void			Draw(BRect updateRect);
+	virtual	void			Draw(BRect updateRect);
 };
 
 
@@ -75,8 +61,7 @@ class LowerScroller : public BMenuScroller {
 public:
 							LowerScroller(BRect frame);
 
-			void			DoScroll();
-			void			Draw(BRect updateRect);
+	virtual	void			Draw(BRect updateRect);
 };
 
 
@@ -88,26 +73,14 @@ using namespace BPrivate;
 
 const int kScrollerHeight = 12;
 
-enum {
-	scrollMsg = 'scrl'
-};
-
 
 BMenuScroller::BMenuScroller(BRect frame)
 	:
 	BView(frame, "menu scroller", 0, B_WILL_DRAW | B_FRAME_EVENTS
 		| B_FULL_UPDATE_ON_RESIZE),
-	fEnabled(false),
-	fMouseInside(false),
-	fScrollRunner(NULL)
+	fEnabled(false)
 {
 	SetViewUIColor(B_MENU_BACKGROUND_COLOR);
-}
-
-
-BMenuScroller::~BMenuScroller()
-{
-	_StartScrolling(false);
 }
 
 
@@ -122,51 +95,6 @@ void
 BMenuScroller::SetEnabled(bool enabled)
 {
 	fEnabled = enabled;
-	_StartScrolling(fEnabled && fMouseInside);
-}
-
-
-void
-BMenuScroller::MouseMoved(BPoint where, uint32 transit,
-	const BMessage* dragMessage)
-{
-	switch (transit) {
-		case B_ENTERED_VIEW:
-			fMouseInside = true;
-			if (fEnabled) _StartScrolling(true);
-			break;
-		case B_EXITED_VIEW:
-			fMouseInside = false;
-			if (fEnabled) _StartScrolling(false);
-			break;
-	}
-}
-
-
-void
-BMenuScroller::MessageReceived(BMessage* msg)
-{
-	switch (msg->what) {
-		case scrollMsg:
-			DoScroll();
-			break;
-		default:
-			BView::MessageReceived(msg);
-	}
-}
-
-
-void
-BMenuScroller::_StartScrolling(bool doStart)
-{
-	if (doStart) {
-		if (fScrollRunner == NULL)
-			fScrollRunner = new (std::nothrow) BMessageRunner(BMessenger(this), new BMessage(scrollMsg), 5000, -1);
-	} else {
-		if (fScrollRunner != NULL) {
-			delete fScrollRunner; fScrollRunner = NULL;
-		}
-	}
 }
 
 
@@ -177,16 +105,6 @@ UpperScroller::UpperScroller(BRect frame)
 	:
 	BMenuScroller(frame)
 {
-}
-
-
-void
-UpperScroller::DoScroll()
-{
-	BMenuWindow* window = dynamic_cast<BMenuWindow*>(Window());
-	float smallStep;
-	window->GetSteps(&smallStep, NULL);
-	window->TryScrollBy(-smallStep);
 }
 
 
@@ -219,16 +137,6 @@ LowerScroller::LowerScroller(BRect frame)
 	:
 	BMenuScroller(frame)
 {
-}
-
-
-void
-LowerScroller::DoScroll()
-{
-	BMenuWindow* window = dynamic_cast<BMenuWindow*>(Window());
-	float smallStep;
-	window->GetSteps(&smallStep, NULL);
-	window->TryScrollBy(smallStep);
 }
 
 
@@ -484,6 +392,16 @@ BMenuWindow::HasScrollers() const
 
 
 bool
+BMenuWindow::CheckForScrolling(const BPoint &cursor)
+{
+	if (!fMenuFrame || !fUpperScroller || !fLowerScroller)
+		return false;
+
+	return _Scroll(cursor);
+}
+
+
+bool
 BMenuWindow::TryScrollBy(const float& step)
 {
 	if (!fMenuFrame || !fUpperScroller || !fLowerScroller)
@@ -501,6 +419,35 @@ BMenuWindow::TryScrollTo(const float& where)
 		return false;
 
 	_ScrollBy(where - fValue);
+	return true;
+}
+
+
+bool
+BMenuWindow::_Scroll(const BPoint& where)
+{
+	ASSERT((fLowerScroller != NULL));
+	ASSERT((fUpperScroller != NULL));
+
+	const BPoint cursor = ConvertFromScreen(where);
+	const BRect &lowerFrame = fLowerScroller->Frame();
+	const BRect &upperFrame = fUpperScroller->Frame();
+
+	int32 delta = 0;
+	if (fLowerScroller->IsEnabled() && lowerFrame.Contains(cursor))
+		delta = 1;
+	else if (fUpperScroller->IsEnabled() && upperFrame.Contains(cursor))
+		delta = -1;
+
+	if (delta == 0)
+		return false;
+
+	float smallStep;
+	GetSteps(&smallStep, NULL);
+	_ScrollBy(smallStep * delta);
+
+	snooze(5000);
+
 	return true;
 }
 
