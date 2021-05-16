@@ -65,6 +65,22 @@ __pthread_sigmask(int how, const sigset_t* set, sigset_t* oldSet)
 }
 
 
+#ifdef __riscv
+
+extern "C" int
+sigprocmask(int how, const sigset_t* set, sigset_t* oldSet)
+{
+	return __sigprocmask(how, set, oldSet);
+}
+
+extern "C" int
+pthread_sigmask(int how, const sigset_t* set, sigset_t* oldSet)
+{
+	return __pthread_sigmask(how, set, oldSet);
+}
+
+#else
+
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__sigprocmask_beos",
 	"sigprocmask@", "BASE");
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__pthread_sigmask_beos",
@@ -74,3 +90,5 @@ DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__sigprocmask", "sigprocmask@@",
 	"1_ALPHA4");
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__pthread_sigmask", "pthread_sigmask@@",
 	"1_ALPHA4");
+
+#endif

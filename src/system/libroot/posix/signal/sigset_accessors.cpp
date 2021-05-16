@@ -138,6 +138,40 @@ __sigdelset(sigset_t* set, int signal)
 // #pragma - versioned symbols
 
 
+#ifdef __riscv
+
+extern "C" int
+sigemptyset(sigset_t* set)
+{
+	return __sigemptyset(set);
+}
+
+extern "C" int
+sigfillset(sigset_t* set)
+{
+	return __sigfillset(set);
+}
+
+extern "C" int
+sigismember(const sigset_t* set, int signal)
+{
+	return __sigismember(set, signal);
+}
+
+extern "C" int
+sigaddset(sigset_t* set, int signal)
+{
+	return __sigaddset(set, signal);
+}
+
+extern "C" int
+sigdelset(sigset_t* set, int signal)
+{
+	return __sigdelset(set, signal);
+}
+
+#else
+
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__sigemptyset_beos", "sigemptyset@",
 	"BASE");
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__sigfillset_beos", "sigfillset@",
@@ -155,3 +189,5 @@ DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__sigismember", "sigismember@@",
 	"1_ALPHA4");
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__sigaddset", "sigaddset@@", "1_ALPHA4");
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__sigdelset", "sigdelset@@", "1_ALPHA4");
+
+#endif

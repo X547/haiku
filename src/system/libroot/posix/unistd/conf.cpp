@@ -412,6 +412,18 @@ confstr(int name, char *buffer, size_t length)
 }
 
 
+#ifdef __riscv
+
+extern "C" long
+sysconf(int name)
+{
+	return __sysconf(name);
+}
+
+#else
+
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__sysconf_beos", "sysconf@", "BASE");
 
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__sysconf", "sysconf@@", "1_ALPHA4");
+
+#endif

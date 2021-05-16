@@ -607,6 +607,16 @@ create_directory(const char* path, mode_t mode)
 // #pragma mark - symbol versions
 
 
+#ifdef __riscv
+
+status_t
+BDirectory::GetStatFor(const char* path, struct stat* st) const
+{
+	return BDirectory::_GetStatFor(path, st);
+}
+
+#else
+
 #ifdef HAIKU_TARGET_PLATFORM_LIBBE_TEST
 #	if __GNUC__ == 2	// gcc 2
 
@@ -642,3 +652,5 @@ create_directory(const char* path, mode_t mode)
 
 #	endif	// gcc 4
 #endif	// !HAIKU_TARGET_PLATFORM_LIBBE_TEST
+
+#endif // __riscv

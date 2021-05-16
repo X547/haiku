@@ -48,7 +48,18 @@ __sigwait(const sigset_t* set, int* _signal)
 	return 0;
 }
 
+#ifdef __riscv
+
+extern "C" int
+sigwait(const sigset_t* set, int* _signal)
+{
+	return __sigwait(set, _signal);
+}
+
+#else
 
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__sigwait_beos", "sigwait@", "BASE");
 
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__sigwait", "sigwait@@", "1_ALPHA4");
+
+#endif

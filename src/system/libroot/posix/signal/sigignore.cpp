@@ -43,6 +43,18 @@ __sigignore(int signal)
 }
 
 
+#ifdef __riscv
+
+extern "C" int
+sigignore(int signal)
+{
+	return __sigignore(signal);
+}
+
+#else
+
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__sigignore_beos", "sigignore@", "BASE");
 
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__sigignore", "sigignore@@", "1_ALPHA4");
+
+#endif

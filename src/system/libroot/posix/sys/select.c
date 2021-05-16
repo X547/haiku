@@ -81,6 +81,20 @@ select(int numBits, struct fd_set *readBits, struct fd_set *writeBits,
 }
 
 
+#ifdef __riscv
+
+int
+pselect(int numBits, struct fd_set *readBits, struct fd_set *writeBits,
+	struct fd_set *errorBits, const struct timespec *tv,
+	const sigset_t *sigMask)
+{
+	return __pselect(numBits, readBits, writeBits, errorBits, tv, sigMask);
+}
+
+#else
+
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__pselect_beos", "pselect@", "BASE");
 
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__pselect", "pselect@@", "1_ALPHA4");
+
+#endif

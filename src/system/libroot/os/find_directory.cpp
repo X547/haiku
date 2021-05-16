@@ -517,12 +517,25 @@ __find_directory_alpha4(directory_which which, dev_t device, bool createIt,
 	return __find_directory(which, device, createIt, returnedPath, pathLength);
 }
 
+#ifdef __riscv
+
+extern "C" status_t
+find_directory(directory_which which, dev_t device, bool createIt,
+	char *returnedPath, int32 _pathLength)
+{
+	return __find_directory(which, device, createIt, returnedPath, _pathLength);
+}
+
+#else
 
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__find_directory_alpha4",
 	"find_directory@", "BASE");
 
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__find_directory", "find_directory@@",
 	"1_ALPHA5");
+
+#endif
+
 #else // _LOADER_MODE
 status_t
 __find_directory(directory_which which, dev_t device, bool createIt,

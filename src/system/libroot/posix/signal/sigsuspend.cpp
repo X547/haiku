@@ -41,8 +41,20 @@ __sigsuspend(const sigset_t* mask)
 }
 
 
+#ifdef __riscv
+
+extern "C" int
+sigsuspend(const sigset_t* mask)
+{
+	return __sigsuspend(mask);
+}
+
+#else
+
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__sigsuspend_beos", "sigsuspend@",
 	"BASE");
 
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__sigsuspend", "sigsuspend@@",
 	"1_ALPHA4");
+
+#endif

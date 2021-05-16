@@ -65,7 +65,19 @@ __sigaction(int signal, const struct sigaction* action,
 	RETURN_AND_SET_ERRNO(_kern_sigaction(signal, action, oldAction));
 }
 
+#ifdef __riscv
+
+extern "C" int
+sigaction(int signal, const struct sigaction* action,
+	struct sigaction* oldAction)
+{
+	return __sigaction(signal, action, oldAction);
+}
+
+#else
 
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__sigaction_beos", "sigaction@", "BASE");
 
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__sigaction", "sigaction@@", "1_ALPHA4");
+
+#endif

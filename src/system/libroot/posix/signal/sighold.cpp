@@ -37,6 +37,18 @@ __sighold(int signal)
 }
 
 
+#ifdef __riscv
+
+extern "C" int
+sighold(int signal)
+{
+	return __sighold(signal);
+}
+
+#else
+
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__sighold_beos", "sighold@", "BASE");
 
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__sighold", "sighold@@", "1_ALPHA4");
+
+#endif

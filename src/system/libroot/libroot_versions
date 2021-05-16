@@ -2,10 +2,46 @@ LIBROOT_BASE {
 };
 
 LIBROOT_1_ALPHA1 {
+	global:
+		stat;
+		fstat;
+		lstat;
 } LIBROOT_BASE;
 
 LIBROOT_1_ALPHA4 {
+	global:
+		sigaction;
+		sigprocmask;
+		pthread_sigmask;
+		sighold;
+		sigignore;
+		siginterrupt;
+		signal;
+		sigpause;
+		sigpending;
+		sigrelse;
+		sigset;
+		sigemptyset;
+		sigfillset;
+		sigismember;
+		sigaddset;
+		sigdelset;
+		sigemptyset;
+		sigfillset;
+		sigismember;
+		sigaddset;
+		sigdelset;
+		sigsuspend;
+		sigwait;
+
+		pselect;
+
+		times;
+		clock;
+		sysconf;
 } LIBROOT_1_ALPHA1;
 
 LIBROOT_1_ALPHA5 {
+	global:
+		find_directory;
 } LIBROOT_1_ALPHA4;

@@ -92,6 +92,18 @@ __sigset(int signal, __sighandler_t signalHandler)
 }
 
 
+#ifdef __riscv
+
+extern "C" __sighandler_t
+sigset(int signal, __sighandler_t signalHandler)
+{
+	return __sigset(signal, signalHandler);
+}
+
+#else
+
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__sigset_beos", "sigset@", "BASE");
 
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__sigset", "sigset@@", "1_ALPHA4");
+
+#endif

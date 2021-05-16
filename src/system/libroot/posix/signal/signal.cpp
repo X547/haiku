@@ -68,6 +68,18 @@ __signal(int signal, __sighandler_t signalHandler)
 }
 
 
+#ifdef __riscv
+
+__sighandler_t
+signal(int signal, __sighandler_t signalHandler)
+{
+	return __signal(signal, signalHandler);
+}
+
+#else
+
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__signal_beos", "signal@", "BASE");
 
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__signal", "signal@@", "1_ALPHA4");
+
+#endif

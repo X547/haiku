@@ -34,6 +34,18 @@ __clock(void)
 }
 
 
+#ifdef __riscv
+
+extern "C" clock_t
+clock(void)
+{
+	return __clock();
+}
+
+#else
+
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__clock_beos", "clock@", "BASE");
 
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__clock", "clock@@", "1_ALPHA4");
+
+#endif

@@ -40,8 +40,20 @@ __sigpending(sigset_t* set)
 }
 
 
+#ifdef __riscv
+
+int
+sigpending(sigset_t* set)
+{
+	return __sigpending(set);
+}
+
+#else
+
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__sigpending_beos", "sigpending@",
 	"BASE");
 
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__sigpending", "sigpending@@",
 	"1_ALPHA4");
+
+#endif

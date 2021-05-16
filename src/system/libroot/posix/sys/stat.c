@@ -154,6 +154,25 @@ _lstat_beos(const char* path, struct stat_beos* beosStat)
 }
 
 
+#ifdef __riscv
+
+int stat(const char* path, struct stat* stat)
+{
+	return _stat_current(path, stat);
+}
+
+int fstat(int fd, struct stat* stat)
+{
+	return _fstat_current(fd, stat);
+}
+
+int lstat(const char* path, struct stat* stat)
+{
+	return _lstat_current(path, stat);
+}
+
+#else
+
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("_stat_beos", "stat@", "BASE");
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("_fstat_beos", "fstat@", "BASE");
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("_lstat_beos", "lstat@", "BASE");
@@ -161,3 +180,5 @@ DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("_lstat_beos", "lstat@", "BASE");
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("_stat_current", "stat@@", "1_ALPHA1");
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("_fstat_current", "fstat@@", "1_ALPHA1");
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("_lstat_current", "lstat@@", "1_ALPHA1");
+
+#endif

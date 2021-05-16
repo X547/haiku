@@ -37,6 +37,18 @@ __sigrelse(int signal)
 }
 
 
+#ifdef __riscv
+
+extern "C" int
+sigrelse(int signal)
+{
+	return __sigrelse(signal);
+}
+
+#else
+
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__sigrelse_beos", "sigrelse@", "BASE");
 
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__sigrelse", "sigrelse@@", "1_ALPHA4");
+
+#endif

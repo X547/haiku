@@ -4,4 +4,8 @@ LIBBE_BASE {
 };
 
 LIBBE_1_ALPHA1 {
+	global:
+		_ZNK6BEntry7GetStatEP4stat;
+		_ZNK5BNode7GetStatEP4stat;
+		_ZNK10BDirectory10GetStatForEPKcP4stat;
 } LIBBE_BASE;

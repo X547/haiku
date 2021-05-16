@@ -4,6 +4,10 @@ KERNEL_BASE {
 };
 
 KERNEL_1_ALPHA1 {
+	global:
+		stat;
+		fstat;
+		lstat;
 } KERNEL_BASE;
 
 KERNEL_1_ALPHA3 {

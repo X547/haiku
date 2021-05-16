@@ -39,6 +39,18 @@ __sigpause(int signal)
 }
 
 
+#ifdef __riscv
+
+extern "C" int
+sigpause(int signal)
+{
+	return __sigpause(signal);
+}
+
+#else
+
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__sigpause_beos", "sigpause@", "BASE");
 
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__sigpause", "sigpause@@", "1_ALPHA4");
+
+#endif

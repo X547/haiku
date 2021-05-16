@@ -39,8 +39,20 @@ __siginterrupt(int signal, int flag)
 }
 
 
+#ifdef __riscv
+
+extern "C" int
+siginterrupt(int signal, int flag)
+{
+	return __siginterrupt(signal, flag);
+}
+
+#else
+
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__siginterrupt_beos", "siginterrupt@",
 	"BASE");
 
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__siginterrupt", "siginterrupt@@",
 	"1_ALPHA4");
+
+#endif

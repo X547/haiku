@@ -828,6 +828,16 @@ operator<(const entry_ref& a, const entry_ref& b)
 // #pragma mark - symbol versions
 
 
+#ifdef __riscv
+
+status_t
+BEntry::GetStat(struct stat* st) const
+{
+	return BEntry::_GetStat(st);
+}
+
+#else
+
 #ifdef HAIKU_TARGET_PLATFORM_LIBBE_TEST
 #	if __GNUC__ == 2	// gcc 2
 
@@ -864,3 +874,5 @@ operator<(const entry_ref& a, const entry_ref& b)
 
 #	endif	// gcc 4
 #endif	// !HAIKU_TARGET_PLATFORM_LIBBE_TEST
+
+#endif // __riscv

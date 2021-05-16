@@ -59,6 +59,18 @@ __times(struct tms* buffer)
 }
 
 
+#ifdef __riscv
+
+extern "C" clock_t
+times(struct tms* buffer)
+{
+	return __times(buffer);
+}
+
+#else
+
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__times_beos", "times@", "BASE");
 
 DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__times", "times@@", "1_ALPHA4");
+
+#endif
