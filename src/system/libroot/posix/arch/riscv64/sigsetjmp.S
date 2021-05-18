@@ -6,11 +6,11 @@
 #include <asm_defs.h>
 
 
-# TODO: signal mask, FPU?
+# TODO: FPU?
 
-/* int setjmp(jmp_buf buffer) */
-FUNCTION(setjmp):
-FUNCTION(_setjmp):
+/* int sigsetjmp(jmp_buf buffer, int saveMask) */
+FUNCTION(__sigsetjmp):
+FUNCTION(sigsetjmp):
 	sd ra,   0*8(a0)
 	sd s0,   1*8(a0)
 	sd s1,   2*8(a0)
@@ -26,6 +26,13 @@ FUNCTION(_setjmp):
 	sd s11, 12*8(a0)
 	sd sp,  13*8(a0)
 
-	li    a0, 0
-	ret
+	tail __setjmp_save_sigs
+FUNCTION_END(setjmp)
+
+
+/* int setjmp(jmp_buf buffer) */
+FUNCTION(setjmp):
+FUNCTION(_setjmp):
+	li a1, 0
+	tail sigsetjmp
 FUNCTION_END(setjmp)

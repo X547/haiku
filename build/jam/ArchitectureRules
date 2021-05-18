@@ -41,7 +41,7 @@ rule ArchitectureSetup architecture
 		case ppc : archFlags += -mcpu=440fp ;
 		case arm : archFlags += -march=armv7-a -mfloat-abi=hard ;
 		case x86 : archFlags += -march=pentium ;
-		case riscv64 : archFlags += -march=rv64gc ;
+		case riscv64 : archFlags += -march=rv64gc -fno-omit-frame-pointer ;
 	}
 	if $(HAIKU_CC_IS_CLANG_$(architecture)) = 1 {
 		# TODO: These should be included in Clang's compiler specs.
@@ -422,8 +422,9 @@ rule KernelArchitectureSetup architecture
 		case riscv64 :
 			# Kernel lives within any single 2 GiB address space.
 			# Default is medlow (-2GiB / +2GiB)
-			HAIKU_KERNEL_CCFLAGS += -mcmodel=medany ;
-			HAIKU_KERNEL_C++FLAGS += -mcmodel=medany ;
+			HAIKU_KERNEL_CCFLAGS += -mcmodel=medany -fpic ;
+			HAIKU_KERNEL_C++FLAGS += -mcmodel=medany -fpic ;
+			HAIKU_KERNEL_PIC_LINKFLAGS = -shared ;
 
 		case sparc :
 			# The medlow code model is enough (64-bit addresses, programs must

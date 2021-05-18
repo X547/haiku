@@ -25,6 +25,8 @@
 
 #include "kernel_debug_config.h"
 
+#undef DEBUG_PAGE_ACCESS
+
 
 #define VM_PAGE_ALLOCATION_TRACKING_AVAILABLE \
 	(VM_PAGE_ALLOCATION_TRACKING && PAGE_ALLOCATION_TRACING != 0 \

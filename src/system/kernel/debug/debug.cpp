@@ -1020,10 +1020,6 @@ static void
 kernel_debugger_internal(const char* messagePrefix, const char* message,
 	va_list args, int32 cpu)
 {
-	char buf[1024];
-	vsnprintf(buf, 1024, message, args);
-	arch_debug_serial_early_boot_message(buf);
-
 	while (true) {
 		if (sHandOverKDLToCPU == cpu) {
 			sHandOverKDLToCPU = -1;
@@ -1675,6 +1671,7 @@ debug_init(kernel_args* args)
 
 	debug_paranoia_init();
 	arch_debug_console_init(args);
+	arch_debug_init_early(args);
 }
 
 

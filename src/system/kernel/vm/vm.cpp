@@ -52,6 +52,7 @@
 #include <vm/VMAddressSpace.h>
 #include <vm/VMArea.h>
 #include <vm/VMCache.h>
+#include <arch_debug.h>
 
 #include "VMAddressSpaceLocking.h"
 #include "VMAnonymousCache.h"
@@ -3953,6 +3954,7 @@ static void
 unreserve_boot_loader_ranges(kernel_args* args)
 {
 	TRACE(("unreserve_boot_loader_ranges()\n"));
+	return; // !!!
 
 	for (uint32 i = 0; i < args->num_virtual_allocated_ranges; i++) {
 		vm_unreserve_address_range(VMAddressSpace::KernelID(),
@@ -4427,12 +4429,15 @@ vm_page_fault(addr_t address, addr_t faultAddress, bool isWrite, bool isExecute,
 				// modify the IP on the interrupt frame or whatever to return
 				// to this address
 				*newIP = reinterpret_cast<uintptr_t>(thread->fault_handler);
+				dprintf("*newIP = 0x%" B_PRIxADDR "\n", *newIP);
 			} else {
+				WriteTrapInfo();
 				// unhandled page fault in the kernel
 				panic("vm_page_fault: unhandled page fault in kernel space at "
 					"0x%lx, ip 0x%lx\n", address, faultAddress);
 			}
 		} else {
+			WriteTrapInfo();
 			Thread* thread = thread_get_current_thread();
 
 #ifdef TRACE_FAULTS
@@ -7169,7 +7174,30 @@ _user_munlock(const void* address, size_t size) {
 // #pragma mark -- compatibility
 
 
-#if defined(__i386__) && B_HAIKU_PHYSICAL_BITS > 32
+#ifdef __riscv
+
+extern "C" int32
+get_memory_map(const void* address, size_t numBytes, physical_entry* table, int32 numEntries)
+{
+	return __get_memory_map_haiku(address, numBytes, table, numEntries);
+}
+
+extern "C" area_id
+map_physical_memory(const char* name, phys_addr_t physicalAddress,
+	size_t numBytes, uint32 addressSpec, uint32 protection,
+	void** _virtualAddress)
+{
+	return __map_physical_memory_haiku(name, physicalAddress, numBytes,  addressSpec,  protection, _virtualAddress);
+}
+
+extern "C" area_id
+create_area(const char* name, void** _address, uint32 addressSpec, size_t size, uint32 lock, uint32 protection)
+{
+	return __create_area_haiku(name, _address, addressSpec, size, lock, protection);
+}
+
+
+#elif defined(__i386__) && B_HAIKU_PHYSICAL_BITS > 32
 
 
 struct physical_entry_beos {

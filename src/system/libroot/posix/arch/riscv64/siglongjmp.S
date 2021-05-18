@@ -7,7 +7,7 @@
 #include <asm_defs.h>
 
 
-# TODO: signal mask, FPU?
+# TODO: FPU?
 
 /* int __siglongjmp(jmp_buf buffer, int value) */
 FUNCTION(siglongjmp):
@@ -28,9 +28,7 @@ FUNCTION(_longjmp):
 	ld s11, 12*8(a0)
 	ld sp,  13*8(a0)
 
-	seqz a0, a1
-	add  a0, a0, a1   # a0 = (a1 == 0) ? 1 : a1
-	ret
+	tail __longjmp_return
 FUNCTION_END(siglongjmp)
 FUNCTION_END(longjmp)
 FUNCTION_END(_longjmp)

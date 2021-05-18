@@ -19,8 +19,8 @@ local earlyFDTHelpers =
 ;
 
 KernelAddon fdt :
-	fdt.cpp
-#	$(libFDTSources)
+	fdt_module.cpp
+	$(libFDTSources)
 	;
 
 BootStaticLibrary boot_fdt :

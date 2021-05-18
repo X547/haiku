@@ -11,6 +11,7 @@
 #if defined(_KERNEL_MODE) && !defined(_BOOT_MODE)
 #include <vfs.h>
 #include <fs/fd.h>
+#include <vm/VMAddressSpace.h>
 #endif
 
 
@@ -23,6 +24,7 @@ typedef CObjectDeleter<void, status_t, unload_driver_settings> DriverSettingsUnl
 
 typedef CObjectDeleter<struct vnode, void, vfs_put_vnode> VnodePutter;
 typedef CObjectDeleter<file_descriptor, void, put_fd> DescriptorPutter;
+typedef MethodDeleter<VMAddressSpace, void, &VMAddressSpace::Put> VMAddressSpacePutter;
 
 #endif
 
@@ -36,6 +38,7 @@ using ::BPrivate::DriverSettingsUnloader;
 
 using ::BPrivate::VnodePutter;
 using ::BPrivate::DescriptorPutter;
+using ::BPrivate::VMAddressSpacePutter;
 
 #endif
 

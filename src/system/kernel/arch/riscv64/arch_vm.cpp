@@ -8,6 +8,7 @@
 #include <vm/vm.h>
 #include <vm/VMAddressSpace.h>
 #include <arch/vm.h>
+#include <boot/kernel_args.h>
 
 
 //#define TRACE_ARCH_VM
@@ -28,6 +29,13 @@ arch_vm_init(kernel_args *args)
 status_t
 arch_vm_init_post_area(kernel_args *args)
 {
+	void* address = (void*)KERNEL_PMAP_BASE;
+	area_id area = vm_create_null_area(VMAddressSpace::KernelID(),
+		"physical map area", &address, B_EXACT_ADDRESS,
+		KERNEL_PMAP_SIZE, 0);
+	if (area < B_OK)
+		return area;
+
 	return B_OK;
 }
 
@@ -115,8 +123,5 @@ arch_vm_unset_memory_type(VMArea *area)
 status_t
 arch_vm_set_memory_type(VMArea *area, phys_addr_t physicalBase, uint32 type)
 {
-	if (type == 0)
-		return B_OK;
-
-	return B_ERROR;
+	return B_OK;
 }

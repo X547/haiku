@@ -283,7 +283,6 @@ JobQueue::_RemoveDependantJobsOf(BJob* job)
 		_RemoveDependantJobsOf(dependantJob);
 		dependantJob->RemoveDependency(job);
 		// TODO: we need some sort of ownership management
-		delete dependantJob;
 	}
 }
 

@@ -22,16 +22,20 @@
 static inline void
 arch_int_enable_interrupts_inline(void)
 {
-	SetSstatus(Sstatus() | ARCH_SR_SIE);
+	SstatusReg status(Sstatus());
+	status.ie |= (1 << modeS);
+	SetSstatus(status.val);
 }
 
 
 static inline int
 arch_int_disable_interrupts_inline(void)
 {
-	uint64 sstatus = Sstatus();
-	SetSstatus(sstatus & ~ARCH_SR_SIE);
-	return (sstatus & ARCH_SR_SIE) != 0;
+	SstatusReg status(Sstatus());
+	int oldState = ((1 << modeS) & status.ie) != 0;
+	status.ie &= ~(1 << modeS);
+	SetSstatus(status.val);
+	return oldState;
 }
 
 
@@ -46,7 +50,8 @@ arch_int_restore_interrupts_inline(int oldState)
 static inline bool
 arch_int_are_interrupts_enabled_inline(void)
 {
-	return (Sstatus() & ARCH_SR_SIE) != 0;
+	SstatusReg status(Sstatus());
+	return ((1 << modeS) & status.ie) != 0;
 }
 
 
@@ -57,6 +62,14 @@ arch_int_are_interrupts_enabled_inline(void)
 	arch_int_restore_interrupts_inline(status)
 #define arch_int_are_interrupts_enabled()	\
 	arch_int_are_interrupts_enabled_inline()
+
+
+enum {
+	switchToSmodeMmodeSyscall = 0,
+	setTimerMmodeSyscall = 1,
+};
+
+extern "C" status_t MSyscall(...);
 
 
 #endif /* _KERNEL_ARCH_RISCV64_INT_H */

@@ -15,10 +15,6 @@
 extern "C" {
 #endif
 
-void riscv64_push_iframe(struct iframe_stack* stack, struct iframe* frame);
-void riscv64_pop_iframe(struct iframe_stack* stack);
-struct iframe* riscv64_get_user_iframe(void);
-
 
 static inline Thread*
 arch_thread_get_current_thread(void)

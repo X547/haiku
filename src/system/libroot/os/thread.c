@@ -45,6 +45,8 @@ thread_entry(void* _entry, void* _thread)
 
 	_thread_do_exit_work();
 	__heap_thread_exit();
+	
+	_kern_exit_thread(returnCode);
 
 	return returnCode;
 }

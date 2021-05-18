@@ -1650,6 +1650,7 @@ team_create_thread_start_internal(void* args)
 			strerror(commPageArea)));
 		return commPageArea;
 	}
+	dprintf("clone_commpage_area: %p\n", team->commpage_address);
 
 	// Register commpage image
 	image_id commPageImage = get_commpage_image();

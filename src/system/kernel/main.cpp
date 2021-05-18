@@ -374,7 +374,7 @@ main2(void* /*unused*/)
 	// The boot splash screen is the last user of the kernel args.
 	// Note: don't confuse the kernel_args structure (which is never freed)
 	// with the kernel args ranges it contains (and which are freed here).
-	vm_free_kernel_args(&sKernelArgs);
+	// vm_free_kernel_args(&sKernelArgs);
 
 	// start the init process
 	{

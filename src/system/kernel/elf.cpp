@@ -177,11 +177,12 @@ register_elf_image(struct elf_image_info *image)
 static struct elf_image_info *
 find_image_at_address(addr_t address)
 {
+/*
 #if KDEBUG
 	if (!debug_debugger_running())
 		ASSERT_LOCKED_MUTEX(&sImageMutex);
 #endif
-
+*/
 	ImageHash::Iterator iterator(sImagesHash);
 
 	// get image that may contain the address

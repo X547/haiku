@@ -10,6 +10,7 @@
 #include <boot/kernel_args.h>
 #include <commpage.h>
 #include <elf.h>
+#include <Htif.h>
 
 
 status_t
@@ -95,5 +96,6 @@ arch_cpu_user_TLB_invalidate(void)
 status_t
 arch_cpu_shutdown(bool reboot)
 {
+	HtifShutdown();
 	return B_ERROR;
 }

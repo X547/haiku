@@ -89,9 +89,16 @@
 
 #define ALWAYS_INLINE __attribute__((always_inline)) inline
 
+#ifdef __riscv
+
+#define B_DEFINE_SYMBOL_VERSION(function, versionedSymbol) !!!
+
+#else
+
 #define B_DEFINE_SYMBOL_VERSION(function, versionedSymbol)	\
 	__asm__(".symver " function "," versionedSymbol)
 
+#endif
 
 #ifdef __cplusplus
 #	define B_DEFINE_WEAK_ALIAS(name, alias_name)	\
