@@ -277,6 +277,7 @@ SubInclude HAIKU_TOP src bin rc ;
 SubInclude HAIKU_TOP src bin screen_blanker ;
 SubInclude HAIKU_TOP src bin screenmode ;
 SubInclude HAIKU_TOP src bin writembr ;
+SubInclude HAIKU_TOP src bin lua ;
 
 # debugging tools
 SubInclude HAIKU_TOP src bin debug ;
