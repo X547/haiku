@@ -86,7 +86,13 @@ static preloaded_image* FindImage(addr_t adr)
 
 static VMArea* FindArea(addr_t adr)
 {
-	VMAddressSpacePutter addrSpace(VMAddressSpace::GetCurrent());
+	Thread* thread = thread_get_current_thread();
+	VMAddressSpacePutter addrSpace;
+	// thread->team == NULL before thread_init() is called
+	if (thread->team == NULL)
+		addrSpace.SetTo(VMAddressSpace::GetKernel());
+	else
+		addrSpace.SetTo(VMAddressSpace::GetCurrent());
 	return addrSpace->LookupArea(adr);
 }
 
@@ -144,7 +150,8 @@ void WritePCBoot(addr_t pc)
 
 void WritePC(addr_t pc)
 {
-	dprintf("0x%" B_PRIxADDR " ", pc);
+	// dprintf("0x%" B_PRIxADDR " ", pc);
+	// WritePCBoot(pc); return;
 
 	addr_t baseAddress;
 	const char* symbolName;
@@ -180,7 +187,7 @@ void DoStackTrace(addr_t fp, addr_t pc)
 		if (user_memcpy(&pc, (uint64*)fp - 1, sizeof(pc)) < B_OK) break;
 		if (user_memcpy(&fp, (uint64*)fp - 2, sizeof(pc)) < B_OK) break;
 		dprintf("FP: 0x%" B_PRIxADDR, fp);
-		dprintf(", PC: "); WritePC(pc);
+		dprintf(", PC: "); WritePC(pc - 1);
 		dprintf("\n");
 	}
 }

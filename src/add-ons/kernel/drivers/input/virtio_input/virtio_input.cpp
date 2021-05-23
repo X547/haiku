@@ -20,6 +20,7 @@
 
 #include <AutoDeleter.h>
 #include <AutoDeleterOS.h>
+#include <AutoDeleterDrivers.h>
 #include <debug.h>
 
 
@@ -214,10 +215,9 @@ virtio_input_init_device(void* _info, void** _cookie)
 	TRACE("virtio_input_init_device(%p)\n", _info);
 	VirtioInputDevice* info = (VirtioInputDevice*)_info;
 
-	device_node* parent = sDeviceManager->get_parent_node(info->node);
-	sDeviceManager->get_driver(parent, (driver_module_info **)&info->virtio,
+	DeviceNodePutter<&sDeviceManager> parent(sDeviceManager->get_parent_node(info->node));
+	sDeviceManager->get_driver(parent.Get(), (driver_module_info **)&info->virtio,
 		(void **)&info->virtio_device);
-	sDeviceManager->put_node(parent);
 
 	info->virtio->negotiate_features(info->virtio_device, 0, &info->features, NULL);
 

@@ -144,7 +144,6 @@ void WriteTrapInfo()
 	dprintf("  stval: "); WritePC(Stval()); dprintf("\n");
 	dprintf("  tp: 0x%" B_PRIxADDR "(%s)\n", Tp(), thread_get_current_thread()->name);
 	//dprintf("  stval: 0x%" B_PRIx64 "\n", Stval());
-	DoStackTrace(Fp(), 0);
 }
 
 
@@ -221,6 +220,7 @@ static void SendSignal(debug_exception_type type, uint32 signalNumber, int32 sig
 		Thread* thread = thread_get_current_thread();
 
 		WriteTrapInfo();
+		DoStackTrace(Fp(), 0);
 
 		enable_interrupts();
 
@@ -299,7 +299,6 @@ extern "C" void STrap(iframe* frame)
 	// case causeLoadAccessFault:
 	// case causeStoreAccessFault:
 	case causeUEcall: {
-		// WriteTrapInfo();
 		frame->epc += 4;
 		uint64 syscall = frame->t0;
 		uint64 args[20];
@@ -353,7 +352,7 @@ extern "C" void STrap(iframe* frame)
 		return;
 	}
 	WriteTrapInfo();
-	HtifShutdown();
+	panic("unhandled STrap");
 }
 
 

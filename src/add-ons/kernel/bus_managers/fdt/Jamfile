@@ -24,12 +24,10 @@ KernelAddon fdt :
 	;
 
 BootStaticLibrary boot_fdt :
-	$(earlyFDTHelpers)
 	$(libFDTSources)
 	;
 
 KernelStaticLibrary kernel_fdt :
-	$(earlyFDTHelpers)
 	$(libFDTSources)
 	;
 

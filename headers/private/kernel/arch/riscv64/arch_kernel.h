@@ -5,7 +5,12 @@
 #ifndef _KERNEL_ARCH_RISCV64_KERNEL_H
 #define _KERNEL_ARCH_RISCV64_KERNEL_H
 
-#include <arch/cpu.h>
+
+#ifndef _ASSEMBLER
+#ifdef __cplusplus
+#	include <arch/cpu.h>
+#endif
+#endif
 
 
 // memory layout

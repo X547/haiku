@@ -9,6 +9,7 @@
 #include <device_manager.h>
 
 #include <AutoDeleter.h>
+#include <AutoDeleterDrivers.h>
 #include <HashMap.h>
 #include <debug.h>
 
@@ -24,7 +25,6 @@ device_manager_info* gDeviceManager;
 
 extern fdt_bus_module_info gBusModule;
 extern fdt_device_module_info gDeviceModule;
-
 
 //#pragma mark -
 
@@ -233,14 +233,14 @@ fdt_device_init_driver(device_node* node, void** cookie)
 	dev->node = node;
 
 	// get bus from parent node
-	device_node* parent = gDeviceManager->get_parent_node(node);
+	DeviceNodePutter<&gDeviceManager> parent(gDeviceManager->get_parent_node(node));
 	driver_module_info* parentModule;
 	void* parentDev;
-	ASSERT(gDeviceManager->get_driver(parent, &parentModule, &parentDev) >= B_OK);
+	ASSERT(gDeviceManager->get_driver(parent.Get(), &parentModule, &parentDev) >= B_OK);
 	if (parentModule == (driver_module_info*)&gDeviceModule)
 		dev->bus = ((fdt_device*)parentDev)->bus;
 	else if (parentModule == (driver_module_info*)&gBusModule)
-		dev->bus = parent;
+		dev->bus = parent.Get();
 	else
 		panic("bad parent node");
 
