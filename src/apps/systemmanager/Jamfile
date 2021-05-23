@@ -1,0 +1,15 @@
+SubDir HAIKU_TOP src apps systemmanager ;
+
+UsePrivateHeaders interface shared ;
+UsePrivateKernelHeaders ;
+
+Application SystemManager :
+	SystemManager.cpp
+	TeamWindow.cpp
+	StackWindow.cpp
+	Errors.cpp
+	Utils.cpp
+	UIUtils.cpp
+	: be [ TargetLibstdc++ ] debug libcolumnlistview.a
+	: SystemManager.rdef
+;

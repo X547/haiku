@@ -60,3 +60,4 @@ HaikuSubInclude tracker ;
 HaikuSubInclude tv ;
 HaikuSubInclude webpositive ;
 HaikuSubInclude workspaces ;
+HaikuSubInclude systemmanager ;
