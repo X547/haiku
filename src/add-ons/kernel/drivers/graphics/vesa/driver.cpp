@@ -68,9 +68,12 @@ init_driver(void)
 
 	memset(gDeviceInfo[0], 0, sizeof(vesa_info));
 
-	status_t status = get_module(B_ISA_MODULE_NAME, (module_info**)&gISA);
+	status_t status;
+#ifndef __riscv
+	status = get_module(B_ISA_MODULE_NAME, (module_info**)&gISA);
 	if (status != B_OK)
 		goto err1;
+#endif
 
 	gDeviceNames[0] = strdup("graphics/vesa");
 	if (gDeviceNames[0] == NULL) {
@@ -85,7 +88,9 @@ init_driver(void)
 
 err2:
 	put_module(B_ISA_MODULE_NAME);
+#ifndef __riscv
 err1:
+#endif
 	free(gDeviceInfo[0]);
 	return status;
 }

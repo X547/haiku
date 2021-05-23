@@ -289,7 +289,7 @@ remap_frame_buffer(vesa_info& info, addr_t physicalBase, uint32 width,
 	if (!info.complete_frame_buffer_mapped) {
 		addr_t base = physicalBase;
 		size_t size = bytesPerRow * height;
-		bool remap = !initializing;
+		bool remap = true;
 
 		if (info.physical_frame_buffer_size != 0) {
 			// we can map the complete frame buffer
