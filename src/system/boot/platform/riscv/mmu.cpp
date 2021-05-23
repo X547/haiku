@@ -22,8 +22,8 @@
 
 extern uint8 gStackEnd;
 
-uint8 *gMemBase = (uint8*)0x80000000;
-size_t gTotalMem = 128*1024*1024;
+uint8 *gMemBase = NULL;
+size_t gTotalMem = 0;
 uint8 *gFreeMem = &gStackEnd;
 
 

@@ -1,5 +1,6 @@
-#include "htif.h"
+#include <Htif.h>
 
+// This address is used by TinyEMU and it is not present in FDT.
 HtifRegs *volatile gHtifRegs = (HtifRegs *volatile)0x40008000;
 
 

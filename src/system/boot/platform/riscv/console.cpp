@@ -8,7 +8,7 @@
 #include "console.h"
 #include "video.h"
 #include "graphics.h"
-#include "htif.h"
+#include <Htif.h>
 #include "virtio.h"
 
 #include <SupportDefs.h>
@@ -26,7 +26,9 @@ class Console : public ConsoleNode {
 		virtual ssize_t WriteAt(void *cookie, off_t pos, const void *buffer, size_t bufferSize);
 };
 
-static uint16 sScreenBase[80*25];
+static uint16* sScreenBase;
+static uint32 sScreenOfsX = 0;
+static uint32 sScreenOfsY = 0;
 static uint32 sScreenWidth = 80;
 static uint32 sScreenHeight = 25;
 static uint32 sScreenOffset = 0;
@@ -61,8 +63,8 @@ static void RefreshFramebuf(int32 x0, int32 y0, int32 w, int32 h)
 	for (int32 y = y0; y < y0 + h; y++)
 		for (int32 x = x0; x < x0 + w; x++) {
 			uint16 cell = sScreenBase[x + y * sScreenWidth];
-			Clear(gFramebuf.Clip(x*gFixedFont.charWidth, y*gFixedFont.charHeight, gFixedFont.charWidth, gFixedFont.charHeight), kPalette[cell / 0x1000 % 0x10]);
-			BlitMaskRgb(gFramebuf, gFixedFont.ThisGlyph(cell % 0x100), x*gFixedFont.charWidth, y*gFixedFont.charHeight, kPalette[cell / 0x100 % 0x10]);
+			Clear(gFramebuf.Clip(sScreenOfsX + x*gFixedFont.charWidth, sScreenOfsY + y*gFixedFont.charHeight, gFixedFont.charWidth, gFixedFont.charHeight), kPalette[cell / 0x1000 % 0x10]);
+			BlitMaskRgb(gFramebuf, gFixedFont.ThisGlyph(cell % 0x100), sScreenOfsX + x*gFixedFont.charWidth, sScreenOfsY + y*gFixedFont.charHeight, kPalette[cell / 0x100 % 0x10]);
 		}
 }
 
@@ -199,7 +201,7 @@ int
 console_wait_for_key(void)
 {
 	int key = virtio_input_wait_for_key();
-	// SDL scancodes
+
 	switch (key) {
 	case 71: return TEXT_CONSOLE_KEY_RETURN;
 	case 30: return TEXT_CONSOLE_KEY_BACKSPACE;
@@ -224,6 +226,13 @@ console_wait_for_key(void)
 status_t
 console_init(void)
 {
+	sScreenWidth = 80;
+	sScreenHeight = 25;
+	sScreenOfsX = gFramebuf.width/2 - sScreenWidth*gFixedFont.charWidth/2;
+	sScreenOfsY = gFramebuf.height/2 - sScreenHeight*gFixedFont.charHeight/2;
+
+	sScreenBase = new(std::nothrow) uint16[sScreenWidth * sScreenHeight];
+
 	console_clear_screen();
 
 	// enable stdio functionality

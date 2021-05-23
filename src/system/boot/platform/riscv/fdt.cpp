@@ -4,20 +4,47 @@
 #include <KernelExport.h>
 #include <boot/stage2.h>
 
+extern "C" {
+#include <libfdt.h>
+}
 
-static bool
-fdt_valid(void* fdt, uint32* size)
+#include "mmu.h"
+#include "graphics.h"
+#include "virtio.h"
+
+
+void* gFdt = NULL;
+
+
+static void
+HandleFdt(const void *fdt, int node, uint32_t addressCells, uint32_t sizeCells, uint32_t interruptCells /* from parent node */)
 {
-	if (fdt == NULL)
-		return false;
-	uint32* words = (uint32*)fdt;
-	if (B_BENDIAN_TO_HOST_INT32(words[0]) != 0xd00dfeed)
-		return false;
-	*size = B_BENDIAN_TO_HOST_INT32(words[1]);
-	if (size == 0)
-		return false;
+	// TODO: handle different field sizes
 
-	return true;
+	const char *device_type = (const char*)fdt_getprop(fdt, node, "device_type", NULL);
+	if (device_type != NULL && strcmp(device_type, "memory") == 0) {
+		gMemBase = (uint8*)fdt64_to_cpu(*((uint64_t*)fdt_getprop(fdt, node, "reg", NULL) + 0));
+		gTotalMem = fdt64_to_cpu(*((uint64_t*)fdt_getprop(fdt, node, "reg", NULL) + 1));
+		return;
+	}
+	const char *compatible = (const char*)fdt_getprop(fdt, node, "compatible", NULL);
+	if (compatible == NULL) return;
+	/* if (strcmp(compatible, "riscv,clint0") == 0) {
+		Timers::gClintRegs = (Timers::ClintRegs *volatile)fdt64_to_cpu(*(uint64_t*)fdt_getprop(fdt, node, "reg", NULL));
+	} else if (strcmp(compatible, "riscv,plic0") == 0) {
+		gPlicRegs = (PlicRegs *volatile)fdt64_to_cpu(*(uint64_t*)fdt_getprop(fdt, node, "reg", NULL));
+	} else */ if (strcmp(compatible, "virtio,mmio") == 0) {
+		virtio_register(
+			fdt64_to_cpu(*((uint64_t*)fdt_getprop(fdt, node, "reg", NULL) + 0)),
+			fdt64_to_cpu(*((uint64_t*)fdt_getprop(fdt, node, "reg", NULL) + 1)),
+			fdt32_to_cpu(*((uint32_t*)fdt_getprop(fdt, node, "interrupts-extended", NULL) + 1))
+		);
+	} else if (strcmp(compatible, "simple-framebuffer") == 0) {
+		gFramebuf.colors = (uint32_t*)fdt64_to_cpu(*(uint64_t*)fdt_getprop(fdt, node, "reg", NULL));
+		gFramebuf.stride = fdt32_to_cpu(*(uint32_t*)fdt_getprop(fdt, node, "stride", NULL))/4; 
+		gFramebuf.width = fdt32_to_cpu(*(uint32_t*)fdt_getprop(fdt, node, "width", NULL));
+		gFramebuf.height = fdt32_to_cpu(*(uint32_t*)fdt_getprop(fdt, node, "height", NULL)); 
+	}
 }
 
 
@@ -25,17 +52,28 @@ void
 fdt_init(void* fdt)
 {
 	dprintf("FDT: %p\n", fdt);
+	gFdt = fdt;
 
-	uint32 fdtSize = 0;
-	if (!fdt_valid(fdt, &fdtSize)) {
-		panic("Invalid FDT\n");
+	int res = fdt_check_header(gFdt);
+	if (res != 0) {
+		panic("Invalid FDT: %s\n", fdt_strerror(res));
 	}
 
-	dprintf("FDT valid, size: %" B_PRIu32 "\n", fdtSize);
+	dprintf("FDT valid, size: %" B_PRIu32 "\n", fdt_totalsize(gFdt));
 
-	gKernelArgs.arch_args.fdt = kernel_args_malloc(fdtSize);
+	int node = -1;
+	int depth = 0;
+	while ((node = fdt_next_node(gFdt, node, &depth)) >= 0) {
+		HandleFdt(gFdt, node, 2, 2, 2);
+	}
+}
+
+
+void fdt_set_kernel_args()
+{
+	gKernelArgs.arch_args.fdt = kernel_args_malloc(fdt_totalsize(gFdt));
 	if (gKernelArgs.arch_args.fdt != NULL) {
-		memcpy(gKernelArgs.arch_args.fdt, fdt, fdtSize);
+		memcpy(gKernelArgs.arch_args.fdt, gFdt, fdt_totalsize(gFdt));
 	} else
-		panic("unable to malloc for fdt!\n");
+		panic("unable to malloc for FDT!\n");
 }

@@ -4,7 +4,7 @@
  */
 
 
-#include "htif.h"
+#include <Htif.h>
 
 #include <boot/platform.h>
 #include <boot/stdio.h>

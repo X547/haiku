@@ -2,7 +2,11 @@
 #define _FDT_H_
 
 
+extern void* gFdt;
+
+
 void fdt_init(void* fdt);
+void fdt_set_kernel_args();
 
 
 #endif	// _FDT_H_

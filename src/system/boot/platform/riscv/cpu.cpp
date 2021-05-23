@@ -20,17 +20,10 @@
 
 //#define TRACE_CPU
 #ifdef TRACE_CPU
-#	define TRACE(x) dprintf x
+# define TRACE(x...) dprintf(x)
 #else
-#	define TRACE(x) ;
+# define TRACE(x...) ;
 #endif
-
-enum {
-	mstatusFsMask  = 3 << 13,
-};
-
-#define Mstatus() ({uint64_t x; asm volatile("csrr %0, mstatus" : "=r" (x)); x;})
-#define SetMstatus(x) {asm volatile("csrw mstatus, %0" : : "r" (x));}
 
 
 //	#pragma mark -
@@ -41,11 +34,14 @@ extern "C" void cpu_init()
 	gKernelArgs.num_cpus = 1;
 
 	// enable FPU
-	SetMstatus(Mstatus() | mstatusFsMask);
+	MstatusReg status(Mstatus());
+	status.fs = extStatusInitial;
+	SetMstatus(status.val);
 }
 
 
 extern "C" void
 platform_load_ucode(BootVolume& volume)
 {
+	// we have no ucode
 }

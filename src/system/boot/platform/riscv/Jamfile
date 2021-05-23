@@ -6,8 +6,9 @@ UsePrivateHeaders [ FDirName kernel boot platform riscv ] ;
 UsePrivateHeaders [ FDirName kernel platform $(TARGET_BOOT_PLATFORM) ] ;
 UsePrivateHeaders [ FDirName kernel disk_device_manager ] ;
 UsePrivateHeaders [ FDirName graphics common ] ;
-#UsePrivateHeaders [ FDirName graphics vesa ] ;
 UsePrivateHeaders [ FDirName storage ] ;
+UsePrivateHeaders [ FDirName virtio ] ;
+UseLibraryHeaders [ FDirName libfdt ] ;
 
 {
 	local defines = _BOOT_MODE ;
@@ -33,14 +34,17 @@ for platform in [ MultiBootSubDirSetup riscv ] {
 			cpu.cpp
 			video.cpp
 
+			fdt.cpp
 			graphics.cpp
 			fixed_font.S
 			htif.cpp
 			virtio.cpp
 			entry.S
 
-			: #-Wa,--pcrel
-			: boot_platform_generic_riscv.a
+			:
+			:
+			boot_platform_generic_riscv.a
+			boot_fdt.a
 		;
 
 

@@ -28,9 +28,9 @@
 
 //#define TRACE_VIDEO
 #ifdef TRACE_VIDEO
-#	define TRACE(x) dprintf x
+# define TRACE(x...) dprintf(x)
 #else
-#	define TRACE(x) ;
+# define TRACE(x...) ;
 #endif
 
 
@@ -110,5 +110,7 @@ extern "C" status_t
 platform_init_video(void)
 {
 	virtio_init(); // we want heap initalized
+	Clear(gFramebuf, 0xff000000);
+	console_init();
 	return B_OK;
 }

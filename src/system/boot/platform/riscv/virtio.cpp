@@ -5,8 +5,14 @@
 #include <malloc.h>
 #include <KernelExport.h>
 
+enum {
+	maxVirtioDevices = 32,
+};
 
-uint32 *gVirtioBase = (uint32*)0x40010000;
+VirtioResources gVirtioDevList[maxVirtioDevices];
+int32_t gVirtioDevListLen = 0;
+
+DoublyLinkedList<VirtioDevice> gVirtioDevices;
 VirtioDevice *gKeyboardDev = NULL;
 VirtioDevice *gDiskDev = NULL;
 
@@ -30,13 +36,14 @@ void aligned_free(void *p)
 }
 
 
-VirtioRegs *volatile ThisVirtioDev(uint32 deviceId, int n)
+VirtioResources* ThisVirtioDev(uint32 deviceId, int n)
 {
-	for (int i = 0; ; i++) {
-		VirtioRegs *volatile d = (VirtioRegs*)((uint8_t*)gVirtioBase + i*virtioRegsSize);
-		if (d->signature != virtioSignature) return NULL;
-		if (d->deviceId == deviceId) {if (n == 0) return d; else n--;}
+	for (int i = 0; i < gVirtioDevListLen; i++) {
+		VirtioRegs *volatile regs = gVirtioDevList[i].regs;
+		if (regs->signature != virtioSignature) continue;
+		if (regs->deviceId == deviceId) {if (n == 0) return &gVirtioDevList[i]; else n--;}
 	}
+	return NULL;
 }
 
 
@@ -57,16 +64,19 @@ void VirtioDevice::FreeDesc(int32_t idx)
 }
 
 
-VirtioDevice::VirtioDevice(VirtioRegs *volatile regs): fRegs(regs)
+VirtioDevice::VirtioDevice(const VirtioResources& devRes): fRegs(devRes.regs)
 {
+	gVirtioDevices.Insert(this);
+
 	dprintf("+VirtioDevice\n");
 	
+	fRegs->status = 0; // reset
+
 	fRegs->status |= virtioConfigSAcknowledge;
 	fRegs->status |= virtioConfigSDriver;
 	dprintf("features: %08x\n", fRegs->deviceFeatures);
 	fRegs->status |= virtioConfigSFeaturesOk;
 	fRegs->status |= virtioConfigSDriverOk;
-	fRegs->guestPageSize = 4096;
 
 	fRegs->queueSel = 0;
 //	dprintf("queueNumMax: %d\n", fRegs->queueNumMax);
@@ -100,6 +110,12 @@ VirtioDevice::VirtioDevice(VirtioRegs *volatile regs): fRegs(regs)
 
 	fRegs->config[0] = virtioInputCfgIdName;
 //	dprintf("name: %s\n", (const char*)(&fRegs->config[8]));
+}
+
+VirtioDevice::~VirtioDevice()
+{
+	gVirtioDevices.Remove(this);
+	fRegs->status = 0; // reset
 }
 
 void VirtioDevice::ScheduleIO(IORequest **reqs, uint32 cnt)
@@ -155,6 +171,24 @@ IORequest *VirtioDevice::WaitIO()
 	return req;
 }
 
+void virtio_register(addr_t base, size_t len, uint32 irq)
+{
+	VirtioRegs *volatile regs = (VirtioRegs *volatile)base;
+
+	dprintf("virtio_register(0x%" B_PRIxADDR ", 0x%" B_PRIxSIZE ", %" B_PRIu32 ")\n", base, len, irq);
+	dprintf("  signature: 0x%" B_PRIx32 "\n", regs->signature);
+	dprintf("  version: %" B_PRIu32 "\n", regs->version);
+	dprintf("  device id: %" B_PRIu32 "\n", regs->deviceId);
+
+	if (!(gVirtioDevListLen < maxVirtioDevices)) {
+		dprintf("too many VirtIO devices\n");
+		return;
+	}
+	gVirtioDevList[gVirtioDevListLen].regs = regs;
+	gVirtioDevList[gVirtioDevListLen].regsSize = len;
+	gVirtioDevList[gVirtioDevListLen].irq = irq;
+	gVirtioDevListLen++;
+}
 
 void virtio_init()
 {
@@ -162,40 +196,25 @@ void virtio_init()
 	
 	int i = 0;
 	for (; ; i++) {
-		VirtioRegs *volatile regs = ThisVirtioDev(virtioDevInput, i);
-		if (regs == NULL) break;
+		VirtioResources* devRes = ThisVirtioDev(virtioDevInput, i);
+		if (devRes == NULL) break;
+		VirtioRegs *volatile regs = devRes->regs;
 		regs->config[0] = virtioInputCfgIdName;
 		dprintf("virtio_input[%d]: %s\n", i, (const char*)(&regs->config[8]));
 		if (i == 0)
-			gKeyboardDev = new(std::nothrow) VirtioDevice(regs);
+			gKeyboardDev = new(std::nothrow) VirtioDevice(*devRes);
 	}
 	dprintf("virtio_input count: %d\n", i);
-/*
-	{
-		VirtioRegs *volatile regs = ThisVirtioDev(virtioDevBlock, 0);
-		if (regs != NULL) {
-			gDiskDev = new(std::nothrow) VirtioDevice(regs);
-			dprintf("disk size: %d\n", *(uint32*)(&regs->config[0]) * virtioBlockSectorSize);
-		}
-		
-		VirtioBlockRequest blkReq;
-		blkReq.type = virtioBlockTypeIn;
-		blkReq.ioprio = 0;
-		blkReq.sectorNum = 1;
-		IORequest req(ioOpRead, &blkReq, sizeof(blkReq));
-		IORequest reply(ioOpWrite, malloc(virtioBlockSectorSize + 1), virtioBlockSectorSize + 1);
-		IORequest *reqs[] = {&req, &reply};
-		gDiskDev->ScheduleIO(reqs, 2);
-		gDiskDev->WaitIO();
-		dprintf("done read\n");
-		for (int i = 0; i < 16; i++)
-			dprintf("%02x ", ((uint8*)reply.buf)[i]);
-		dprintf("\n");
-		free(reply.buf);
-	}
-*/
 	for (int i = 0; i < 4; i++)
 		gKeyboardDev->ScheduleIO(new(std::nothrow) IORequest(ioOpWrite, malloc(sizeof(VirtioInputPacket)), sizeof(VirtioInputPacket)));
+}
+
+void virtio_fini()
+{
+	auto it = gVirtioDevices.GetIterator();
+	while (VirtioDevice* dev = it.Next()) {
+		dev->Regs()->status = 0; // reset
+	}
 }
 
 int virtio_input_wait_for_key()

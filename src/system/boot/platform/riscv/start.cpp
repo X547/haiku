@@ -16,7 +16,8 @@
 #include "console.h"
 #include "cpu.h"
 #include "mmu.h"
-#include "htif.h"
+#include "fdt.h"
+#include "Htif.h"
 #include "virtio.h"
 #include "graphics.h"
 
@@ -30,7 +31,7 @@ extern uint8 __bss_start;
 extern uint8 _end;
 
 extern "C" int main(stage2_args *args);
-extern "C" void _start(void);
+extern "C" void _start(int hartId, void *fdt);
 extern "C" status_t arch_enter_kernel(struct kernel_args *kernelArgs, addr_t kernelEntry, addr_t kernelStackTop);;
 
 
@@ -78,6 +79,10 @@ platform_start_kernel(void)
 	//mmu_init_for_kernel();
 	//smp_boot_other_cpus();
 
+	// Avoid interrupts from virtio devices before kernel driver takes control.
+	virtio_fini();
+
+	fdt_set_kernel_args();
 	mmu_init_for_kernel();
 
 	dprintf("kernel entry at %lx\n", image->elf_header.e_entry);
@@ -98,39 +103,26 @@ platform_exit(void)
 }
 
 extern "C" void
-_start(void)
+_start(int hartId, void *fdt)
 {
-	Clear(gFramebuf, 0xffffffff);
-	
 	HtifOutString("haiku_loader entry point\n");
-	
-	BlitMaskRgb(gFramebuf, gFixedFont.ThisGlyph('@'), 64, 64, 0xff0099ff);
+	clear_bss();
+	fdt_init(fdt);
+	call_ctors();
 
 	stage2_args args;
-
-	//asm("cld");			// Ain't nothing but a GCC thang.
-	//asm("fninit");		// initialize floating point unit
-
-	clear_bss();
-	call_ctors();
-		// call C++ constructors before doing anything else
-
 	args.heap_size = HEAP_SIZE;
 	args.arguments = NULL;
 
-	console_init();
+	// console_init();
 	// virtio_init();
 	cpu_init();
 	mmu_init();
-
-	// wait a bit to give the user the opportunity to press a key
-	spin(750000);
-
-	// reading the keyboard doesn't seem to work in graphics mode (maybe a bochs problem)
-	// sBootOptions = check_for_boot_keys();
-	//if (sBootOptions & BOOT_OPTION_DEBUG_OUTPUT)
-		//serial_enable();
-
+/*
+	sBootOptions = check_for_boot_keys();
+	if (sBootOptions & BOOT_OPTION_DEBUG_OUTPUT)
+		serial_enable();
+*/
 	//apm_init();
 	//smp_init();
 	main(&args);
