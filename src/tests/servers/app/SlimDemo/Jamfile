@@ -1,8 +1,0 @@
-SubDir HAIKU_TOP src tests servers app SlimDemo ;
-
-UseHeaders [ FDirName os app ] ;
-UseHeaders [ FDirName os interface ] ;
-
-SimpleTest SlimDemo :
-	main.c
-	: be [ TargetLibstdc++ ] [ TargetLibsupc++ ] ;
