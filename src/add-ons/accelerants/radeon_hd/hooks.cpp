@@ -21,13 +21,13 @@ get_accelerant_hook(uint32 feature, void* data)
 			return (void*)radeon_init_accelerant;
 		case B_UNINIT_ACCELERANT:
 			return (void*)radeon_uninit_accelerant;
-		/*case B_CLONE_ACCELERANT:
+		case B_CLONE_ACCELERANT:
 			return (void*)radeon_clone_accelerant;
 		case B_ACCELERANT_CLONE_INFO_SIZE:
 			return (void*)radeon_accelerant_clone_info_size;
 		case B_GET_ACCELERANT_CLONE_INFO:
 			return (void*)radeon_get_accelerant_clone_info;
-		case B_ACCELERANT_RETRACE_SEMAPHORE:
+		/*case B_ACCELERANT_RETRACE_SEMAPHORE:
 			return (void*)radeon_accelerant_retrace_semaphore;
 		*/
 		case B_GET_ACCELERANT_DEVICE_INFO:
@@ -64,6 +64,8 @@ get_accelerant_hook(uint32 feature, void* data)
 			return (void*)radeon_get_frame_buffer_config;
 		case B_GET_PIXEL_CLOCK_LIMITS:
 			return (void*)radeon_get_pixel_clock_limits;
+		case B_MOVE_DISPLAY:
+			return (void*)radeon_move_display;
 
 		/* engine */
 		case B_ACCELERANT_ENGINE_COUNT:

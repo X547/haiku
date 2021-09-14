@@ -276,6 +276,52 @@ radeon_init_accelerant(int device)
 }
 
 
+ssize_t
+radeon_accelerant_clone_info_size(void)
+{
+	// clone info is device name, so return its maximum size
+	return B_PATH_NAME_LENGTH;
+}
+
+
+void
+radeon_get_accelerant_clone_info(void* info)
+{
+	ioctl(gInfo->device, RADEON_GET_DEVICE_NAME, info, B_PATH_NAME_LENGTH);
+}
+
+
+status_t
+radeon_clone_accelerant(void* info)
+{
+	// create full device name
+	char path[B_PATH_NAME_LENGTH];
+	strcpy(path, "/dev/");
+	strlcat(path, (const char*)info, sizeof(path));
+
+	FileDescriptorCloser fd(open(path, B_READ_WRITE));
+	if (!fd.IsSet())
+		return errno;
+
+	status_t status = init_common(fd.Get(), true);
+	if (status < B_OK)
+		return status;
+
+	fd.Detach();
+
+	status = gInfo->mode_list_area = clone_area(
+		"radeon_hd cloned modes", (void**)&gInfo->mode_list,
+		B_ANY_ADDRESS, B_READ_AREA, gInfo->shared_info->mode_list_area);
+
+	if (status < B_OK) {
+		uninit_common();
+		return status;
+	}
+
+	return B_OK;
+}
+
+
 /*! This function is called for both, the primary accelerant and all of
 	its clones.
 */
