@@ -322,6 +322,31 @@ radeon_get_pixel_clock_limits(display_mode* mode, uint32* _low, uint32* _high)
 }
 
 
+status_t
+radeon_move_display(uint16 horizontalStart, uint16 verticalStart)
+{
+	TRACE("%s\n", __func__);
+
+	uint8 crtcID = 0;
+	display_mode& mode = gInfo->shared_info->current_mode;
+	register_info* regs = gDisplay[crtcID]->regs;
+
+	if (horizontalStart + mode.timing.h_display > mode.virtual_width
+		|| verticalStart + mode.timing.v_display > mode.virtual_height)
+		return B_BAD_VALUE;
+
+	mode.h_display_start = horizontalStart;
+	mode.v_display_start = verticalStart;
+
+	if (!gDisplay[crtcID]->attached)
+		return B_OK;
+
+	Write32(CRT, regs->viewportStart, (mode.h_display_start << 16) | mode.v_display_start);
+
+	return B_OK;
+}
+
+
 bool
 is_mode_supported(display_mode* mode)
 {
