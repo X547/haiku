@@ -24,6 +24,9 @@ void spin(bigtime_t delay);
 
 // general
 status_t radeon_init_accelerant(int fd);
+ssize_t radeon_accelerant_clone_info_size(void);
+void radeon_get_accelerant_clone_info(void* info);
+status_t radeon_clone_accelerant(void* info);
 void radeon_uninit_accelerant(void);
 status_t radeon_get_accelerant_device_info(accelerant_device_info* di);
 
@@ -36,6 +39,7 @@ status_t radeon_get_preferred_mode(display_mode* preferredMode);
 status_t radeon_get_frame_buffer_config(frame_buffer_config* config);
 status_t radeon_get_pixel_clock_limits(display_mode* mode,
 	uint32* low, uint32* high);
+status_t radeon_move_display(uint16 horizontalStart, uint16 verticalStart);
 status_t radeon_get_edid_info(void* info, size_t size, uint32* edid_version);
 
 //brightness
