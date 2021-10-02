@@ -28,6 +28,7 @@ for architectureObject in [ MultiArchSubDirSetup ] {
 			glob.c
 			inttypes.c
 			libgen.cpp
+			link.c
 			nftw.c
 			poll.c
 			$(PWD_BACKEND)
