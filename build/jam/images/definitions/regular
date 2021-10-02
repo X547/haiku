@@ -282,6 +282,7 @@ SYSTEM_ADD_ONS_DRIVERS_AUDIO +=
 	ice1712
 	usb_audio
 	sis7018
+	usb_audio
 ;
 
 SYSTEM_ADD_ONS_DRIVERS_AUDIO_OLD +=
