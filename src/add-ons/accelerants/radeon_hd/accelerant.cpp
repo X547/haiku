@@ -36,7 +36,7 @@
 
 #define TRACE_ACCELERANT
 #ifdef TRACE_ACCELERANT
-#	define TRACE(x...) _sPrintf("radeon_hd: " x)
+#	define TRACE(x...) printf("radeon_hd: " x)
 #else
 #	define TRACE(x...) ;
 #endif

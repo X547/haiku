@@ -17,6 +17,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 #include "accelerant.h"
 #include "accelerant_protos.h"
@@ -28,13 +29,12 @@
 
 #define TRACE_DISPLAY
 #ifdef TRACE_DISPLAY
-extern "C" void _sPrintf(const char* format, ...);
-#   define TRACE(x...) _sPrintf("radeon_hd: " x)
+#   define TRACE(x...) printf("radeon_hd: " x)
 #else
 #   define TRACE(x...) ;
 #endif
 
-#define ERROR(x...) _sPrintf("radeon_hd: " x)
+#define ERROR(x...) printf("radeon_hd: " x)
 
 
 /*! Populate regs with device dependant register locations */
@@ -806,7 +806,7 @@ display_crtc_fb_set(uint8 crtcID, display_mode* mode)
 	TRACE("%s: Framebuffer at: 0x%" B_PRIX64 "\n", __func__, fbAddress);
 
 	if (info.chipsetID >= RADEON_RV770) {
-		TRACE("%s: Set SurfaceAddress High: 0x%" B_PRIX32 "\n",
+		TRACE("%s: Set SurfaceAddress High: 0x%" B_PRIX64 "\n",
 			__func__, (fbAddress >> 32) & 0xf);
 
 		Write32(OUT, regs->grphPrimarySurfaceAddrHigh,
