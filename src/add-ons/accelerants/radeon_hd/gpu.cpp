@@ -24,12 +24,12 @@
 
 #define TRACE_GPU
 #ifdef TRACE_GPU
-#   define TRACE(x...) _sPrintf("radeon_hd: " x)
+#   define TRACE(x...) printf("radeon_hd: " x)
 #else
 #   define TRACE(x...) ;
 #endif
 
-#define ERROR(x...) _sPrintf("radeon_hd: " x)
+#define ERROR(x...) printf("radeon_hd: " x)
 
 
 status_t

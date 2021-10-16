@@ -19,7 +19,7 @@
 
 #define TRACE_ATOM
 #ifdef TRACE_ATOM
-#   define TRACE(x...) _sPrintf("radeon_hd: " x)
+#   define TRACE(x...) printf("radeon_hd: " x)
 #else
 #   define TRACE(x...) ;
 #endif
