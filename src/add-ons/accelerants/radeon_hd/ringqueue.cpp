@@ -11,17 +11,17 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 
 #define TRACE_RENDER_QUEUE
 #ifdef TRACE_RENDER_QUEUE
-extern "C" void _sPrintf(const char* format, ...);
-#   define TRACE(x...) _sPrintf("radeon_hd: " x)
+#   define TRACE(x...) printf("radeon_hd: " x)
 #else
 #   define TRACE(x...) ;
 #endif
 
-#define ERROR(x...) _sPrintf("radeon_hd: " x)
+#define ERROR(x...) printf("radeon_hd: " x)
 
 
 static const char* queueName[RADEON_QUEUE_MAX] = {
@@ -51,7 +51,7 @@ RingQueue::RingQueue(size_t sizeBytes, uint32 queueType)
 	fReadPtr(0),
 	fWritePtr(0)
 {
-	TRACE("%s: Requested %d bytes for %s RingQueue.\n", __func__, sizeBytes,
+	TRACE("%s: Requested %" B_PRIuSIZE " bytes for %s RingQueue.\n", __func__, sizeBytes,
 		queueName[fQueueType]);
 
 	size_t renderQueueSize = compute_order(sizeBytes / 8);
@@ -59,7 +59,7 @@ RingQueue::RingQueue(size_t sizeBytes, uint32 queueType)
 	fWriteBytesAvail = fSize;
 	fAlignMask = 16 - 1;
 
-	TRACE("%s: Allocating %d bytes for %s RingQueue.\n", __func__, fSize,
+	TRACE("%s: Allocating %" B_PRIuSIZE " bytes for %s RingQueue.\n", __func__, fSize,
 		queueName[fQueueType]);
 
 	// Allocate buffer memory
