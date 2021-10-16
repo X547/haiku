@@ -26,13 +26,12 @@
 
 #define TRACE_PLL
 #ifdef TRACE_PLL
-extern "C" void _sPrintf(const char* format, ...);
-#   define TRACE(x...) _sPrintf("radeon_hd: " x)
+#   define TRACE(x...) printf("radeon_hd: " x)
 #else
 #   define TRACE(x...) ;
 #endif
 
-#define ERROR(x...) _sPrintf("radeon_hd: " x)
+#define ERROR(x...) printf("radeon_hd: " x)
 
 // Pixel Clock Storage
 // kHz			Value			Result
