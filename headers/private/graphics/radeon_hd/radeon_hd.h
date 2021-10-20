@@ -508,4 +508,10 @@ struct hardware_status {
 	uint32	store[1008];
 };
 
+enum {
+	ACCELERANT_RADEON_DRM_IOCTL = B_ACCELERANT_PRIVATE_START,
+	ACCELERANT_RADEON_DRM_MAP,
+	ACCELERANT_RADEON_DRM_UNMAP,
+};
+
 #endif	/* RADEON_HD_H */
