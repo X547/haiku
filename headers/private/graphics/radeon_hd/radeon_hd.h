@@ -294,4 +294,10 @@ struct radeon_free_graphics_memory {
 #define CONFIG_MEMSIZE_TAHITI			0x03de	// tahiti>
 
 
+enum {
+	ACCELERANT_RADEON_DRM_IOCTL = B_ACCELERANT_PRIVATE_START,
+	ACCELERANT_RADEON_DRM_MAP,
+	ACCELERANT_RADEON_DRM_UNMAP,
+};
+
 #endif	/* RADEON_HD_H */
