@@ -49,6 +49,10 @@ status_t radeon_acquire_engine(uint32 capabilities, uint32 maxWait,
 status_t radeon_release_engine(engine_token* engineToken,
 	sync_token* syncToken);
 
+int radeon_drm_ioctl(int fd, unsigned long request, void* arg);
+void* radeon_drm_map(void* addr, size_t length, int prot, int flags, int fd, off_t offset);
+int radeon_drm_unmap(void* addr, size_t length);
+
 
 #ifdef __cplusplus
 }
