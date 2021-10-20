@@ -24,5 +24,6 @@ Addon radeon_hd.accelerant :
 	mode.cpp
 	pll.cpp
 	ringqueue.cpp
+	drm.cpp
 	: be libaccelerantscommon.a [ TargetLibsupc++ ]
 ;

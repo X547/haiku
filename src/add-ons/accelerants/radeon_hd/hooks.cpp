@@ -84,7 +84,15 @@ get_accelerant_hook(uint32 feature, void* data)
 		case B_FILL_SPAN:
 			return (void*)radeon_fill_span;
 		*/
+
+	case ACCELERANT_RADEON_DRM_IOCTL:
+		return (void*)radeon_drm_ioctl;
+	case ACCELERANT_RADEON_DRM_MAP:
+		return (void*)radeon_drm_map;
+	case ACCELERANT_RADEON_DRM_UNMAP:
+		return (void*)radeon_drm_unmap;
 	}
+
 
 	return NULL;
 }
