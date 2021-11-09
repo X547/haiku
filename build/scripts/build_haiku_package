@@ -109,7 +109,7 @@ done
 
 # mimeset the whole package content
 echo "$packageName: mimeset'ing package contents ..."
-$mimeset --mimedb "$mimeDB" "$contentsDir"
+mimeset --mimedb "$mimeDB" "$contentsDir"
 
 
 # create the package
