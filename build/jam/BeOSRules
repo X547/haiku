@@ -178,8 +178,7 @@ rule MimeSet target
 
 actions MimeSet1
 {
-	$(HOST_ADD_BUILD_COMPATIBILITY_LIB_DIR) \
-	$(2[1]) -f --mimedb "$(2[2])" "$(1)"
+	mimeset -f --mimedb "$(2[2])" "$(1)"
 }
 
 
