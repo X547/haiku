@@ -661,6 +661,7 @@ int32 api_version = B_CUR_DRIVER_API_VERSION;
 char* gDeviceNames[MAX_CARDS + 1];
 radeon_info* gDeviceInfo[MAX_CARDS];
 pci_module_info* gPCI;
+pci_x86_module_info* gPCIx86Module = NULL;
 mutex gLock;
 
 
@@ -735,6 +736,13 @@ init_driver(void)
 
 	mutex_init(&gLock, "radeon hd ksync");
 
+	// Try to get the PCI x86 module as well so we can enable possible MSIs.
+	if (get_module(B_PCI_X86_MODULE_NAME,
+			(module_info **)&gPCIx86Module) != B_OK) {
+		ERROR("failed to get pci x86 module\n");
+		gPCIx86Module = NULL;
+	}
+
 	// find devices
 
 	int32 found = 0;
@@ -794,6 +802,10 @@ init_driver(void)
 		mutex_destroy(&gLock);
 		put_module(B_AGP_GART_MODULE_NAME);
 		put_module(B_PCI_MODULE_NAME);
+		if (gPCIx86Module != NULL) {
+			gPCIx86Module = NULL;
+			put_module(B_PCI_X86_MODULE_NAME);
+		}
 		ERROR("%s: no supported devices found\n", __func__);
 		return ENODEV;
 	}
@@ -817,6 +829,10 @@ uninit_driver(void)
 	}
 
 	put_module(B_PCI_MODULE_NAME);
+	if (gPCIx86Module != NULL) {
+		gPCIx86Module = NULL;
+		put_module(B_PCI_X86_MODULE_NAME);
+	}
 }
 
 

@@ -13,7 +13,7 @@
 #include <AGP.h>
 #include <KernelExport.h>
 #include <PCI.h>
-
+#include <PCI_x86.h>
 
 #include "radeon_hd.h"
 #include "lock.h"
@@ -43,6 +43,9 @@ struct radeon_info {
 
 	struct radeon_shared_info* shared_info;
 	area_id			shared_area;
+
+	uint8			irq;
+	bool			use_msi;
 
 	uint32			pciID;
 	const char*		deviceName;
