@@ -15,6 +15,8 @@ if $(TARGET_PLATFORM) = libbe_test {
 UseLibraryHeaders agg png ;
 UseBuildFeatureHeaders zlib ;
 UsePrivateHeaders [ FDirName graphics common ] ;
+UseHeaders [ FDirName $(HAIKU_TOP) headers libs videostreams ] : true ;
+UseHeaders [ FDirName $(HAIKU_TOP) headers libs threadlink ] : true ;
 
 # headers/build/private/kernel is needed for safemode.h and syscalls.h.
 # headers/private/kernel for the util/* stuff.
@@ -90,11 +92,12 @@ LINKFLAGS on libhwinterfaceimpl.so += -lbe ;
 SharedLibrary libhwinterfaceimpl.so :
 	ViewHWInterface.cpp
 	DWindowHWInterface.cpp
+	VideoProducerHWInterface.cpp
 	MultiLocker.cpp
 
 #	libraries
 	:
-	libhwinterface.so
+	libhwinterface.so libvideostreams.so libthreadlink.a
 	[ TargetLibstdc++ ]
 ;
 
