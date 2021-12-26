@@ -30,6 +30,7 @@ using std::nothrow;
 #else
 #	include "ViewHWInterface.h"
 #	include "DWindowHWInterface.h"
+#	include "VideoProducerHWInterface.h"
 #endif
 
 
@@ -74,7 +75,8 @@ ScreenManager::ScreenManager()
 #	if defined(USE_DIRECT_WINDOW_TEST_MODE)
 	_AddHWInterface(new DWindowHWInterface());
 #	else
-	_AddHWInterface(new ViewHWInterface());
+	//_AddHWInterface(new ViewHWInterface());
+	_AddHWInterface(new VideoProducerHWInterface());
 #	endif
 #else
 	_ScanDrivers();
@@ -141,7 +143,8 @@ ScreenManager::AcquireScreens(ScreenOwner* owner, int32* wishList,
 		// also target specific accelerants to support other graphics cards
 		HWInterface* interface;
 #ifdef HAIKU_TARGET_PLATFORM_LIBBE_TEST
-		interface = new(nothrow) ViewHWInterface();
+		//interface = new(nothrow) ViewHWInterface();
+		interface = new(nothrow) VideoProducerHWInterface();
 #else
 		interface = new(nothrow) RemoteHWInterface(target);
 #endif
@@ -189,6 +192,7 @@ ScreenManager::ScreenChanged(Screen* screen)
 }
 
 
+#ifndef HAIKU_TARGET_PLATFORM_LIBBE_TEST
 void
 ScreenManager::_ScanDrivers()
 {
@@ -211,6 +215,7 @@ ScreenManager::_ScanDrivers()
 	}
 #endif
 }
+#endif
 
 
 ScreenManager::screen_item*
