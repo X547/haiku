@@ -1,0 +1,18 @@
+SubDir HAIKU_TOP src libs threadlink ;
+
+AddSubDirSupportedPlatforms libbe_test ;
+
+UseHeaders [ FDirName $(HAIKU_TOP) headers libs threadlink ] : true ;
+UseHeaders [ FDirName $(HAIKU_TOP) headers private app ] : true ;
+UseHeaders [ FDirName $(HAIKU_TOP) headers private shared ] : true ;
+
+local architectureObject ;
+for architectureObject in [ MultiArchSubDirSetup ] {
+	on $(architectureObject) {
+
+		StaticLibrary [ MultiArchDefaultGristFiles libthreadlink.a ] :
+			ClientThreadLink.cpp
+			ServerThreadLink.cpp
+			;
+	}
+}
