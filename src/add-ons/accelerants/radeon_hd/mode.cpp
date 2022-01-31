@@ -215,7 +215,7 @@ radeon_set_display_mode(display_mode* mode)
 	// Set up PLL for connector
 	pll_pick(connectorIndex);
 	pll_info* pll = &gConnector[connectorIndex]->encoder.pll;
-	TRACE("%s: pll %d selected for connector %" B_PRIu32 "\n", __func__,
+	TRACE("%s: pll %" B_PRIu32 " selected for connector %" B_PRIu32 "\n", __func__,
 		pll->id, connectorIndex);
 	pll_set(mode, crtcID);
 
@@ -237,25 +237,25 @@ radeon_set_display_mode(display_mode* mode)
 	// for debugging
 	debug_dp_info();
 
-	TRACE("D1CRTC_STATUS        Value: 0x%X\n",
+	TRACE("D1CRTC_STATUS        Value: 0x%" B_PRIX32 "\n",
 		Read32(CRT, AVIVO_D1CRTC_STATUS));
-	TRACE("D2CRTC_STATUS        Value: 0x%X\n",
+	TRACE("D2CRTC_STATUS        Value: 0x%" B_PRIX32 "\n",
 		Read32(CRT, AVIVO_D2CRTC_STATUS));
-	TRACE("D1CRTC_CONTROL       Value: 0x%X\n",
+	TRACE("D1CRTC_CONTROL       Value: 0x%" B_PRIX32 "\n",
 		Read32(CRT, AVIVO_D1CRTC_CONTROL));
-	TRACE("D2CRTC_CONTROL       Value: 0x%X\n",
+	TRACE("D2CRTC_CONTROL       Value: 0x%" B_PRIX32 "\n",
 		Read32(CRT, AVIVO_D2CRTC_CONTROL));
-	TRACE("D1GRPH_ENABLE        Value: 0x%X\n",
+	TRACE("D1GRPH_ENABLE        Value: 0x%" B_PRIX32 "\n",
 		Read32(CRT, AVIVO_D1GRPH_ENABLE));
-	TRACE("D2GRPH_ENABLE        Value: 0x%X\n",
+	TRACE("D2GRPH_ENABLE        Value: 0x%" B_PRIX32 "\n",
 		Read32(CRT, AVIVO_D2GRPH_ENABLE));
-	TRACE("D1SCL_ENABLE         Value: 0x%X\n",
+	TRACE("D1SCL_ENABLE         Value: 0x%" B_PRIX32 "\n",
 		Read32(CRT, AVIVO_D1SCL_SCALER_ENABLE));
-	TRACE("D2SCL_ENABLE         Value: 0x%X\n",
+	TRACE("D2SCL_ENABLE         Value: 0x%" B_PRIX32 "\n",
 		Read32(CRT, AVIVO_D2SCL_SCALER_ENABLE));
-	TRACE("D1CRTC_BLANK_CONTROL Value: 0x%X\n",
+	TRACE("D1CRTC_BLANK_CONTROL Value: 0x%" B_PRIX32 "\n",
 		Read32(CRT, AVIVO_D1CRTC_BLANK_CONTROL));
-	TRACE("D2CRTC_BLANK_CONTROL Value: 0x%X\n",
+	TRACE("D2CRTC_BLANK_CONTROL Value: 0x%" B_PRIX32 "\n",
 		Read32(CRT, AVIVO_D1CRTC_BLANK_CONTROL));
 	#endif
 
@@ -284,9 +284,9 @@ radeon_get_frame_buffer_config(frame_buffer_config* config)
 
 	config->bytes_per_row = gInfo->shared_info->bytes_per_row;
 
-	TRACE("  config->frame_buffer: %#" B_PRIxADDR "\n",
+	TRACE("  config->frame_buffer: %#" B_PRIxPHYSADDR "\n",
 		(phys_addr_t)config->frame_buffer);
-	TRACE("  config->frame_buffer_dma: %#" B_PRIxADDR "\n",
+	TRACE("  config->frame_buffer_dma: %#" B_PRIxPHYSADDR "\n",
 		(phys_addr_t)config->frame_buffer_dma);
 	TRACE("  config->bytes_per_row: %" B_PRIu32 "\n", config->bytes_per_row);
 
@@ -492,11 +492,11 @@ radeon_set_brightness(float brightness)
 	uint32_t backlightReg = radeon_get_backlight_register();
 	uint8_t brightnessRaw = (uint8_t)ceilf(brightness * 255);
 	uint32_t level = Read32(OUT, backlightReg);
-	TRACE("brightness level = %lx\n", level);
+	TRACE("brightness level = %" PRIx32 "\n", level);
 	level &= ~ATOM_S2_CURRENT_BL_LEVEL_MASK;
 	level |= (( brightnessRaw << ATOM_S2_CURRENT_BL_LEVEL_SHIFT )
 					& ATOM_S2_CURRENT_BL_LEVEL_MASK);
-	TRACE("new brightness level = %lx\n", level);
+	TRACE("new brightness level = %" PRIx32 "\n", level);
 
 	Write32(OUT, backlightReg, level);
 

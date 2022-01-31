@@ -27,7 +27,7 @@
 #include "encoder.h"
 
 
-#define TRACE_DISPLAY
+//#define TRACE_DISPLAY
 #ifdef TRACE_DISPLAY
 #   define TRACE(x...) printf("radeon_hd: " x)
 #else
@@ -75,7 +75,7 @@ init_registers(register_info* regs, uint8 crtcID)
 				regs->vgaControl = EVERGREEN_D6VGA_CONTROL;
 				break;
 			default:
-				ERROR("%s: Unknown CRTC %" B_PRIu32 "\n",
+				ERROR("%s: Unknown CRTC %" B_PRIu8 "\n",
 					__func__, crtcID);
 				return B_ERROR;
 		}
@@ -127,7 +127,7 @@ init_registers(register_info* regs, uint8 crtcID)
 					= R700_D2GRPH_PRIMARY_SURFACE_ADDRESS_HIGH;
 				break;
 			default:
-				ERROR("%s: Unknown CRTC %" B_PRIu32 "\n",
+				ERROR("%s: Unknown CRTC %" B_PRIu8 "\n",
 					__func__, crtcID);
 				return B_ERROR;
 		}
@@ -170,7 +170,7 @@ init_registers(register_info* regs, uint8 crtcID)
 				regs->vgaControl = AVIVO_D2VGA_CONTROL;
 				break;
 			default:
-				ERROR("%s: Unknown CRTC %" B_PRIu32 "\n",
+				ERROR("%s: Unknown CRTC %" B_PRIu8 "\n",
 					__func__, crtcID);
 				return B_ERROR;
 		}

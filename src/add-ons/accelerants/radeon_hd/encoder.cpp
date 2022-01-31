@@ -1146,7 +1146,7 @@ encoder_dac_load_detect(uint32 connectorIndex)
 	if ((connectorFlags & ATOM_DEVICE_TV_SUPPORT) == 0
 		&& (connectorFlags & ATOM_DEVICE_CV_SUPPORT) == 0
 		&& (connectorFlags & ATOM_DEVICE_CRT_SUPPORT) == 0) {
-		ERROR("%s: executed on non-dac device connector #%" B_PRIu8 "\n",
+		ERROR("%s: executed on non-dac device connector #%" B_PRIu32 "\n",
 			__func__, connectorIndex);
 		return false;
 	}
