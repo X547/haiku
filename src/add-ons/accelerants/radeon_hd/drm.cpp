@@ -21,7 +21,7 @@ void* radeon_drm_map(void* addr, size_t length, int prot, int flags, int fd, off
 
 int radeon_drm_unmap(void* addr, size_t length)
 {
-	printf("radeon_drm_unmap(%#" B_PRIx64 ", %#" B_PRIxSIZE ")\n", (addr_t)addr, length);
+	printf("radeon_drm_unmap(%#" B_PRIxADDR ", %#" B_PRIxSIZE ")\n", (addr_t)addr, length);
 	area_id area = area_for(addr);
 	if (area < B_OK)
 		return area;

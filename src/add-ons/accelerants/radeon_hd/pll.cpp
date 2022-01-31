@@ -24,7 +24,7 @@
 #include "utility.h"
 
 
-#define TRACE_PLL
+//#define TRACE_PLL
 #ifdef TRACE_PLL
 #   define TRACE(x...) printf("radeon_hd: " x)
 #else
