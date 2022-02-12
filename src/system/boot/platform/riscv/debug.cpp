@@ -32,6 +32,7 @@ dprintf_args(const char* format, va_list args)
 extern "C" void
 dprintf(const char* format, ...)
 {
+	return;
 	va_list args;
 
 	va_start(args, format);

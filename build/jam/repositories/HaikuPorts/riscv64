@@ -5,46 +5,83 @@ RemotePackageRepository HaikuPorts
 	# architecture "any" packages
 	be_book-2008_10_26-3
 	ca_root_certificates-2021_07_05-1
-	gnu_efi_kernel-3.0.10-1
 	haikuporter-1.2.5-1
 	noto-20200106-1
+	noto_sans_cjk_jp-1.004-2
 	timgmsoundfont-fixed-5
 	wqy_microhei-0.2.0~beta-4
+	intel_wifi_firmwares-2019_11_02-1
+	realtek_wifi_firmwares-2019_01_02-1
+	ralink_wifi_firmwares-2015_02_11-1
 	:
 	# repository architecture packages
 	# primary architecture (riscv64)
 	bash-4.4.023-1
 	binutils-2.36.1_2021_09_21-2
 	bison-3.0.5-1
+	bzip2_devel-1.0.8-1
+	bzip2-1.0.8-1
 	coreutils-8.22-1
-	curl-7.40.0-1
 	curl_devel-7.40.0-1
-	expat-2.4.1-1
+	curl-7.40.0-1
+	diffutils-3.7-1
 	expat_devel-2.4.1-1
+	expat-2.4.1-1
+	ffmpeg_avdevice-4.3-2
+	ffmpeg_devel-4.3-2
+	ffmpeg_tools-4.3-2
+	ffmpeg-4.3-2
 	findutils-4.6.0-1
 	flex-2.5.35-1
-	freetype-2.6.3-1
+	fluidlite_devel-1.0.0-3
+	fluidlite-1.0.0-3
 	freetype_devel-2.6.3-1
+	freetype-2.6.3-1
 	gawk-3.1.8-2
-	gcc-11.2.0_2021_07_28-3
 	gcc_syslibs_devel-11.2.0_2021_07_28-3
 	gcc_syslibs-11.2.0_2021_07_28-3
-	icu-67.1-2
-	icu_devel-67.1-2
+	gcc-11.2.0_2021_07_28-3
+	giflib_devel-5.2.1-1
+	giflib-5.2.1-1
+	grep-2.14-1
+	gzip-1.10-1
+	icu_devel-57.2-2
+	icu-57.2-2
 	less-451-1
-	libsolv-0.3.0_haiku_2014_12_22-1
+	libedit_devel-20210419_3.1-1
+	libedit-20210419_3.1-1
+	libiconv-1.16-1
+	libogg_devel-1.3.4-1
+	libogg-1.3.4-1
+	libpng16_devel-1.6.37-1
+	libpng16-1.6.37-1
 	libsolv_devel-0.3.0_haiku_2014_12_22-1
+	libsolv-0.3.0_haiku_2014_12_22-1
+	libvorbis_devel-1.3.7-1
+	libvorbis-1.3.7-1
 	m4-1.4.16-1
 	make-4.3-1
-	ncurses6-6.2-1
+	mandoc-1.14.3-2
+	nano-5.7-1
 	ncurses6_devel-6.2-1
+	ncurses6-6.2-1
+	openssh-8.4p1-2
+	openssl_devel-1.1.1k-1
+	openssl_man-1.1.1k-1
+	openssl-1.1.1k-1
 	python-2.7.6-1
 	sed-4.2.1-1
+	tar-1.34-1
 	texinfo-4.13a-1
-	zstd-1.5.0-2
-	zstd_devel-1.5.0-2
-	zlib-1.2.11-1
+	unzip-6.10c23-4
+	wget-1.21.1-1
+	xz_utils_devel-5.2.5-1
+	xz_utils-5.2.5-1
+	zip-3.0-4
 	zlib_devel-1.2.11-1
+	zlib-1.2.11-1
+	zstd_devel-1.5.0-2
+	zstd-1.5.0-2
 	:
 	# source packages
 	apr
