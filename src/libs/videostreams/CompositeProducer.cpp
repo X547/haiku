@@ -3,6 +3,7 @@
 #include "CompositeConsumer.h"
 
 #include <Looper.h>
+#include <Application.h>
 
 
 inline int32 ReplaceError(int32 err, int32 replaceWith) {return err < B_OK ? replaceWith : err;}
@@ -33,8 +34,7 @@ Surface* BuildTestSurface(BRect rect)
 */
 
 CompositeProducer::CompositeProducer(const char* name):
-	TestProducerBase(name),
-	fSequence(0)
+	VideoProducer(name), fUpdateRequested(false)
 {
 /*
 	for (int i = 0; i < 4; i++) {
@@ -50,12 +50,6 @@ CompositeProducer::~CompositeProducer()
 	}
 }
 
-
-void CompositeProducer::Prepare(BRegion& dirty)
-{
-	dirty = fDirty;
-	fDirty.MakeEmpty();
-}
 
 static void DrawSurface(const RasBuf32& dst, Surface* surf, const BRegion& clipping)
 {
@@ -99,38 +93,92 @@ void CompositeProducer::Restore(const BRegion& dirty)
 			DrawSurface(dst, surf, dirty);
 		}
 	}
-
-	fSequence++;
 }
 
 
 void CompositeProducer::Connected(bool isActive)
 {
 	if (isActive) {
-		fSequence = 0;
+		printf("TestProducer: connected to ");
+		WriteMessenger(Link());
+		printf("\n");
+
+		SwapChainSpec spec;
+		BufferSpec buffers[2];
+		spec.size = sizeof(SwapChainSpec);
+		spec.presentEffect = presentEffectSwap;
+		spec.bufferCnt = 2;
+		spec.bufferSpecs = buffers;
+		for (uint32 i = 0; i < spec.bufferCnt; i++) {
+			buffers[i].colorSpace = B_RGBA32;
+		}
+		if (RequestSwapChain(spec) < B_OK) {
+			printf("[!] can't request swap chain\n");
+			exit(1);
+		}
+	} else {
+		printf("CompositeProducer: disconnected\n");
+		be_app_messenger.SendMessage(B_QUIT_REQUESTED);
 	}
-	TestProducerBase::Connected(isActive);
 }
 
 void CompositeProducer::SwapChainChanged(bool isValid)
 {
-	if (!isValid) {
-		fMessageRunner.Unset();
+	VideoProducer::SwapChainChanged(isValid);
+	printf("TestProducer::SwapChainChanged(%d)\n", isValid);
+
+	fMappedBuffers.Unset();
+
+	if (isValid) {
+		printf("  swapChain: \n");
+		printf("    size: %" B_PRIuSIZE "\n", GetSwapChain().size);
+		printf("    bufferCnt: %" B_PRIu32 "\n", GetSwapChain().bufferCnt);
+		printf("    buffers:\n");
+		for (uint32 i = 0; i < GetSwapChain().bufferCnt; i++) {
+			printf("      %" B_PRIu32 "\n", i);
+			printf("        area: %" B_PRId32 "\n", GetSwapChain().buffers[i].ref.area.id);
+			printf("        offset: %" B_PRIuSIZE "\n", GetSwapChain().buffers[i].ref.offset);
+			printf("        length: %" B_PRIu64 "\n", GetSwapChain().buffers[i].ref.size);
+			printf("        bytesPerRow: %" B_PRIu32 "\n", GetSwapChain().buffers[i].format.bytesPerRow);
+			printf("        width: %" B_PRIu32 "\n", GetSwapChain().buffers[i].format.width);
+			printf("        height: %" B_PRIu32 "\n", GetSwapChain().buffers[i].format.height);
+			printf("        colorSpace: %d\n", GetSwapChain().buffers[i].format.colorSpace);
+		}
+
+		fMappedBuffers.SetTo(new MappedBuffer[GetSwapChain().bufferCnt]);
+		for (uint32 i = 0; i < GetSwapChain().bufferCnt; i++) {
+			auto &mappedBuffer = fMappedBuffers[i];
+			mappedBuffer.area = AreaCloner::Map(GetSwapChain().buffers[i].ref.area.id);
+			if (mappedBuffer.area->GetAddress() == NULL) {
+				printf("[!] mappedArea.adr == NULL\n");
+				return;
+			}
+			mappedBuffer.bits = mappedBuffer.area->GetAddress() + GetSwapChain().buffers[i].ref.offset;
+		}
+
+		fValidPrevBufCnt = 0;
+		
+		Produce();
 	}
-	TestProducerBase::SwapChainChanged(isValid);
 }
 
 void CompositeProducer::Presented()
 {
 	// printf("CompositeProducer::Presented()\n");
-	//fMessageRunner.SetTo(new BMessageRunner(BMessenger(this), BMessage(stepMsg), 1000000/60, 1));
-	TestProducerBase::Presented();
+	if (!fUpdateRequested && fDirty.CountRects() > 0) {
+		fUpdateRequested = true;
+		BMessage msg(stepMsg);
+		BMessenger(this).SendMessage(&msg);
+	}
+	VideoProducer::Presented();
 }
 
 void CompositeProducer::MessageReceived(BMessage* msg)
 {
 	switch (msg->what) {
 	case stepMsg: {
+		printf("stepMsg\n");
+		fUpdateRequested = false;
 		Produce();
 		return;
 	}
@@ -210,8 +258,62 @@ void CompositeProducer::MessageReceived(BMessage* msg)
 	}
 	}
 
-	TestProducerBase::MessageReceived(msg);
+	VideoProducer::MessageReceived(msg);
 };
+
+
+void CompositeProducer::FillRegion(const BRegion& region, uint32 color)
+{
+	RasBuf32 rb = RenderBufferRasBuf();
+	for (int32 i = 0; i < region.CountRects(); i++) {
+		clipping_rect rect = region.RectAtInt(i);
+		rb.Clip2(rect.left, rect.top, rect.right + 1, rect.bottom + 1).Clear(color);
+	}
+}
+
+void CompositeProducer::Produce()
+{
+	if (!SwapChainValid() /*|| RenderBufferId() < 0*/) return;
+	
+	if (RenderBufferId() < 0) {
+		printf("[!] RenderBufferId() < 0\n");
+		BRegion dirty;
+		dirty = fDirty; fDirty.MakeEmpty();
+		return;
+	}
+
+	switch (GetSwapChain().presentEffect) {
+		case presentEffectSwap: {
+			BRegion dirty;
+			dirty = fDirty; fDirty.MakeEmpty();
+			BRegion combinedDirty(dirty);
+			if (fValidPrevBufCnt < 2) {
+				const VideoBuffer& buf = *RenderBuffer();
+				combinedDirty.Set(BRect(0, 0, buf.format.width - 1, buf.format.height - 1));
+				fValidPrevBufCnt++;
+			} else {
+				combinedDirty.Include(&fPrevDirty);
+			}
+			Restore(combinedDirty);
+			fPrevDirty = dirty;
+			Present(fValidPrevBufCnt == 1 ? &combinedDirty : &dirty);
+			break;
+		}
+		case presentEffectCopy:
+		default: {
+			BRegion dirty;
+			dirty = fDirty; fDirty.MakeEmpty();
+			if (fValidPrevBufCnt < 1) {
+				const VideoBuffer& buf = *RenderBuffer();
+				dirty.Set(BRect(0, 0, buf.format.width - 1, buf.format.height - 1));
+				fValidPrevBufCnt++;
+			}
+			Restore(dirty);
+			Present(&dirty);
+			break;
+		}
+	}
+}
 
 
 CompositeConsumer* CompositeProducer::NewSurface(const char* name, const SurfaceUpdate& update)
@@ -317,46 +419,14 @@ void CompositeProducer::Invalidate(const BRect rect)
 void CompositeProducer::Invalidate(const BRegion& region)
 {
 	//printf("CompositeProducer::Invalidate((%" B_PRId32 ", %" B_PRId32 ", %" B_PRId32 ", %" B_PRId32 "))\n", region.FrameInt().left, region.FrameInt().top, region.FrameInt().right, region.FrameInt().bottom);
-	bool wasDirty = fDirty.CountRects() > 0;
 	fDirty.Include(&region);
-	if (!wasDirty && fDirty.CountRects() > 0) {
-		fMessageRunner.SetTo(new BMessageRunner(BMessenger(this), BMessage(stepMsg), 1000000/60, 1));
+	if (!fUpdateRequested && fDirty.CountRects() > 0 && RenderBufferId() >= 0) {
+		fUpdateRequested = true;
+		BMessage msg(stepMsg);
+		BMessenger(this).SendMessage(&msg);
 	}
 }
 
-
-status_t GetRegion(BMessage& msg, const char* name, BRegion*& region)
-{
-	if (msg.HasInt32(name)) {
-		// NULL mark
-		region = NULL;
-		return B_OK;
-	}
-	BRect rect;
-	CheckRet(msg.FindRect(name, 0, &rect));
-	region->MakeEmpty();
-	for (int32 i = 0; msg.FindRect(name, i, &rect) >= B_OK; i++) {
-		region->Include(rect);
-	}
-	return B_OK;
-}
-
-status_t SetRegion(BMessage& msg, const char* name, const BRegion* region)
-{
-	if (region == NULL) {
-		// NULL mark
-		CheckRet(msg.AddInt32(name, 0));
-		return B_OK;
-	}
-	if (region->CountRects() == 0) {
-		CheckRet(msg.AddRect(name, BRect()));
-	} else {
-		for (int32 i = 0; i < region->CountRects(); i++) {
-			CheckRet(msg.AddRect(name, region->RectAt(i)));
-		}
-	}
-	return B_OK;
-}
 
 status_t GetSurfaceUpdate(BMessage& msg, SurfaceUpdate& update)
 {

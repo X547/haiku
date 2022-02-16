@@ -4,6 +4,7 @@
 #include <VideoProducer.h>
 
 #include "RasBuf.h"
+#include "AreaCloner.h"
 
 #include <Region.h>
 #include <private/shared/AutoDeleter.h>
@@ -12,31 +13,10 @@
 #include <stdio.h>
 #include <map>
 
-
 struct MappedBuffer
 {
-	area_id area;
+	BReference<MappedArea> area;
 	uint8* bits;
-};
-
-struct MappedArea
-{
-	AreaDeleter area;
-	uint8* adr;
-
-	MappedArea(area_id srcArea):
-		area(clone_area("cloned buffer", (void**)&adr, B_ANY_ADDRESS, B_READ_AREA | B_WRITE_AREA, srcArea))
-	{
-		if (!area.IsSet()) {
-			printf("can't clone area, assuming kernel area\n");
-			area_info info;
-			if (get_area_info(srcArea, &info) < B_OK) {
-				adr = NULL;
-				return;
-			}
-			adr = (uint8*)info.address;
-		}
-	}
 };
 
 
@@ -44,7 +24,6 @@ class _EXPORT TestProducerBase: public VideoProducer
 {
 private:
 	ArrayDeleter<MappedBuffer> fMappedBuffers;
-	std::map<area_id, MappedArea> fMappedAreas;
 	uint32 fValidPrevBufCnt;
 
 	BRegion fPrevDirty;
@@ -73,9 +52,9 @@ RasBuf32 TestProducerBase::RenderBufferRasBuf()
 	const VideoBuffer& buf = *RenderBuffer();
 	RasBuf32 rb = {
 		.colors = (uint32*)fMappedBuffers[RenderBufferId()].bits,
-		.stride = buf.bytesPerRow / 4,
-		.width = buf.width,
-		.height = buf.height,		
+		.stride = buf.format.bytesPerRow / 4,
+		.width = buf.format.width,
+		.height = buf.format.height,		
 	};
 	return rb;
 }
