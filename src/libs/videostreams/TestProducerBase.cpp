@@ -5,20 +5,46 @@
 
 void TestProducerBase::Produce()
 {
-	if (!SwapChainValid()) return;
-	BRegion dirty;
-	Prepare(dirty);
-	BRegion combinedDirty(dirty);
-	if (fValidPrevBufCnt < 2) {
-		const VideoBuffer& buf = *RenderBuffer();
-		combinedDirty.Set(BRect(0, 0, buf.width - 1, buf.height - 1));
-		fValidPrevBufCnt++;
-	} else {
-		combinedDirty.Include(&fPrevDirty);
+	if (!SwapChainValid() /*|| RenderBufferId() < 0*/) return;
+	
+	if (RenderBufferId() < 0) {
+		printf("[!] RenderBufferId() < 0\n");
+		BRegion dirty;
+		Prepare(dirty);
+		return;
 	}
-	Restore(combinedDirty);
-	fPrevDirty = dirty;
-	Present(fValidPrevBufCnt == 1 ? &combinedDirty : &dirty);
+
+	switch (GetSwapChain().presentEffect) {
+		case presentEffectSwap: {
+			BRegion dirty;
+			Prepare(dirty);
+			BRegion combinedDirty(dirty);
+			if (fValidPrevBufCnt < 2) {
+				const VideoBuffer& buf = *RenderBuffer();
+				combinedDirty.Set(BRect(0, 0, buf.format.width - 1, buf.format.height - 1));
+				fValidPrevBufCnt++;
+			} else {
+				combinedDirty.Include(&fPrevDirty);
+			}
+			Restore(combinedDirty);
+			fPrevDirty = dirty;
+			Present(fValidPrevBufCnt == 1 ? &combinedDirty : &dirty);
+			break;
+		}
+		case presentEffectCopy:
+		default: {
+			BRegion dirty;
+			Prepare(dirty);
+			if (fValidPrevBufCnt < 1) {
+				const VideoBuffer& buf = *RenderBuffer();
+				dirty.Set(BRect(0, 0, buf.format.width - 1, buf.format.height - 1));
+				fValidPrevBufCnt++;
+			}
+			Restore(dirty);
+			Present(&dirty);
+			break;
+		}
+	}
 }
 
 
@@ -73,7 +99,6 @@ void TestProducerBase::SwapChainChanged(bool isValid)
 	VideoProducer::SwapChainChanged(isValid);
 	printf("TestProducer::SwapChainChanged(%d)\n", isValid);
 
-	fMappedAreas.clear();
 	fMappedBuffers.Unset();
 
 	if (isValid) {
@@ -83,29 +108,26 @@ void TestProducerBase::SwapChainChanged(bool isValid)
 		printf("    buffers:\n");
 		for (uint32 i = 0; i < GetSwapChain().bufferCnt; i++) {
 			printf("      %" B_PRIu32 "\n", i);
-			printf("        area: %" B_PRId32 "\n", GetSwapChain().buffers[i].area);
-			printf("        offset: %" B_PRIuSIZE "\n", GetSwapChain().buffers[i].offset);
-			printf("        length: %" B_PRIu32 "\n", GetSwapChain().buffers[i].length);
-			printf("        bytesPerRow: %" B_PRIu32 "\n", GetSwapChain().buffers[i].bytesPerRow);
-			printf("        width: %" B_PRIu32 "\n", GetSwapChain().buffers[i].width);
-			printf("        height: %" B_PRIu32 "\n", GetSwapChain().buffers[i].height);
-			printf("        colorSpace: %d\n", GetSwapChain().buffers[i].colorSpace);
+			printf("        area: %" B_PRId32 "\n", GetSwapChain().buffers[i].ref.area.id);
+			printf("        offset: %" B_PRIuSIZE "\n", GetSwapChain().buffers[i].ref.offset);
+			printf("        length: %" B_PRIu64 "\n", GetSwapChain().buffers[i].ref.size);
+			printf("        bytesPerRow: %" B_PRIu32 "\n", GetSwapChain().buffers[i].format.bytesPerRow);
+			printf("        width: %" B_PRIu32 "\n", GetSwapChain().buffers[i].format.width);
+			printf("        height: %" B_PRIu32 "\n", GetSwapChain().buffers[i].format.height);
+			printf("        colorSpace: %d\n", GetSwapChain().buffers[i].format.colorSpace);
 		}
 
 		fMappedBuffers.SetTo(new MappedBuffer[GetSwapChain().bufferCnt]);
 		for (uint32 i = 0; i < GetSwapChain().bufferCnt; i++) {
-			auto it = fMappedAreas.find(GetSwapChain().buffers[i].area);
-			if (it == fMappedAreas.end())
-				it = fMappedAreas.emplace(GetSwapChain().buffers[i].area, GetSwapChain().buffers[i].area).first;
-
-			const MappedArea& mappedArea = (*it).second;
-			if (mappedArea.adr == NULL) {
+			auto &mappedBuffer = fMappedBuffers[i];
+			mappedBuffer.area = AreaCloner::Map(GetSwapChain().buffers[i].ref.area.id);
+			if (mappedBuffer.area->GetAddress() == NULL) {
 				printf("[!] mappedArea.adr == NULL\n");
 				return;
 			}
-			fMappedBuffers[i].bits = mappedArea.adr + GetSwapChain().buffers[i].offset;
+			mappedBuffer.bits = mappedBuffer.area->GetAddress() + GetSwapChain().buffers[i].ref.offset;
 		}
-		
+
 		fValidPrevBufCnt = 0;
 		
 		Produce();
