@@ -18,14 +18,14 @@ enum BufferRefKind {
 };
 
 struct BufferRef {
-	BufferRefKind kind;
 	uint64 offset, size;
+	BufferRefKind kind;
 	union {
 		struct {
-			area_id area;
+			area_id id;
 		} area;
 		struct {
-			int32 buffer;
+			int32 id;
 			team_id team;
 		} gpu;
 	};
@@ -40,12 +40,8 @@ struct BufferFormat {
 struct VideoBuffer
 {
 	int32 id; // index in SwapChain.buffers
-	area_id area;
-	size_t offset;
-	int32 length;
-	int32 bytesPerRow;
-	int32 width, height;
-	color_space colorSpace;
+	BufferRef ref;
+	BufferFormat format;
 };
 
 

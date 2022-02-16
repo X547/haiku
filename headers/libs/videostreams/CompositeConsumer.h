@@ -26,9 +26,8 @@ public:
 	inline class Surface* GetSurface() {return fSurface;}
 
 	void Connected(bool isActive) final;
-	status_t SetupSwapChain();
 	status_t SwapChainRequested(const SwapChainSpec& spec) final;
-	virtual void Present(const BRegion* dirty) final;
+	virtual void Present(int32 bufferId, const BRegion* dirty) final;
 	BBitmap* DisplayBitmap();
 	RasBuf32 DisplayRasBuf();
 };
