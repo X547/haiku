@@ -11,15 +11,17 @@ for architectureObject in [ MultiArchSubDirSetup ] {
 	on $(architectureObject) {
 
 		SharedLibrary [ MultiArchDefaultGristFiles libvideostreams.so ] :
-			VideoNode.cpp
-			VideoProducer.cpp
-			VideoConsumer.cpp
-			CompositeProducer.cpp
+			AreaCloner.cpp
+			BufferQueue.cpp
 			CompositeConsumer.cpp
+			CompositeProducer.cpp
 			CompositeProxy.cpp
 			RasBuf.cpp
 			TestProducerBase.cpp
-			BufferQueue.cpp
+			VideoBufferUtils.cpp
+			VideoConsumer.cpp
+			VideoNode.cpp
+			VideoProducer.cpp
 			:
 			be
 			[ TargetLibstdc++ ] [ TargetLibsupc++ ]

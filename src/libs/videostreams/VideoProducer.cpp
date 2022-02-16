@@ -8,7 +8,7 @@
 
 
 VideoProducer::VideoProducer(const char* name):
-	VideoNode(name)
+	VideoNode(name), fEra(0)
 {}
 
 VideoProducer::~VideoProducer()
@@ -19,7 +19,8 @@ void VideoProducer::SwapChainChanged(bool isValid)
 {
 	int32 bufferCnt = isValid ? GetSwapChain().bufferCnt : 0;
 	fBufferPool.SetMaxLen(bufferCnt);
-	for (int32 i = 0; i < bufferCnt; i++) {
+	// buffer 0 is fixed present buffer
+	for (int32 i = (!isValid || GetSwapChain().presentEffect == presentEffectSwap) ? 0 : 1; i < bufferCnt; i++) {
 		fBufferPool.Add(i);
 	}
 }
@@ -56,6 +57,7 @@ status_t VideoProducer::Present(int32 bufferId, const BRegion* dirty)
 
 	BMessage msg(videoNodePresentMsg);
 	msg.AddInt32("bufferId", bufferId);
+	msg.AddUInt32("era", fEra);
 
 	if (dirty != NULL) {
 		for (int32 i = 0; i < dirty->CountRects(); i++) {
@@ -64,7 +66,9 @@ status_t VideoProducer::Present(int32 bufferId, const BRegion* dirty)
 	}
 
 	CheckRet(Link().SendMessage(&msg));
-	
+
+	fEra++;
+
 	return B_OK;
 }
 
@@ -78,25 +82,27 @@ status_t VideoProducer::Present(const BRegion* dirty)
 	return B_OK;
 }
 
+status_t VideoProducer::PresentedInt(int32 recycleId)
+{
+	if (recycleId >= 0) {
+		fBufferPool.Add(recycleId);
+	}
+	if (fBufferPool.Length() > 0) {
+		Presented();
+	}
+	return B_OK;
+}
+
 void VideoProducer::Presented()
 {}
-
 
 void VideoProducer::MessageReceived(BMessage* msg)
 {
 	switch (msg->what) {
 	case videoNodePresentedMsg: {
 		int32 recycleId;
-		if (msg->FindInt32("recycleId", &recycleId) >= B_OK) {
-			fBufferPool.Add(recycleId);
-		} else {
-			recycleId = -1;
-		}
-		//printf("VideoProducer::presentedMsg(%" B_PRId32 ")\n", recycleId);
-		if (RenderBufferId() >= 0) {
-			//printf("VideoProducer::Presented(%" B_PRId32 ")\n", RenderBufferId());
-			Presented();
-		}
+		if (msg->FindInt32("recycleId", &recycleId) < B_OK) recycleId = -1;
+		PresentedInt(recycleId);
 		return;
 	}
 	}

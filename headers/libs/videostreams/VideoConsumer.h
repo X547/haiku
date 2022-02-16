@@ -12,8 +12,9 @@ private:
 	BufferQueue fDisplayQueue;
 	ArrayDeleter<BRegion> fDirtyRegions;
 	int32 fDisplayBufferId;
+	uint32 fEra;
 
-	void PresentInt(int32 bufferId);
+	void PresentInt(int32 bufferId, uint32 producerEra);
 	status_t PresentedInt(int32 bufferId);
 
 public:
@@ -22,6 +23,7 @@ public:
 
 	virtual void SwapChainChanged(bool isValid);
 
+	uint32 Era() {return fEra;}
 	uint32 DisplayBufferId();
 	VideoBuffer* DisplayBuffer();
 

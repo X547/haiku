@@ -46,7 +46,7 @@ struct Surface: public DoublyLinkedListLinkImpl<Surface>
 };
 
 
-class _EXPORT CompositeProducer final: public TestProducerBase
+class _EXPORT CompositeProducer final: public VideoProducer
 {
 private:
 	enum {
@@ -54,15 +54,12 @@ private:
 	};
 
 	DoublyLinkedList<Surface> fSurfaces;
-	BRegion fDirty;
+	ArrayDeleter<MappedBuffer> fMappedBuffers;
+	uint32 fValidPrevBufCnt;
+	BRegion fDirty, fPrevDirty;
+	bool fUpdateRequested;
 
-	ObjectDeleter<BMessageRunner> fMessageRunner;
-	uint32 fSequence;
-	BRect fRect;
-
-protected:
-	void Prepare(BRegion& dirty) final;
-	void Restore(const BRegion& dirty) final;
+	void Restore(const BRegion& dirty);
 
 public:
 	CompositeProducer(const char* name);
@@ -72,6 +69,10 @@ public:
 	void SwapChainChanged(bool isValid) final;
 	void Presented() final;
 	void MessageReceived(BMessage* msg) final;
+	
+	inline RasBuf32 RenderBufferRasBuf();
+	void FillRegion(const BRegion& region, uint32 color);
+	void Produce();
 
 	CompositeConsumer* NewSurface(const char* name, const SurfaceUpdate& update);
 	status_t DeleteSurface(CompositeConsumer* cons);
@@ -82,6 +83,19 @@ public:
 	void Invalidate(const BRect rect);
 	void Invalidate(const BRegion& region);
 };
+
+
+RasBuf32 CompositeProducer::RenderBufferRasBuf()
+{
+	const VideoBuffer& buf = *RenderBuffer();
+	RasBuf32 rb = {
+		.colors = (uint32*)fMappedBuffers[RenderBufferId()].bits,
+		.stride = buf.format.bytesPerRow / 4,
+		.width = buf.format.width,
+		.height = buf.format.height,		
+	};
+	return rb;
+}
 
 
 status_t GetRegion(BMessage& msg, const char* name, BRegion*& region);
