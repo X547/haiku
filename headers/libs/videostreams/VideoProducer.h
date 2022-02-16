@@ -11,6 +11,9 @@ class _EXPORT VideoProducer: public VideoNode
 {
 private:
 	BufferQueue fBufferPool;
+	uint32 fEra;
+
+	status_t PresentedInt(int32 recycleId);
 
 public:
 	VideoProducer(const char* name = NULL);
@@ -18,6 +21,7 @@ public:
 
 	virtual void SwapChainChanged(bool isValid);
 
+	uint32 Era() {return fEra;}
 	int32 RenderBufferId();
 	int32 AllocBuffer();
 	bool FreeBuffer(int32 bufferId);
