@@ -19,10 +19,14 @@
 #include <Region.h>
 #include <String.h>
 #include <AutoDeleterOS.h>
+#include <ClientThreadLink.h>
+
+#include <pthread.h>
 
 
 class BBitmapBuffer;
 class HWInterfaceProducer;
+class CompositeProxy;
 
 
 class VideoProducerHWInterface : public HWInterface {
@@ -65,7 +69,22 @@ public:
 	virtual	void				SetCursor(ServerCursor* cursor);
 	virtual	void				SetCursorVisible(bool visible);
 	virtual	void				MoveCursorTo(float x, float y);
- 
+
+	// overlay support
+	virtual overlay_token		AcquireOverlayChannel();
+	virtual void				ReleaseOverlayChannel(overlay_token token);
+
+	virtual status_t			GetOverlayRestrictions(const Overlay* overlay,
+									overlay_restrictions* restrictions);
+	virtual bool				CheckOverlayRestrictions(int32 width,
+									int32 height, color_space colorSpace);
+	virtual const overlay_buffer* AllocateOverlayBuffer(int32 width,
+									int32 height, color_space space);
+	virtual void				FreeOverlayBuffer(const overlay_buffer* buffer);
+
+	virtual void				ConfigureOverlay(Overlay* overlay);
+	virtual void				HideOverlay(Overlay* overlay);
+
 	// frame buffer access
 	virtual	RenderingBuffer*	FrontBuffer() const;
 	virtual	RenderingBuffer*	BackBuffer() const;
@@ -80,18 +99,55 @@ protected:
 private:
 	friend class HWInterfaceProducer;
 
+	class Transaction: public BReferenceable {
+	private:
+		VideoProducerHWInterface &fBase;
+		BRegion fRegion;
+		bool fCompleted = false;
+
+		pthread_mutex_t fMutex = PTHREAD_MUTEX_INITIALIZER;
+		pthread_cond_t fCond = PTHREAD_COND_INITIALIZER;
+
+	public:
+		Transaction(VideoProducerHWInterface &base): fBase(base) {}
+		void Add(const BRegion &dirty) {fRegion.Include(&dirty);}
+		void Commit();
+		void WaitForCompletion();
+		void Complete();
+	};
+
+	class Queue {
+	private:
+		VideoProducerHWInterface &fBase;
+		pthread_mutex_t fMutex = PTHREAD_MUTEX_INITIALIZER;
+
+		enum {fMaxLen = 2};
+		BReference<Transaction> fItems[fMaxLen];
+		uint32 fBeg = 0, fLen = 0;
+
+	public:
+		Queue(VideoProducerHWInterface &base): fBase(base) {}
+		pthread_mutex_t *GetMutex() {return &fMutex;}
+		uint32 Length() {return fLen;}
+		BReference<Transaction> Insert();
+		BReference<Transaction> Remove();
+		BReference<Transaction> First();
+		BReference<Transaction> Last();
+	} fQueue;
+
 	BMessenger					fRadeonGfxMsgr;
+	ClientThreadLinkConnection	fRadeonGfxConn;
+	BMessenger					fCompositeProducerMsgr;
+	ObjectDeleter<CompositeProxy>
+								fCompositor;
+	BMessenger					fBaseSurface;
+
 	ObjectDeleter<HWInterfaceProducer>
 								fProducer;
-	SemDeleter					fPresentSem;
-	BRegion						fDirty;
-	bool						fUpdateRequested;
 
-	ObjectDeleter<BBitmapBuffer>
+	ObjectDeleter<RenderingBuffer>
 								fBackBuffer,
 								fFrontBuffer;
-
-	bool						fInCursorUpdate;
 };
 
 #endif // VIDEO_PRODUCER_HW_INTERACE_H
