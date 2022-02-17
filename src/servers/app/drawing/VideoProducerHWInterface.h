@@ -23,6 +23,7 @@
 
 class BBitmapBuffer;
 class HWInterfaceProducer;
+class CompositeProxy;
 
 
 class VideoProducerHWInterface : public HWInterface {
@@ -81,13 +82,16 @@ private:
 	friend class HWInterfaceProducer;
 
 	BMessenger					fRadeonGfxMsgr;
+	BMessenger					fCompositeProducerMsgr;
+	ObjectDeleter<CompositeProxy>
+								fCompositor;
+	BMessenger					fBaseSurface;
+
 	ObjectDeleter<HWInterfaceProducer>
 								fProducer;
 	SemDeleter					fPresentSem;
-	BRegion						fDirty;
-	bool						fUpdateRequested;
 
-	ObjectDeleter<BBitmapBuffer>
+	ObjectDeleter<RenderingBuffer>
 								fBackBuffer,
 								fFrontBuffer;
 

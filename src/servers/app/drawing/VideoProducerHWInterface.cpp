@@ -3,6 +3,8 @@
 #include <VideoProducer.h>
 #include <TestProducerBase.h>
 #include <ClientThreadLink.h>
+#include <CompositeProducer.h>
+#include <CompositeProxy.h>
 
 #include <Application.h>
 #include <Bitmap.h>
@@ -310,6 +312,45 @@ static bool FindConsumerGfx(BMessenger& consumer)
 }
 
 
+class VideoStreamsRenBuf: public RenderingBuffer {
+ public:
+								VideoStreamsRenBuf(const VideoBuffer &buf, void *bits);
+	virtual						~VideoStreamsRenBuf();
+
+	virtual	status_t			InitCheck() const;
+	virtual	bool				IsGraphicsMemory() const { return false; }
+
+	virtual	color_space			ColorSpace() const;
+	virtual	void*				Bits() const;
+	virtual	uint32				BytesPerRow() const;
+	virtual	uint32				Width() const;
+	virtual	uint32				Height() const;
+
+ private:
+			VideoBuffer fBuf;
+			void *fBits;
+};
+
+VideoStreamsRenBuf::VideoStreamsRenBuf(const VideoBuffer &buf, void *bits):
+	fBuf(buf), fBits(bits)
+{}
+
+VideoStreamsRenBuf::~VideoStreamsRenBuf()
+{}
+
+status_t VideoStreamsRenBuf::InitCheck() const
+{
+	if (fBits == NULL) return B_NO_INIT;
+	return B_OK;
+}
+
+color_space VideoStreamsRenBuf::ColorSpace() const {return fBuf.format.colorSpace;}
+void* VideoStreamsRenBuf::Bits() const {return fBits;}
+uint32 VideoStreamsRenBuf::BytesPerRow() const {return fBuf.format.bytesPerRow;}
+uint32 VideoStreamsRenBuf::Width() const {return fBuf.format.width;}
+uint32 VideoStreamsRenBuf::Height() const {return fBuf.format.height;}
+
+
 class HWInterfaceProducer final: public VideoProducer
 {
 private:
@@ -317,7 +358,6 @@ private:
 	VideoProducerHWInterface *fBase;
 
 	ArrayDeleter<MappedBuffer> fMappedBuffers;
-	std::map<area_id, MappedArea> fMappedAreas;
 
 	uint32 fValidPrevBufCnt;
 	BRegion fPrevDirty;
@@ -356,7 +396,7 @@ HWInterfaceProducer::Connected(bool isActive)
 		SwapChainSpec spec;
 		BufferSpec buffers[2];
 		spec.size = sizeof(SwapChainSpec);
-		spec.presentEffect = presentEffectSwap;
+		spec.presentEffect = presentEffectCopy;
 		spec.bufferCnt = 2;
 		spec.bufferSpecs = buffers;
 		for (uint32 i = 0; i < spec.bufferCnt; i++) {
@@ -377,22 +417,19 @@ HWInterfaceProducer::SwapChainChanged(bool isValid)
 {
 	printf("HWInterfaceProducer::SwapChainChanged(%d)\n", isValid);
 	VideoProducer::SwapChainChanged(isValid);
-	fMappedAreas.clear();
 	fMappedBuffers.Unset();
-	if (isValid) {
-		fMappedBuffers.SetTo(new MappedBuffer[GetSwapChain().bufferCnt]);
-		for (uint32 i = 0; i < GetSwapChain().bufferCnt; i++) {
-			auto it = fMappedAreas.find(GetSwapChain().buffers[i].area);
-			if (it == fMappedAreas.end())
-				it = fMappedAreas.emplace(GetSwapChain().buffers[i].area, GetSwapChain().buffers[i].area).first;
-
-			const MappedArea& mappedArea = (*it).second;
-			if (mappedArea.adr == NULL) {
-				printf("[!] mappedArea.adr == NULL\n");
-				return;
-			}
-			fMappedBuffers[i].bits = mappedArea.adr + GetSwapChain().buffers[i].offset;
+	if (!isValid) {
+		return;
+	}
+	fMappedBuffers.SetTo(new MappedBuffer[GetSwapChain().bufferCnt]);
+	for (uint32 i = 0; i < GetSwapChain().bufferCnt; i++) {
+		auto &mappedBuffer = fMappedBuffers[i];
+		mappedBuffer.area = AreaCloner::Map(GetSwapChain().buffers[i].ref.area.id);
+		if (mappedBuffer.area->GetAddress() == NULL) {
+			printf("[!] mappedArea.adr == NULL\n");
+			return;
 		}
+		mappedBuffer.bits = mappedBuffer.area->GetAddress() + GetSwapChain().buffers[i].ref.offset;
 	}
 }
 
@@ -400,11 +437,8 @@ HWInterfaceProducer::SwapChainChanged(bool isValid)
 void
 HWInterfaceProducer::Presented()
 {
-	printf("HWInterfaceProducer::Presented()\n");
-	if (fPendingDirty.CountRects() > 0) {
-		Produce(fPendingDirty);
-		fPendingDirty.MakeEmpty();
-	}
+	//printf("HWInterfaceProducer::Presented()\n");
+	//release_sem_etc(fBase->fPresentSem.Get(), 0, B_RELEASE_ALL);
 }
 
 
@@ -418,45 +452,55 @@ HWInterfaceProducer::MessageReceived(BMessage* msg)
 void
 HWInterfaceProducer::Produce(const BRegion &dirty)
 {
-	printf("HWInterfaceProducer::Produce()\n");
+	//printf("HWInterfaceProducer::Produce()\n");
 	if (!SwapChainValid()) return;
-	int32 bufId = AllocBuffer();
-	if (bufId < B_OK) {
-		printf("[!] bufId: %" B_PRId32 "\n", bufId);
-		fPendingDirty.Include(&dirty);
-		return;
+	while (RenderBuffer() == NULL) {
+		UnlockLooper();
+		snooze(100);
+		//acquire_sem(fBase->fPresentSem.Get());
+		LockLooper();
 	}
-
-	RasBuf32 dstRb{
-		.colors = (uint32*)fBase->fFrontBuffer->Bits(),
-		.stride = fBase->fFrontBuffer->BytesPerRow() / 4,
-		.width = fBase->fFrontBuffer->Width() + 1,
-		.height = fBase->fFrontBuffer->Height() + 1
-	};
-	const VideoBuffer& buf = GetSwapChain().buffers[bufId];
-	RasBuf32 renderRb{
-		.colors = (uint32*)fMappedBuffers[bufId].bits,
-		.stride = buf.bytesPerRow / 4,
-		.width = buf.width,
-		.height = buf.height,	
-	};
-
-	BRegion combinedDirty(dirty);
-	if (fValidPrevBufCnt < 2) {
-		combinedDirty.Set(BRect(0, 0, renderRb.width - 1, renderRb.height - 1));
-		fValidPrevBufCnt++;
-	} else {
-		combinedDirty.Include(&fPrevDirty);
+	Present(&dirty);
+	while (RenderBuffer() == NULL) {
+		UnlockLooper();
+		snooze(100);
+		//acquire_sem(fBase->fPresentSem.Get());
+		LockLooper();
 	}
-	for (int32 i = 0; i < combinedDirty.CountRects(); i++) {
-		(RasBufOfs<uint32>(renderRb).ClipOfs(combinedDirty.RectAt(i))).Blit(dstRb);
-	}
-	fPrevDirty = dirty;
-	Present(bufId, fValidPrevBufCnt == 1 ? &combinedDirty : &dirty);
 }
 
 
 //#pragma mark -
+
+static bool FindCompositor(BMessenger& compositor)
+{
+	BMessenger consumerApp("application/x-vnd.VideoStreams-Compositor");
+	if (!consumerApp.IsValid()) {
+		printf("[!] No TestConsumer\n");
+		return false;
+	}
+	for (int32 i = 0; ; i++) {
+		BMessage reply;
+		{
+			BMessage scriptMsg(B_GET_PROPERTY);
+			scriptMsg.AddSpecifier("Handler", i);
+			consumerApp.SendMessage(&scriptMsg, &reply);
+		}
+		int32 error;
+		if (reply.FindInt32("error", &error) >= B_OK && error < B_OK)
+			return false;
+		if (reply.FindMessenger("result", &compositor) >= B_OK) {
+			BMessage scriptMsg(B_GET_PROPERTY);
+			scriptMsg.AddSpecifier("InternalName");
+			compositor.SendMessage(&scriptMsg, &reply);
+			const char* name;
+			if (reply.FindString("result", &name) >= B_OK && strcmp(name, "compositeProducer") == 0)
+				return true;
+		}
+	}
+}
+
+inline void Check(status_t res) {if (res < B_OK) {fprintf(stderr, "Error: %s\n", strerror(res)); abort();}}
 
 VideoProducerHWInterface::VideoProducerHWInterface()
 	:
@@ -474,6 +518,27 @@ VideoProducerHWInterface::VideoProducerHWInterface()
 	ClientThreadLink *threadLink = GetClientThreadLink(fRadeonGfxMsgr);
 	auto &link = threadLink->Link();
 
+	
+	BMessenger fCompositeProducerMsgr;
+	if (!FindCompositor(fCompositeProducerMsgr)) {
+		exit(1);
+	}
+	fCompositor.SetTo(new CompositeProxy(fCompositeProducerMsgr));
+
+	be_app->Lock();
+	fProducer.SetTo(new HWInterfaceProducer(this, "hwInterfaceProducer"));
+	be_app->AddHandler(fProducer.Get());
+	be_app->Unlock();
+
+	SurfaceUpdate surfaceInfo = {
+		.valid = (1 << surfaceFrame) | (1 << surfaceDrawMode),
+		.frame = BRect(0, 0, 1920 - 1, 1080 - 1),
+		.drawMode = B_OP_COPY
+	};
+
+	Check(fCompositor->NewSurface(fBaseSurface, "app_server", surfaceInfo));
+	Check(fProducer->ConnectTo(fBaseSurface));
+#if 0
 	int32 crtc = 0;
 	int32 reply = 0;
 	BMessenger consumer;
@@ -492,13 +557,17 @@ VideoProducerHWInterface::VideoProducerHWInterface()
 		printf("[!] can't connect to consumer\n");
 		exit(1);
 	}
+	
 	be_app->Unlock();
+#endif
 }
 
 
 VideoProducerHWInterface::~VideoProducerHWInterface()
 {
 	printf("-VideoProducerHWInterface\n");
+	fProducer->ConnectTo(BMessenger());
+	Check(fCompositor->DeleteSurface(fBaseSurface));
 }
 
 
@@ -525,9 +594,8 @@ VideoProducerHWInterface::SetMode(const display_mode& mode)
 	printf("VideoProducerHWInterface::SetMode()\n");
 
 	BRect frame(0, 0, mode.virtual_width - 1, mode.virtual_height - 1);
-	BBitmap* backBitmap = new BBitmap(frame, 0, B_RGBA32);
-	fBackBuffer.SetTo(new BBitmapBuffer(backBitmap));
-	fFrontBuffer.SetTo(new BBitmapBuffer(backBitmap));
+	fBackBuffer.SetTo(new VideoStreamsRenBuf(*fProducer->RenderBuffer(), fProducer->fMappedBuffers[fProducer->RenderBufferId()].bits));
+	fFrontBuffer.SetTo(new VideoStreamsRenBuf(*fProducer->RenderBuffer(), fProducer->fMappedBuffers[fProducer->RenderBufferId()].bits));
 
 	_NotifyFrameBufferChanged();
 
@@ -793,25 +861,8 @@ status_t
 VideoProducerHWInterface::InvalidateRegion(const BRegion& dirty)
 {
 	if (fInCursorUpdate) return B_OK;
-	printf("VideoProducerHWInterface::InvalidateRegion()\n");
+	//printf("VideoProducerHWInterface::InvalidateRegion()\n");
 	if (dirty.CountRects() == 0) return B_OK;
-
-	// copy to front buffer
-	RasBuf32 srcRb{
-		.colors = (uint32*)fBackBuffer->Bits(),
-		.stride = fBackBuffer->BytesPerRow() / 4,
-		.width = fBackBuffer->Width() + 1,
-		.height = fBackBuffer->Height() + 1
-	};
-	RasBuf32 dstRb{
-		.colors = (uint32*)fFrontBuffer->Bits(),
-		.stride = fFrontBuffer->BytesPerRow() / 4,
-		.width = fFrontBuffer->Width() + 1,
-		.height = fFrontBuffer->Height() + 1
-	};
-	for (int32 i = 0; i < dirty.CountRects(); i++) {
-		(RasBufOfs<uint32>(dstRb).ClipOfs(dirty.RectAt(i))).Blit(srcRb);
-	}
 
 	if (fProducer->LockLooper()) {
 		fProducer->Produce(dirty);
