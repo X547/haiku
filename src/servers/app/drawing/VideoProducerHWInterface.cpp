@@ -1,8 +1,10 @@
 #include "VideoProducerHWInterface.h"
 
 #include <VideoProducer.h>
-#include <TestProducerBase.h>
-#include <ClientThreadLink.h>
+#include <CompositeProducer.h>
+#include <CompositeProxy.h>
+#include <VideoBuffer.h>
+#include <VideoBufferBindSW.h>
 
 #include <Application.h>
 #include <Bitmap.h>
@@ -14,14 +16,16 @@
 #include <new>
 #include <stdio.h>
 
+#include <InterfacePrivate.h>
 #include <ServerProtocol.h>
+#include <PthreadMutexLocker.h>
 #include "PortLink.h"
 #include "BBitmapBuffer.h"
+#include "AppKitPtrs.h"
 
 enum {
 	// DRM
 	radeonMmapMsg = userMsgBase,
-	radeonMunmapMsg,
 	radeonIoctlMsg,
 
 	radeonListTeams,
@@ -32,7 +36,7 @@ enum {
 	radeonSetClocks,
 	// display
 	radeonGetDisplayConsumer,
-	radeonUpdateCursor,
+	radeonUpdateCursor
 };
 
 enum {
@@ -310,14 +314,52 @@ static bool FindConsumerGfx(BMessenger& consumer)
 }
 
 
+class VideoStreamsRenBuf: public RenderingBuffer {
+ public:
+								VideoStreamsRenBuf(const VideoBuffer &buf, void *bits);
+	virtual						~VideoStreamsRenBuf();
+
+	virtual	status_t			InitCheck() const;
+	virtual	bool				IsGraphicsMemory() const { return false; }
+
+	virtual	color_space			ColorSpace() const;
+	virtual	void*				Bits() const;
+	virtual	uint32				BytesPerRow() const;
+	virtual	uint32				Width() const;
+	virtual	uint32				Height() const;
+
+ private:
+			VideoBuffer fBuf;
+			void *fBits;
+};
+
+VideoStreamsRenBuf::VideoStreamsRenBuf(const VideoBuffer &buf, void *bits):
+	fBuf(buf), fBits(bits)
+{}
+
+VideoStreamsRenBuf::~VideoStreamsRenBuf()
+{}
+
+status_t VideoStreamsRenBuf::InitCheck() const
+{
+	if (fBits == NULL) return B_NO_INIT;
+	return B_OK;
+}
+
+color_space VideoStreamsRenBuf::ColorSpace() const {return fBuf.format.colorSpace;}
+void* VideoStreamsRenBuf::Bits() const {return fBits;}
+uint32 VideoStreamsRenBuf::BytesPerRow() const {return fBuf.format.bytesPerRow;}
+uint32 VideoStreamsRenBuf::Width() const {return fBuf.format.width;}
+uint32 VideoStreamsRenBuf::Height() const {return fBuf.format.height;}
+
+
 class HWInterfaceProducer final: public VideoProducer
 {
 private:
 	friend class VideoProducerHWInterface;
 	VideoProducerHWInterface *fBase;
 
-	ArrayDeleter<MappedBuffer> fMappedBuffers;
-	std::map<area_id, MappedArea> fMappedAreas;
+	SwapChainBindSW fSwapChainBind;
 
 	uint32 fValidPrevBufCnt;
 	BRegion fPrevDirty;
@@ -329,10 +371,7 @@ public:
 
 	void Connected(bool isActive) final;
 	void SwapChainChanged(bool isValid) final;
-	void Presented() final;
-	void MessageReceived(BMessage* msg) final;
-
-	void Produce(const BRegion &dirty);
+	void Presented(const PresentedInfo &presentedInfo) final;
 };
 
 
@@ -353,15 +392,12 @@ void
 HWInterfaceProducer::Connected(bool isActive)
 {
 	if (isActive) {
-		SwapChainSpec spec;
-		BufferSpec buffers[2];
+		SwapChainSpec spec{};
 		spec.size = sizeof(SwapChainSpec);
-		spec.presentEffect = presentEffectSwap;
+		spec.presentEffect = presentEffectCopy;
 		spec.bufferCnt = 2;
-		spec.bufferSpecs = buffers;
-		for (uint32 i = 0; i < spec.bufferCnt; i++) {
-			buffers[i].colorSpace = B_RGBA32;
-		}
+		spec.kind = bufferRefArea;
+		spec.colorSpace = B_RGBA32;
 		if (RequestSwapChain(spec) < B_OK) {
 			printf("[!] can't request swap chain\n");
 			exit(1);
@@ -377,102 +413,146 @@ HWInterfaceProducer::SwapChainChanged(bool isValid)
 {
 	printf("HWInterfaceProducer::SwapChainChanged(%d)\n", isValid);
 	VideoProducer::SwapChainChanged(isValid);
-	fMappedAreas.clear();
-	fMappedBuffers.Unset();
-	if (isValid) {
-		fMappedBuffers.SetTo(new MappedBuffer[GetSwapChain().bufferCnt]);
-		for (uint32 i = 0; i < GetSwapChain().bufferCnt; i++) {
-			auto it = fMappedAreas.find(GetSwapChain().buffers[i].area);
-			if (it == fMappedAreas.end())
-				it = fMappedAreas.emplace(GetSwapChain().buffers[i].area, GetSwapChain().buffers[i].area).first;
-
-			const MappedArea& mappedArea = (*it).second;
-			if (mappedArea.adr == NULL) {
-				printf("[!] mappedArea.adr == NULL\n");
-				return;
-			}
-			fMappedBuffers[i].bits = mappedArea.adr + GetSwapChain().buffers[i].offset;
-		}
-	}
-}
-
-
-void
-HWInterfaceProducer::Presented()
-{
-	printf("HWInterfaceProducer::Presented()\n");
-	if (fPendingDirty.CountRects() > 0) {
-		Produce(fPendingDirty);
-		fPendingDirty.MakeEmpty();
-	}
-}
-
-
-void
-HWInterfaceProducer::MessageReceived(BMessage* msg)
-{
-	VideoProducer::MessageReceived(msg);
-}
-
-
-void
-HWInterfaceProducer::Produce(const BRegion &dirty)
-{
-	printf("HWInterfaceProducer::Produce()\n");
-	if (!SwapChainValid()) return;
-	int32 bufId = AllocBuffer();
-	if (bufId < B_OK) {
-		printf("[!] bufId: %" B_PRId32 "\n", bufId);
-		fPendingDirty.Include(&dirty);
+	fSwapChainBind.Unset();
+	if (!isValid) {
 		return;
 	}
+	fSwapChainBind.ConnectTo(GetSwapChain());
+}
 
-	RasBuf32 dstRb{
-		.colors = (uint32*)fBase->fFrontBuffer->Bits(),
-		.stride = fBase->fFrontBuffer->BytesPerRow() / 4,
-		.width = fBase->fFrontBuffer->Width() + 1,
-		.height = fBase->fFrontBuffer->Height() + 1
-	};
-	const VideoBuffer& buf = GetSwapChain().buffers[bufId];
-	RasBuf32 renderRb{
-		.colors = (uint32*)fMappedBuffers[bufId].bits,
-		.stride = buf.bytesPerRow / 4,
-		.width = buf.width,
-		.height = buf.height,	
-	};
 
-	BRegion combinedDirty(dirty);
-	if (fValidPrevBufCnt < 2) {
-		combinedDirty.Set(BRect(0, 0, renderRb.width - 1, renderRb.height - 1));
-		fValidPrevBufCnt++;
-	} else {
-		combinedDirty.Include(&fPrevDirty);
+void
+HWInterfaceProducer::Presented(const PresentedInfo &presentedInfo)
+{
+	//printf("HWInterfaceProducer::Presented()\n");
+	PthreadMutexLocker lock(fBase->fQueue.GetMutex());
+	BReference<VideoProducerHWInterface::Transaction> tr = fBase->fQueue.Remove();
+	tr->Complete();
+	if (fBase->fQueue.Length() > 0) {
+		fBase->fQueue.First()->Commit();
 	}
-	for (int32 i = 0; i < combinedDirty.CountRects(); i++) {
-		(RasBufOfs<uint32>(renderRb).ClipOfs(combinedDirty.RectAt(i))).Blit(dstRb);
-	}
-	fPrevDirty = dirty;
-	Present(bufId, fValidPrevBufCnt == 1 ? &combinedDirty : &dirty);
 }
 
 
 //#pragma mark -
 
+
+void VideoProducerHWInterface::Transaction::Commit()
+{
+	AppKitPtrs::ExternalPtr(fBase.fProducer.Get()).Lock()->Present(&fRegion);
+}
+
+void VideoProducerHWInterface::Transaction::WaitForCompletion()
+{
+	pthread_mutex_lock(&fMutex);
+	while (!fCompleted) {
+		pthread_cond_wait(&fCond, &fMutex);
+	}
+	pthread_mutex_unlock(&fMutex);
+}
+
+void VideoProducerHWInterface::Transaction::Complete()
+{
+	pthread_mutex_lock(&fMutex);
+	fCompleted = true;
+	pthread_cond_broadcast(&fCond);
+	pthread_mutex_unlock(&fMutex);
+}
+
+
+BReference<VideoProducerHWInterface::Transaction> VideoProducerHWInterface::Queue::Insert()
+{
+	BReference<Transaction> res(new Transaction(fBase), true);
+	fItems[(fBeg + fLen) % fMaxLen] = res;
+	fLen++;
+	return res;
+}
+
+BReference<VideoProducerHWInterface::Transaction> VideoProducerHWInterface::Queue::Remove()
+{
+	BReference<Transaction> res = fItems[fBeg];
+	fItems[fBeg].Unset();
+	fBeg = (fBeg + 1) % fMaxLen;
+	fLen--;
+	return res;
+}
+
+BReference<VideoProducerHWInterface::Transaction> VideoProducerHWInterface::Queue::First()
+{
+	return fItems[fBeg];
+}
+
+BReference<VideoProducerHWInterface::Transaction> VideoProducerHWInterface::Queue::Last()
+{
+	return fItems[(fBeg + fLen - 1) % fMaxLen];
+}
+
+
+//#pragma mark -
+
+static bool FindCompositor(BMessenger& compositor)
+{
+	BMessenger consumerApp("application/x-vnd.VideoStreams-Compositor");
+	if (!consumerApp.IsValid()) {
+		printf("[!] No TestConsumer\n");
+		return false;
+	}
+	for (int32 i = 0; ; i++) {
+		BMessage reply;
+		{
+			BMessage scriptMsg(B_GET_PROPERTY);
+			scriptMsg.AddSpecifier("Handler", i);
+			consumerApp.SendMessage(&scriptMsg, &reply);
+		}
+		int32 error;
+		if (reply.FindInt32("error", &error) >= B_OK && error < B_OK)
+			return false;
+		if (reply.FindMessenger("result", &compositor) >= B_OK) {
+			BMessage scriptMsg(B_GET_PROPERTY);
+			scriptMsg.AddSpecifier("InternalName");
+			compositor.SendMessage(&scriptMsg, &reply);
+			const char* name;
+			if (reply.FindString("result", &name) >= B_OK && strcmp(name, "compositeProducer") == 0)
+				return true;
+		}
+	}
+}
+
+inline void Check(status_t res) {if (res < B_OK) {fprintf(stderr, "Error: %s\n", strerror(res)); abort();}}
+
 VideoProducerHWInterface::VideoProducerHWInterface()
 	:
-	fPresentSem(create_sem(0, "present"))
+	fQueue(*this)
 {
 	printf("+VideoProducerHWInterface\n");
 	check_app_running();
-	
+
 	fRadeonGfxMsgr.SetTo("application/x-vnd.X512-RadeonGfx");
 	if (!fRadeonGfxMsgr.IsValid()) {
 		printf("[!] RadeonGfx is not running\n");
 		exit(1);
 	}
+	fRadeonGfxConn.SetMessenger(fRadeonGfxMsgr);
 
-	ClientThreadLink *threadLink = GetClientThreadLink(fRadeonGfxMsgr);
-	auto &link = threadLink->Link();
+	BMessenger fCompositeProducerMsgr;
+	if (!FindCompositor(fCompositeProducerMsgr)) {
+		exit(1);
+	}
+	fCompositor.SetTo(new CompositeProxy(fCompositeProducerMsgr));
+
+	fProducer.SetTo(new HWInterfaceProducer(this, "hwInterfaceProducer"));
+	AppKitPtrs::LockedPtr(be_app)->AddHandler(fProducer.Get());
+
+	SurfaceUpdate surfaceInfo = {
+		.valid = (1 << surfaceFrame) | (1 << surfaceDrawMode),
+		.frame = BRect(0, 0, 1920 - 1, 1080 - 1),
+		.drawMode = B_OP_COPY
+	};
+
+	Check(fCompositor->NewSurface(fBaseSurface, "app_server", surfaceInfo));
+	Check(fProducer->ConnectTo(fBaseSurface));
+#if 0
+	ThreadLinkHolder link(fRadeonGfxConn);
 
 	int32 crtc = 0;
 	int32 reply = 0;
@@ -492,13 +572,19 @@ VideoProducerHWInterface::VideoProducerHWInterface()
 		printf("[!] can't connect to consumer\n");
 		exit(1);
 	}
+
 	be_app->Unlock();
+#endif
+
+	fHardwareCursorEnabled = true;
 }
 
 
 VideoProducerHWInterface::~VideoProducerHWInterface()
 {
 	printf("-VideoProducerHWInterface\n");
+	fProducer->ConnectTo(BMessenger());
+	Check(fCompositor->DeleteSurface(fBaseSurface));
 }
 
 
@@ -523,11 +609,13 @@ VideoProducerHWInterface::SetMode(const display_mode& mode)
 {
 	AutoWriteLocker _(this);
 	printf("VideoProducerHWInterface::SetMode()\n");
+	printf("  fProducer: %p\n", fProducer.Get());
+	printf("  fProducer->fSwapChainBind.Buffers(): %p\n", fProducer->fSwapChainBind.Buffers());
+	printf("  fProducer->fSwapChainBind.Buffers()[fProducer->RenderBufferId()].bits: %p\n", fProducer->fSwapChainBind.Buffers()[fProducer->RenderBufferId()].bits);
 
 	BRect frame(0, 0, mode.virtual_width - 1, mode.virtual_height - 1);
-	BBitmap* backBitmap = new BBitmap(frame, 0, B_RGBA32);
-	fBackBuffer.SetTo(new BBitmapBuffer(backBitmap));
-	fFrontBuffer.SetTo(new BBitmapBuffer(backBitmap));
+	fBackBuffer.SetTo(new VideoStreamsRenBuf(*fProducer->RenderBuffer(), fProducer->fSwapChainBind.Buffers()[fProducer->RenderBufferId()].bits));
+	fFrontBuffer.SetTo(new VideoStreamsRenBuf(*fProducer->RenderBuffer(), fProducer->fSwapChainBind.Buffers()[fProducer->RenderBufferId()].bits));
 
 	_NotifyFrameBufferChanged();
 
@@ -539,7 +627,7 @@ void
 VideoProducerHWInterface::GetMode(display_mode* mode)
 {
 	AutoReadLocker _(this);
-	printf("VideoProducerHWInterface::GetMode()\n");
+	//printf("VideoProducerHWInterface::GetMode()\n");
 	uint16 width = 1920;
 	uint16 height = 1080;
 	*mode = display_mode{
@@ -557,7 +645,7 @@ VideoProducerHWInterface::GetMode(display_mode* mode)
 status_t
 VideoProducerHWInterface::GetDeviceInfo(accelerant_device_info* info)
 {
-	printf("VideoProducerHWInterface::GetDeviceInfo()\n");
+	//printf("VideoProducerHWInterface::GetDeviceInfo()\n");
 	AutoReadLocker _(this);
 	info->version = 100;
 	sprintf(info->name, "VideoProducerHWInterface");
@@ -676,53 +764,40 @@ VideoProducerHWInterface::GetBrightness(float* val)
 void
 VideoProducerHWInterface::SetCursor(ServerCursor* cursor)
 {
-	printf("VideoProducerHWInterface::SetCursor()\n");
-	{
-		if (!LockExclusiveAccess()) return;
-		
-		ClientThreadLink *threadLink = GetClientThreadLink(fRadeonGfxMsgr);
-		auto &link = threadLink->Link();
-	
-		int32 crtc = 0;
-		int32 reply = 0;
-		link.StartMessage(radeonUpdateCursor);
-		link.Attach(crtc);
-		link.Attach<uint32>(
-			(1 << cursorUpdateOrg) |
-			(1 << cursorUpdateBuffer) |
-			(1 << cursorUpdateFormat)
-		);
-		uint32 width = (uint32)cursor->Bounds().Width() + 1;
-		uint32 height = (uint32)cursor->Bounds().Height() + 1;
-		link.Attach((int32)cursor->GetHotSpot().x);
-		link.Attach((int32)cursor->GetHotSpot().y);
-		link.Attach((int32)cursor->BytesPerRow());
-		link.Attach(width);
-		link.Attach(height);
-		link.Attach((int32)cursor->ColorSpace());
-		link.Attach(cursor->Bits(), cursor->BytesPerRow()*height);
-		link.FlushWithReply(reply); if (reply < B_OK) {printf("[!] bad reply\n");}
+	//printf("VideoProducerHWInterface::SetCursor()\n");
+	ThreadLinkHolder link(fRadeonGfxConn);
 
-		UnlockExclusiveAccess();
-	}
+	int32 crtc = 0;
+	int32 reply = 0;
+	link.StartMessage(radeonUpdateCursor);
+	link.Attach(crtc);
+	link.Attach<uint32>(
+		(1 << cursorUpdateOrg) |
+		(1 << cursorUpdateBuffer) |
+		(1 << cursorUpdateFormat)
+	);
+	uint32 width = (uint32)cursor->Bounds().Width() + 1;
+	uint32 height = (uint32)cursor->Bounds().Height() + 1;
+	link.Attach((int32)cursor->GetHotSpot().x);
+	link.Attach((int32)cursor->GetHotSpot().y);
+	link.Attach((int32)cursor->BytesPerRow());
+	link.Attach(width);
+	link.Attach(height);
+	link.Attach((int32)cursor->ColorSpace());
+	link.Attach(cursor->Bits(), cursor->BytesPerRow()*height);
+	link.FlushWithReply(reply); if (reply < B_OK) {printf("[!] bad reply\n");}
 
-	fInCursorUpdate = true;
 	HWInterface::SetCursor(cursor);
-	fInCursorUpdate = false;
 }
 
 
 void
 VideoProducerHWInterface::SetCursorVisible(bool visible)
 {
-	printf("VideoProducerHWInterface::SetCursorVisible()\n");
-	fInCursorUpdate = true;
+	//printf("VideoProducerHWInterface::SetCursorVisible()\n");
 	HWInterface::SetCursorVisible(visible);
-	fInCursorUpdate = false;
-	if (!LockExclusiveAccess()) return;
 
-	ClientThreadLink *threadLink = GetClientThreadLink(fRadeonGfxMsgr);
-	auto &link = threadLink->Link();
+	ThreadLinkHolder link(fRadeonGfxConn);
 
 	int32 crtc = 0;
 	int32 reply = 0;
@@ -731,21 +806,16 @@ VideoProducerHWInterface::SetCursorVisible(bool visible)
 	link.Attach<uint32>(1 << cursorUpdateEnabled);
 	link.Attach(visible);
 	link.FlushWithReply(reply); if (reply < B_OK) {printf("[!] bad reply\n");}
-	UnlockExclusiveAccess();
 }
 
 
 void
 VideoProducerHWInterface::MoveCursorTo(float x, float y)
 {
-	printf("VideoProducerHWInterface::MoveCursorTo()\n");
-	fInCursorUpdate = true;
+	//printf("VideoProducerHWInterface::MoveCursorTo()\n");
 	HWInterface::MoveCursorTo(x, y);
-	fInCursorUpdate = false;
-	if (!LockExclusiveAccess()) return;
 
-	ClientThreadLink *threadLink = GetClientThreadLink(fRadeonGfxMsgr);
-	auto &link = threadLink->Link();
+	ThreadLinkHolder link(fRadeonGfxConn);
 
 	int32 crtc = 0;
 	int32 reply = 0;
@@ -755,7 +825,6 @@ VideoProducerHWInterface::MoveCursorTo(float x, float y)
 	link.Attach((int32)x);
 	link.Attach((int32)y);
 	link.FlushWithReply(reply); if (reply < B_OK) {printf("[!] bad reply\n");}
-	UnlockExclusiveAccess();
 }
 
 
@@ -766,6 +835,108 @@ VideoProducerHWInterface::_DrawCursor(IntRect area) const
 	//HWInterface::_DrawCursor(area);
 }
 
+
+// #pragma mark - overlays
+
+overlay_token
+VideoProducerHWInterface::AcquireOverlayChannel()
+{
+	overlay_token token = malloc(sizeof(void*));
+	printf("AcquireOverlayChannel() -> %p\n", token);
+	return token;
+}
+
+
+void
+VideoProducerHWInterface::ReleaseOverlayChannel(overlay_token token)
+{
+	printf("ReleaseOverlayChannel(%p)\n", token);
+	free(token);
+}
+
+
+status_t
+VideoProducerHWInterface::GetOverlayRestrictions(const Overlay* overlay,
+	overlay_restrictions* restrictions)
+{
+	printf("GetOverlayRestrictions(%p)\n", overlay);
+	if (overlay == NULL || restrictions == NULL)
+		return B_BAD_VALUE;
+
+	memset(restrictions, 0, sizeof(overlay_restrictions));
+	restrictions->min_width_scale = 0.25;
+	restrictions->max_width_scale = 8.0;
+	restrictions->min_height_scale = 0.25;
+	restrictions->max_height_scale = 8.0;
+
+	return B_OK;
+}
+
+
+bool
+VideoProducerHWInterface::CheckOverlayRestrictions(int32 width, int32 height,
+	color_space colorSpace)
+{
+	printf("CheckOverlayRestrictions()\n");
+	return true;
+}
+
+
+const overlay_buffer*
+VideoProducerHWInterface::AllocateOverlayBuffer(int32 width, int32 height, color_space space)
+{
+	printf("AllocateOverlayBuffer(%" B_PRId32 ", %" B_PRId32 ", %u)\n", width, height, space);
+	ObjectDeleter<overlay_buffer> buf = new(std::nothrow) overlay_buffer;
+	if (!buf.IsSet())
+		return NULL;
+
+	buf->space = space;
+	buf->width = width;
+	buf->height = height;
+	buf->bytes_per_row = BPrivate::get_bytes_per_row(space, width);
+	ArrayDeleter<uint8> buffer(new(std::nothrow) uint8[buf->bytes_per_row*buf->height]);
+	if (!buffer.IsSet())
+		return NULL;
+
+	buf->buffer = buffer.Detach();
+	buf->buffer_dma = NULL;
+
+	return buf.Detach();
+}
+
+
+void
+VideoProducerHWInterface::FreeOverlayBuffer(const overlay_buffer* buffer)
+{
+	printf("FreeOverlayBuffer(%p)\n", buffer);
+	ObjectDeleter<const overlay_buffer> buf(buffer);
+	ArrayDeleter<uint8> bufferData((uint8*)buf->buffer);
+}
+
+
+void
+VideoProducerHWInterface::ConfigureOverlay(Overlay* overlay)
+{
+	printf("VideoProducerHWInterface::ConfigureOverlay(%p)\n", overlay);
+#if 0
+	fAccConfigureOverlay(overlay->OverlayToken(), overlay->OverlayBuffer(),
+		overlay->OverlayWindow(), overlay->OverlayView());
+#endif
+}
+
+
+void
+VideoProducerHWInterface::HideOverlay(Overlay* overlay)
+{
+	printf("VideoProducerHWInterface::HideOverlay(%p)\n", overlay);
+#if 0
+	fAccConfigureOverlay(overlay->OverlayToken(), overlay->OverlayBuffer(),
+		NULL, NULL);
+#endif
+}
+
+
+//#pragma mark -
 
 RenderingBuffer*
 VideoProducerHWInterface::FrontBuffer() const
@@ -792,32 +963,25 @@ VideoProducerHWInterface::IsDoubleBuffered() const
 status_t
 VideoProducerHWInterface::InvalidateRegion(const BRegion& dirty)
 {
-	if (fInCursorUpdate) return B_OK;
-	printf("VideoProducerHWInterface::InvalidateRegion()\n");
+	//printf("VideoProducerHWInterface::InvalidateRegion()\n");
 	if (dirty.CountRects() == 0) return B_OK;
 
-	// copy to front buffer
-	RasBuf32 srcRb{
-		.colors = (uint32*)fBackBuffer->Bits(),
-		.stride = fBackBuffer->BytesPerRow() / 4,
-		.width = fBackBuffer->Width() + 1,
-		.height = fBackBuffer->Height() + 1
-	};
-	RasBuf32 dstRb{
-		.colors = (uint32*)fFrontBuffer->Bits(),
-		.stride = fFrontBuffer->BytesPerRow() / 4,
-		.width = fFrontBuffer->Width() + 1,
-		.height = fFrontBuffer->Height() + 1
-	};
-	for (int32 i = 0; i < dirty.CountRects(); i++) {
-		(RasBufOfs<uint32>(dstRb).ClipOfs(dirty.RectAt(i))).Blit(srcRb);
+	PthreadMutexLocker lock(fQueue.GetMutex());
+	if (fQueue.Length() == 0) {
+		BReference<Transaction> tr = fQueue.Insert();
+		tr->Add(dirty);
+		tr->Commit();
+		lock.Unlock();
+		tr->WaitForCompletion();
+		return B_OK;
 	}
-
-	if (fProducer->LockLooper()) {
-		fProducer->Produce(dirty);
-		fProducer->UnlockLooper();
+	if (fQueue.Length() < 2) {
+		fQueue.Insert();
 	}
-
+	BReference<Transaction> tr = fQueue.Last();
+	tr->Add(dirty);
+	lock.Unlock();
+	tr->WaitForCompletion();
 	return B_OK;
 }
 
@@ -825,6 +989,6 @@ VideoProducerHWInterface::InvalidateRegion(const BRegion& dirty)
 status_t
 VideoProducerHWInterface::Invalidate(const BRect& frame)
 {
-	printf("VideoProducerHWInterface::Invalidate()\n");
+	//printf("VideoProducerHWInterface::Invalidate()\n");
 	return InvalidateRegion(BRegion(frame));
 }
