@@ -4,14 +4,14 @@
  */
 
 
-#include <Htif.h>
-
 #include <boot/platform.h>
 #include <boot/stdio.h>
 #include <stdarg.h>
 #include <string.h>
 
 #include <Errors.h>
+
+#include "serial.h"
 
 extern FILE *dbgerr;
 
@@ -24,8 +24,7 @@ dprintf_args(const char* format, va_list args)
 	if (length == 0)
 		return;
 
-	//syslog_write(buffer, length);
-	HtifOutString(buffer);
+	serial_puts(buffer, length);
 }
 
 
