@@ -103,13 +103,13 @@ VirtioDevice::VirtioDevice(const VirtioResources& devRes): fRegs(devRes.regs)
 	fLastUsed = 0;
 
 	fDescs = (VirtioDesc*)aligned_malloc(sizeof(VirtioDesc) * fQueueLen, 4096);
-	memset(fDescs, 0, sizeof(VirtioDesc) * fQueueLen);
+	memset((void*)fDescs, 0, sizeof(VirtioDesc) * fQueueLen);
 	fAvail = (VirtioAvail*)aligned_malloc(sizeof(VirtioAvail)
 		+ sizeof(uint16_t) * fQueueLen, 4096);
-	memset(fAvail, 0, sizeof(VirtioAvail) + sizeof(uint16_t) * fQueueLen);
+	memset((void*)fAvail, 0, sizeof(VirtioAvail) + sizeof(uint16_t) * fQueueLen);
 	fUsed = (VirtioUsed*)aligned_malloc(sizeof(VirtioUsed)
 		+ sizeof(VirtioUsedItem) * fQueueLen, 4096);
-	memset(fUsed, 0, sizeof(VirtioUsed) + sizeof(VirtioUsedItem) * fQueueLen);
+	memset((void*)fUsed, 0, sizeof(VirtioUsed) + sizeof(VirtioUsedItem) * fQueueLen);
 	fFreeDescs = new(std::nothrow) uint32_t[(fQueueLen + 31)/32];
 	memset(fFreeDescs, 0xff, sizeof(uint32_t) * ((fQueueLen + 31)/32));
 
