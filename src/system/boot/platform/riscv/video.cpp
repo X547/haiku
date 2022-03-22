@@ -10,6 +10,7 @@
 //#include "images.h"
 #include "graphics.h"
 #include "virtio.h"
+#include "pci.h"
 #include "FwCfg.h"
 
 #include <arch/cpu.h>
@@ -113,6 +114,7 @@ platform_init_video(void)
 {
 	FwCfg::Init();
 	virtio_init(); // we want heap initalized
+	pci_init();
 	Clear(gFramebuf, 0xff000000);
 	console_init();
 	return B_OK;

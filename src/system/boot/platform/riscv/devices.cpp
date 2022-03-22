@@ -6,6 +6,9 @@
 
 #include "bios.h"
 #include "virtio.h"
+#include "VirtioBlockDevice.h"
+#include "AtaBlockDevice.h"
+#include "NvmeBlockDevice.h"
 
 #include <KernelExport.h>
 #include <boot/platform.h>
@@ -17,6 +20,7 @@
 
 #include <string.h>
 #include <new>
+#include <algorithm>
 
 //#define TRACE_DEVICES
 #ifdef TRACE_DEVICES
@@ -24,104 +28,6 @@
 #else
 # define TRACE(x...) ;
 #endif
-
-
-void* aligned_malloc(size_t required_bytes, size_t alignment);
-void aligned_free(void* p);
-
-
-class VirtioBlockDevice : public Node
-{
-	public:
-		VirtioBlockDevice(VirtioDevice* blockIo);
-		virtual ~VirtioBlockDevice();
-
-		virtual ssize_t ReadAt(void* cookie, off_t pos, void* buffer,
-			size_t bufferSize);
-		virtual ssize_t WriteAt(void* cookie, off_t pos, const void* buffer,
-			size_t bufferSize) { return B_UNSUPPORTED; }
-		virtual off_t Size() const {
-			return (*(uint32*)(&fBlockIo->Regs()->config[0])
-				+ ((uint64)(*(uint32*)(&fBlockIo->Regs()->config[4])) << 32)
-				)*kVirtioBlockSectorSize;
-		}
-
-		uint32 BlockSize() const { return kVirtioBlockSectorSize; }
-		bool ReadOnly() const { return false; }
-	private:
-		ObjectDeleter<VirtioDevice> fBlockIo;
-};
-
-
-VirtioBlockDevice::VirtioBlockDevice(VirtioDevice* blockIo)
-	:
-	fBlockIo(blockIo)
-{
-	dprintf("+VirtioBlockDevice\n");
-}
-
-
-VirtioBlockDevice::~VirtioBlockDevice()
-{
-	dprintf("-VirtioBlockDevice\n");
-}
-
-
-ssize_t
-VirtioBlockDevice::ReadAt(void* cookie, off_t pos, void* buffer,
-	size_t bufferSize)
-{
-	// dprintf("ReadAt(%p, %ld, %p, %ld)\n", cookie, pos, buffer, bufferSize);
-
-	off_t offset = pos % BlockSize();
-	pos /= BlockSize();
-
-	uint32 numBlocks = (offset + bufferSize + BlockSize() - 1) / BlockSize();
-
-	ArrayDeleter<char> readBuffer(
-		new(std::nothrow) char[numBlocks * BlockSize() + 1]);
-	if (!readBuffer.IsSet())
-		return B_NO_MEMORY;
-
-	VirtioBlockRequest blkReq;
-	blkReq.type = kVirtioBlockTypeIn;
-	blkReq.ioprio = 0;
-	blkReq.sectorNum = pos;
-	IORequest req(ioOpRead, &blkReq, sizeof(blkReq));
-	IORequest reply(ioOpWrite, readBuffer.Get(), numBlocks * BlockSize() + 1);
-	IORequest* reqs[] = {&req, &reply};
-	fBlockIo->ScheduleIO(reqs, 2);
-	fBlockIo->WaitIO();
-
-	if (readBuffer[numBlocks * BlockSize()] != kVirtioBlockStatusOk) {
-		dprintf("%s: blockIo error reading from device!\n", __func__);
-		return B_ERROR;
-	}
-
-	memcpy(buffer, readBuffer.Get() + offset, bufferSize);
-
-	return bufferSize;
-}
-
-
-static VirtioBlockDevice*
-CreateVirtioBlockDev(int id)
-{
-	VirtioResources* devRes = ThisVirtioDev(kVirtioDevBlock, id);
-	if (devRes == NULL) return NULL;
-
-	ObjectDeleter<VirtioDevice> virtioDev(
-		new(std::nothrow) VirtioDevice(*devRes));
-	if (!virtioDev.IsSet())
-		panic("Can't allocate memory for VirtioDevice!");
-
-	ObjectDeleter<VirtioBlockDevice> device(
-		new(std::nothrow) VirtioBlockDevice(virtioDev.Detach()));
-	if (!device.IsSet())
-		panic("Can't allocate memory for VirtioBlockDevice!");
-
-	return device.Detach();
-}
 
 
 static off_t
@@ -164,10 +70,8 @@ compute_check_sum(Node* device, off_t offset)
 status_t
 platform_add_boot_device(struct stage2_args* args, NodeList* devicesList)
 {
-	for (int i = 0;; i++) {
-		ObjectDeleter<VirtioBlockDevice> device(CreateVirtioBlockDev(i));
-		if (!device.IsSet()) break;
-		dprintf("virtio_block[%d]\n", i);
+	ObjectDeleter<Node> device(CreateAtaBlockDev());
+	if (device.IsSet()) {
 		devicesList->Insert(device.Detach());
 	}
 	return devicesList->Count() > 0 ? B_OK : B_ENTRY_NOT_FOUND;

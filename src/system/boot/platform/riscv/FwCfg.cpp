@@ -11,7 +11,6 @@
 #include <malloc.h>
 
 #include <ByteOrder.h>
-#include <Htif.h>
 #include <KernelExport.h>
 
 #include "graphics.h"
