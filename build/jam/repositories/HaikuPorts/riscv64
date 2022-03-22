@@ -38,15 +38,15 @@ RemotePackageRepository HaikuPorts
 	freetype_devel-2.6.3-1
 	freetype-2.6.3-1
 	gawk-3.1.8-2
-	gcc_syslibs_devel-11.2.0_2021_07_28-3
-	gcc_syslibs-11.2.0_2021_07_28-3
-	gcc-11.2.0_2021_07_28-3
+	gcc_syslibs_devel-11.2.0_2021_07_28-5
+	gcc_syslibs-11.2.0_2021_07_28-5
+	gcc-11.2.0_2021_07_28-5
 	giflib_devel-5.2.1-1
 	giflib-5.2.1-1
 	grep-2.14-1
 	gzip-1.10-1
-	icu_devel-57.2-2
-	icu-57.2-2
+	icu_devel-57.2-3
+	icu-57.2-3
 	less-451-1
 	libedit_devel-20210419_3.1-1
 	libedit-20210419_3.1-1

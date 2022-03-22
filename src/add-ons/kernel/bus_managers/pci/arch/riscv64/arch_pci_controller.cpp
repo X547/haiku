@@ -128,6 +128,7 @@ void
 ArchPCIController::AllocRegs()
 {
 	dprintf("AllocRegs()\n");
+	return;
 	// TODO: improve enumeration
 	for (int j = 0; j < 8; j++) {
 		for (int i = 0; i < 32; i++) {
@@ -148,6 +149,52 @@ ArchPCIController::AllocRegs()
 }
 
 
+static uint32 ReadReg8(addr_t adr)
+{
+	uint32 ofs = adr % 4;
+	adr = adr / 4 * 4;
+	union {
+		uint32 in;
+		uint8 out[4];
+	} val{.in = *(vuint32*)adr};
+	return val.out[ofs];
+}
+
+static uint32 ReadReg16(addr_t adr)
+{
+	uint32 ofs = adr / 2 % 2;
+	adr = adr / 4 * 4;
+	union {
+		uint32 in;
+		uint16 out[2];
+	} val{.in = *(vuint32*)adr};
+	return val.out[ofs];
+}
+
+static void WriteReg8(addr_t adr, uint32 value)
+{
+	uint32 ofs = adr % 4;
+	adr = adr / 4 * 4;
+	union {
+		uint32 in;
+		uint8 out[4];
+	} val{.in = *(vuint32*)adr};
+	val.out[ofs] = (uint8)value;
+	*(vuint32*)adr = val.in;
+}
+
+static void WriteReg16(addr_t adr, uint32 value)
+{
+	uint32 ofs = adr / 2 % 2;
+	adr = adr / 4 * 4;
+	union {
+		uint32 in;
+		uint16 out[2];
+	} val{.in = *(vuint32*)adr};
+	val.out[ofs] = (uint16)value;
+	*(vuint32*)adr = val.in;
+}
+
 status_t
 ArchPCIController::ReadConfig(void *cookie, uint8 bus, uint8 device, uint8 function,
 	uint16 offset, uint8 size, uint32 *value)
@@ -158,10 +205,10 @@ ArchPCIController::ReadConfig(void *cookie, uint8 bus, uint8 device, uint8 funct
 
 	switch (size) {
 		case 1:
-			*value = *(uint8*)address;
+			*value = ReadReg8(address);
 			break;
 		case 2:
-			*value = *(uint16*)address;
+			*value = ReadReg16(address);
 			break;
 		case 4:
 			*value = *(uint32*)address;
@@ -184,10 +231,10 @@ ArchPCIController::WriteConfig(void *cookie, uint8 bus, uint8 device, uint8 func
 
 	switch (size) {
 		case 1:
-			*(uint8*)address = value;
+			WriteReg8(address, value);
 			break;
 		case 2:
-			*(uint16*)address = value;
+			WriteReg16(address, value);
 			break;
 		case 4:
 			*(uint32*)address = value;

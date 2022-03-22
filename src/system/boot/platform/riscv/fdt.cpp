@@ -9,9 +9,9 @@
 #include <ByteOrder.h>
 #include <KernelExport.h>
 #include <boot/stage2.h>
+#include <arch_cpu_defs.h>
 #include <arch/generic/debug_uart_8250.h>
 #include <arch/riscv64/arch_uart_sifive.h>
-#include <arch_cpu_defs.h>
 
 extern "C" {
 #include <libfdt.h>
@@ -20,7 +20,9 @@ extern "C" {
 #include "mmu.h"
 #include "smp.h"
 #include "graphics.h"
+#include "serial.h"
 #include "virtio.h"
+#include "pci.h"
 #include "Htif.h"
 #include "Clint.h"
 #include "FwCfg.h"
@@ -31,8 +33,9 @@ ClintRegs *volatile gClintRegs = NULL;
 
 static uint64 sTimerFrequrency = 10000000;
 
-static addr_range sPlic = {0};
-static addr_range sClint = {0};
+static addr_range sHtif{};
+static addr_range sPlic{};
+static addr_range sClint{};
 static uart_info sUart{};
 
 
@@ -124,7 +127,10 @@ HandleFdt(const void* fdt, int node, uint32 addressCells, uint32 sizeCells,
 		sClint.start = fdt64_to_cpu(*(reg + 0));
 		sClint.size  = fdt64_to_cpu(*(reg + 1));
 		gClintRegs = (ClintRegs*)sClint.start;
-	} else if (HasFdtString(compatible, compatibleLen, "riscv,plic0")) {
+	} else if (
+		HasFdtString(compatible, compatibleLen, "riscv,plic0") ||
+		HasFdtString(compatible, compatibleLen, "sifive,plic-1.0.0")
+	) {
 		GetReg(fdt, node, addressCells, sizeCells, 0, sPlic);
 		int propSize;
 		if (uint32* prop = (uint32*)fdt_getprop(fdt, node, "interrupts-extended", &propSize)) {
@@ -144,11 +150,25 @@ HandleFdt(const void* fdt, int node, uint32 addressCells, uint32 sizeCells,
 				contextId++;
 			}
 		}
+	} else if (HasFdtString(compatible, compatibleLen, "ucb,htif0")) {
+		// This address is used by TinyEMU and it is not present in FDT.
+		sHtif.start = 0x40008000;
+		sHtif.size  = sizeof(HtifRegs);
+		gHtifRegs = (HtifRegs*)sHtif.start;
 	} else if (HasFdtString(compatible, compatibleLen, "virtio,mmio")) {
 		uint64* reg = (uint64*)fdt_getprop(fdt, node, "reg", NULL);
 		virtio_register(
 			fdt64_to_cpu(*(reg + 0)), fdt64_to_cpu(*(reg + 1)),
 			GetInterrupt(fdt, node));
+	} else if (HasFdtString(compatible, compatibleLen, "pci-host-ecam-generic")) {
+		uint64* reg = (uint64*)fdt_getprop(fdt, node, "reg", NULL);
+		PciInitInfo initInfo{};
+		initInfo.configRegs.start = fdt64_to_cpu(*(reg + 0));
+		initInfo.configRegs.size = fdt64_to_cpu(*(reg + 1));
+		initInfo.intMap = fdt_getprop(fdt, node, "interrupt-map", &initInfo.intMapSize);
+		initInfo.intMapMask = fdt_getprop(fdt, node, "interrupt-map-mask", &initInfo.intMapMaskSize);
+		initInfo.ranges = fdt_getprop(fdt, node, "ranges", &initInfo.rangesSize);
+		pci_init0(&initInfo);
 	} else if (
 		strcmp(sUart.kind, "") == 0 && (
 			HasFdtString(compatible, compatibleLen, "ns16550a") ||
@@ -199,6 +219,9 @@ fdt_init(void* fdt)
 	while ((node = fdt_next_node(gFdt, node, &depth)) >= 0 && depth >= 0) {
 		HandleFdt(gFdt, node, 2, 2, 1);
 	}
+
+	serial_init(&sUart);
+	serial_puts("serial output initalized\n");
 }
 
 
@@ -217,9 +240,7 @@ fdt_set_kernel_args()
 
 	gKernelArgs.arch_args.timerFrequency = sTimerFrequrency;
 
-	gKernelArgs.arch_args.htif.start = (addr_t)gHtifRegs;
-	gKernelArgs.arch_args.htif.size = sizeof(HtifRegs);
-
+	gKernelArgs.arch_args.htif  = sHtif;
 	gKernelArgs.arch_args.plic  = sPlic;
 	gKernelArgs.arch_args.clint = sClint;
 	gKernelArgs.arch_args.uart  = sUart;

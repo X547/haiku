@@ -8,7 +8,6 @@
 #include "console.h"
 #include "video.h"
 #include "graphics.h"
-#include <Htif.h>
 #include "virtio.h"
 
 #include <SupportDefs.h>

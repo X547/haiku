@@ -34,6 +34,7 @@ for platform in [ MultiBootSubDirSetup riscv ] {
 			cpu.cpp
 			smp.cpp
 			video.cpp
+			serial.cpp
 
 			fdt.cpp
 			graphics.cpp
@@ -41,6 +42,7 @@ for platform in [ MultiBootSubDirSetup riscv ] {
 			htif.cpp
 			FwCfg.cpp
 			virtio.cpp
+			pci.cpp
 			traps.cpp
 			traps_asm.S
 			entry.S

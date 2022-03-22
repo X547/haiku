@@ -148,6 +148,7 @@ err_res check_sense(scsi_periph_device_info *device, scsi_ccb *request)
 
 				case SCSIS_KEY_HARDWARE_ERROR:
 					SHOW_ERROR0(2, "Hardware error");
+					panic("Hardware error");
 					return MK_ERROR(err_act_retry, B_DEV_SEEK_ERROR);
 
 				case SCSIS_KEY_ILLEGAL_REQUEST:

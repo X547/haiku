@@ -596,20 +596,30 @@ arch_int_init(kernel_args* args)
 {
 	dprintf("arch_int_init()\n");
 
+	dprintf("(1)\n");
+
 	for (uint32 i = 0; i < args->num_cpus; i++) {
 		dprintf("  CPU %" B_PRIu32 ":\n", i);
 		dprintf("    hartId: %" B_PRIu32 "\n", args->arch_args.hartIds[i]);
 		dprintf("    plicContext: %" B_PRIu32 "\n", args->arch_args.plicContexts[i]);
 	}
 
+	dprintf("(2)\n");
+
 	for (uint32 i = 0; i < args->num_cpus; i++)
 		sPlicContexts[i] = args->arch_args.plicContexts[i];
+
+	dprintf("(3)\n");
 
 	// TODO: read from FDT
 	reserve_io_interrupt_vectors(128, 0, INTERRUPT_TYPE_IRQ);
 
+	dprintf("(4)\n");
+
 	for (uint32 i = 0; i < args->num_cpus; i++)
 		gPlicRegs->contexts[sPlicContexts[i]].priorityThreshold = 0;
+
+	dprintf("(5)\n");
 
 	return B_OK;
 }
