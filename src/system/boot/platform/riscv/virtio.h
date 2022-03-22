@@ -43,11 +43,11 @@ struct IORequest {
 
 class VirtioDevice : public DoublyLinkedListLinkImpl<VirtioDevice> {
 private:
-	VirtioRegs* volatile fRegs;
+	volatile VirtioRegs* fRegs;
 	size_t fQueueLen;
-	VirtioDesc* volatile fDescs;
-	VirtioAvail* volatile fAvail;
-	VirtioUsed* volatile fUsed;
+	volatile VirtioDesc* fDescs;
+	volatile VirtioAvail* fAvail;
+	volatile VirtioUsed* fUsed;
 	uint32_t* fFreeDescs;
 	uint32_t fLastUsed;
 	IORequest** fReqs;
@@ -58,7 +58,7 @@ private:
 public:
 	VirtioDevice(const VirtioResources& devRes);
 	~VirtioDevice();
-	inline VirtioRegs* volatile Regs() {return fRegs;}
+	inline volatile VirtioRegs* Regs() {return fRegs;}
 	void ScheduleIO(IORequest** reqs, uint32 cnt);
 	void ScheduleIO(IORequest* req);
 	IORequest* ConsumeIO();
