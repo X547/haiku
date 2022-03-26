@@ -150,6 +150,8 @@ rule ArchitectureSetup architecture
 	# TODO: Temporary work-around. Should be defined in the compiler specs
 	HAIKU_LINKFLAGS_$(architecture) += -Xlinker --no-undefined ;
 
+	HAIKU_LINKFLAGS_$(architecture) += -Xlinker --Bsymbolic ;
+
 	# private shared kernel/libroot headers
 	HAIKU_PRIVATE_SYSTEM_HEADERS_$(architecture)
 		= [ PrivateHeaders $(DOT) system system/arch/$(cpu) ] ;
