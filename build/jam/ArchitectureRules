@@ -153,6 +153,8 @@ rule ArchitectureSetup architecture
 	# TODO: Temporary work-around. Should be defined in the compiler specs
 	HAIKU_LINKFLAGS_$(architecture) += -Xlinker --no-undefined ;
 
+	HAIKU_LINKFLAGS_$(architecture) += -Xlinker --Bsymbolic ;
+
 	if $(HAIKU_CC_IS_LEGACY_GCC_$(architecture)) = 1 {
 		HAIKU_DEFINES_$(architecture) += _BEOS_R5_COMPATIBLE_ ;
 	}
