@@ -198,7 +198,10 @@ platform_exit(void)
 extern "C" void
 _start(int hartId, void* fdt)
 {
-	HtifOutString("haiku_loader entry point\n");
+	MstatusReg status(Mstatus());
+	status.fs = extStatusInitial; // enable FPU
+	status.xs = extStatusOff;
+	SetMstatus(status.val);
 
 	clear_bss();
 	fdt_init(fdt);
