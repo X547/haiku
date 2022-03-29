@@ -94,6 +94,13 @@ KernelLd linkhack.so :
 	-shared -Bdynamic
 ;
 
+local kernelLinkerScript ;
+
+if $(HAIKU_ARCH) in riscv64 {
+} else {
+	kernelLinkerScript = $(HAIKU_TOP)/src/system/ldscripts/$(TARGET_ARCH)/kernel.ld ;
+}
+
 KernelLd kernel_$(TARGET_ARCH) :
 	kernel_cache.o
 	kernel_core.o
@@ -119,7 +126,7 @@ KernelLd kernel_$(TARGET_ARCH) :
 	kernel_lib_posix_arch_$(TARGET_ARCH).o
 	kernel_misc.o
 
-	: $(HAIKU_TOP)/src/system/ldscripts/$(TARGET_ARCH)/kernel.ld
+	: $(kernelLinkerScript)
 	: -Bdynamic -export-dynamic -dynamic-linker /foo/bar
 	  $(TARGET_KERNEL_PIC_LINKFLAGS) --no-undefined
 	:
@@ -159,7 +166,7 @@ if $(HAIKU_ARCH) in x86_64 arm {
 		kernel_lib_posix_arch_$(TARGET_ARCH).o
 		kernel_misc.o
 
-		: $(HAIKU_TOP)/src/system/ldscripts/$(TARGET_ARCH)/kernel.ld
+		: $(kernelLinkerScript)
 		: -Bdynamic -shared -export-dynamic -dynamic-linker /foo/bar
 		  $(TARGET_KERNEL_PIC_LINKFLAGS)
 	;
