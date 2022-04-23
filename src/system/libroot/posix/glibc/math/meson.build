@@ -1,0 +1,40 @@
+
+static_library(
+	'objects/haiku/x86_64/release/system/libroot/posix/glibc/math/posix_gnu_math.o',
+	[
+		'cabs.c',
+		'cabsf.c',
+		'cabsl.c',
+		'carg.c',
+		'cargf.c',
+		'cargl.c',
+		'cimag.c',
+		'cimagf.c',
+		'cimagl.c',
+		'conj.c',
+		'conjf.c',
+		'conjl.c',
+		'creal.c',
+		'crealf.c',
+		'creall.c',
+		'k_casinh.c',
+		'k_casinhf.c',
+		'k_casinhl.c',
+	],
+	cpp_args: [
+		'USE_IN_LIBIO',
+		'_GNU_SOURCE',
+	],
+	include_directories: [
+		'headers/private',
+		'headers/private/libroot',
+		'src/system/libroot/posix/glibc',
+		'src/system/libroot/posix/glibc/include',
+		'src/system/libroot/posix/glibc/include/arch/generic',
+		'src/system/libroot/posix/glibc/include/arch/x86_64',
+		'src/system/libroot/posix/glibc/math',
+	],
+	include_directories: [
+		'.',
+	],
+)
