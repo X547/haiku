@@ -1,0 +1,45 @@
+libicon = static_library(
+	'icon',
+	[
+		'Icon.cpp',
+		'IconRenderer.cpp',
+		'IconUtils.cpp',
+		'flat_icon/FlatIconFormat.cpp',
+		'flat_icon/FlatIconImporter.cpp',
+		'flat_icon/LittleEndianBuffer.cpp',
+		'flat_icon/PathCommandQueue.cpp',
+		'message/Defines.cpp',
+		'message/MessageImporter.cpp',
+		'shape/PathContainer.cpp',
+		'shape/Shape.cpp',
+		'shape/ShapeContainer.cpp',
+		'shape/VectorPath.cpp',
+		'style/GradientTransformable.cpp',
+		'style/Style.cpp',
+		'style/StyleContainer.cpp',
+		'transformable/Transformable.cpp',
+		'transformer/AffineTransformer.cpp',
+		'transformer/ContourTransformer.cpp',
+		'transformer/PathSource.cpp',
+		'transformer/PerspectiveTransformer.cpp',
+		'transformer/StrokeTransformer.cpp',
+		'transformer/Transformer.cpp',
+		'transformer/TransformerFactory.cpp',
+	],
+	include_directories: [
+		include_directories(
+			'flat_icon',
+			'message',
+			'shape',
+			'style',
+			'transformable',
+			'transformer',
+			is_system: false
+		),
+		hdr_base,
+		hdr_private_shared,
+	],
+	dependencies: [
+		libagg_dep,
+	]
+)
