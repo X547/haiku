@@ -31,9 +31,7 @@ status_t VideoBufferFromBitmap(VideoBuffer &buf, BBitmap &bmp)
 RasBuf32 RasBufFromFromBitmap(BBitmap *bmp)
 {
 	if (bmp == NULL) {
-		return (RasBuf32) {
-			.colors = NULL
-		};
+		return (RasBuf32) {};
 	}
 	return (RasBuf32) {
 		.colors = (uint32*)bmp->Bits(),
@@ -74,5 +72,60 @@ status_t SetRegion(BMessage& msg, const char* name, const BRegion* region)
 			CheckRet(msg.AddRect(name, region->RectAt(i)));
 		}
 	}
+	return B_OK;
+}
+
+
+SwapChain *SwapChain::New(uint32 bufferCnt)
+{
+	ObjectDeleter<SwapChain> swapChain;
+	uint8 *swapChainMem = (uint8*)::operator new(sizeof(SwapChain) + bufferCnt*sizeof(VideoBuffer));
+	VideoBuffer *buffers = (VideoBuffer*)(swapChainMem + sizeof(SwapChain));
+	swapChain.SetTo((SwapChain*)swapChainMem);
+	*swapChain.Get() = {
+		.size = sizeof(SwapChain),
+		.bufferCnt = bufferCnt,
+		.buffers = buffers
+	};
+	return swapChain.Detach();
+}
+
+status_t SwapChain::Copy(ObjectDeleter<SwapChain> &dst) const
+{
+	auto &src = *this;
+	size_t numBytes = sizeof(SwapChain) + src.bufferCnt*sizeof(VideoBuffer);
+	dst.SetTo((SwapChain*)::operator new(numBytes));
+	if (!dst.IsSet()) return B_NO_MEMORY;
+	memcpy(dst.Get(), &src, sizeof(SwapChain));
+	dst->buffers = (VideoBuffer*)(dst.Get() + 1);
+	memcpy(dst->buffers, src.buffers, src.bufferCnt*sizeof(VideoBuffer));
+
+	return B_OK;
+}
+
+status_t SwapChain::NewFromMessage(ObjectDeleter<SwapChain> &swapChain, const BMessage& msg, const char *name)
+{
+	const void* data;
+	ssize_t numBytes;
+
+	CheckRet(msg.FindData(name, B_RAW_TYPE, &data, &numBytes));
+	if (numBytes < sizeof(SwapChain)) return B_BAD_VALUE;
+	if (((SwapChain*)data)->size != sizeof(SwapChain)) return B_BAD_VALUE;
+	if (numBytes != sizeof(SwapChain) + ((SwapChain*)data)->bufferCnt * sizeof(VideoBuffer)) return B_BAD_VALUE;
+	swapChain.SetTo((SwapChain*)::operator new(numBytes));
+	memcpy(swapChain.Get(), data, numBytes);
+	swapChain->buffers = (VideoBuffer*)(swapChain.Get() + 1);
+
+	return B_OK;
+}
+
+status_t SwapChain::ToMessage(BMessage& msg, const char *name) const
+{
+	const SwapChain &swapChain = *this;
+	ObjectDeleter<SwapChain> swapChainCopy;
+	CheckRet(swapChain.Copy(swapChainCopy));
+	swapChainCopy->buffers = NULL;
+	CheckRet(msg.AddData(name, B_RAW_TYPE, swapChainCopy.Get(), sizeof(SwapChain) + swapChain.bufferCnt*sizeof(VideoBuffer)));
+
 	return B_OK;
 }

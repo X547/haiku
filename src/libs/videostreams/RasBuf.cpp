@@ -3,6 +3,17 @@
 #include <string.h>
 #include <algorithm>
 
+union ColorRgba {
+	struct {
+		uint32 r: 8;
+		uint32 g: 8;
+		uint32 b: 8;
+		uint32 a: 8;
+	};
+	uint32 val;
+};
+
+
 template <typename Color>
 RasBuf<Color> RasBuf<Color>::Clip(int x, int y, int w, int h) const
 {
@@ -69,15 +80,16 @@ void RasBuf<Color>::BlitRgb(RasBuf<Color> src, BPoint pos)
 	src.stride -= src.width;
 	for (; dst.height > 0; dst.height--) {
 		for (pos.x = dst.width; pos.x > 0; pos.x--) {
-			uint32_t dc = *dst.colors;
-			uint32_t sc = *src.colors;
-			uint32_t a = sc >> 24;
+			ColorRgba dc {.val = *dst.colors};
+			ColorRgba sc {.val = *src.colors};
+			uint32_t a = sc.a;
 			if (a != 0) {
-				*dst.colors =
-					((((dc >>  0) % 0x100)*(0xff - a)/0xff + ((sc >>  0) % 0x100)*a/0xff) <<  0) +
-					((((dc >>  8) % 0x100)*(0xff - a)/0xff + ((sc >>  8) % 0x100)*a/0xff) <<  8) +
-					((((dc >> 16) % 0x100)*(0xff - a)/0xff + ((sc >> 16) % 0x100)*a/0xff) << 16) +
-					(dc & 0xff000000);
+				*dst.colors = ColorRgba{
+					.r = (dc.r*(0xff - a)/0xff + sc.r*a/0xff),
+					.g = (dc.g*(0xff - a)/0xff + sc.g*a/0xff),
+					.b = (dc.b*(0xff - a)/0xff + sc.b*a/0xff),
+					.a = dc.a
+				}.val;
 			}
 			dst.colors++;
 			src.colors++;

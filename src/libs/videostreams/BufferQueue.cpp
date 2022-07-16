@@ -1,4 +1,5 @@
 #include "BufferQueue.h"
+#include <stdlib.h>
 
 
 BufferQueue::BufferQueue(int32 maxLen):
@@ -33,9 +34,33 @@ int32 BufferQueue::Remove()
 	return res;
 }
 
+void BufferQueue::RemoveAt(int32 idx)
+{
+	if (!(idx <= fLen)) {
+		abort();
+	}
+	for (int32 i = idx; i < fLen; i++) {
+		fItems[(fBeg + i) % fMaxLen] = fItems[(fBeg + i + 1) % fMaxLen];
+	}
+	fLen--;
+}
+
 int32 BufferQueue::Begin()
 {
 	if (!(fLen > 0))
 		return -1;
 	return fItems[fBeg%fMaxLen];
+}
+
+int32 BufferQueue::ItemAt(int32 idx)
+{
+	return fItems[(fBeg + idx) % fMaxLen];
+}
+
+int32 BufferQueue::FindItem(int32 val)
+{
+	for (int32 i = 0; i < Length(); i++) {
+		if (ItemAt(i) == val) return i;
+	}
+	return -1;
 }

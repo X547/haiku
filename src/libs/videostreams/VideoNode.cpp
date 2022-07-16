@@ -1,38 +1,89 @@
 #include "VideoNode.h"
+#include "VideoBuffer.h"
+#include <private/app/MessengerPrivate.h>
 
 #include <stdio.h>
 
 
 inline int32 ReplaceError(int32 err, int32 replaceWith) {return err < B_OK ? replaceWith : err;}
-#define CheckRet(err) {status_t _err = (err); if (_err < B_OK) return _err;}
+#define CheckRet(err) {status_t _err = (err); if (_err < B_OK) {abort(); return _err;}}
 #define CheckReply(msg, err) {status_t _err = (err); if (_err < B_OK) {BMessage reply(B_REPLY); reply.AddInt32("error", _err); msg->SendReply(&reply); return;}}
 
 
-static status_t SendMessageSync(
-	BHandler* src, const BMessenger &dst, BMessage* message, BMessage* reply,
-	bigtime_t deliveryTimeout = B_INFINITE_TIMEOUT, bigtime_t replyTimeout = B_INFINITE_TIMEOUT
-)
+static VideoNode *GetLocalNode(VideoNode *node, const BMessenger &src)
 {
-	if (dst.IsTargetLocal()) {
-		BLooper* dstLooper;
-		BHandler* dstHandler = dst.Target(&dstLooper);
-		if (src->Looper() == dstLooper) {
-			// !!! can't get reply
-			dstHandler->MessageReceived(message);
-			return B_OK;
-		}
-	}
-	return dst.SendMessage(message, reply, deliveryTimeout, replyTimeout);
+	if (!src.IsValid() || !src.IsTargetLocal()) return NULL;
+	BLooper* srcLooper = NULL;
+	BHandler* srcHandler = src.Target(&srcLooper);
+	if (node->Looper() != srcLooper) return NULL;
+	return (VideoNode*)srcHandler;
 }
 
+
+//#pragma mark - VideoNodeProxy
+
+VideoNodeRef::VideoNodeRef(VideoNode *node, const BMessenger& link):
+	fNode(node), fProxy(link)
+{}
+
+VideoNodeProxyBase &VideoNodeRef::Get()
+{
+	VideoNode *linkPtr = GetLocalNode(fNode, Link());
+	if (linkPtr != NULL) {
+		return *linkPtr;
+	}
+	return fProxy;
+}
+
+
+status_t VideoNodeProxy::ConnectInt(bool doConnect, const BMessenger &link)
+{
+	BMessage reply;
+	BMessage msg(videoNodeConnectMsg);
+	msg.AddBool("doConnect", doConnect);
+	if (doConnect) {
+		msg.AddMessenger("link", link);
+	}
+	CheckRet(Link().SendMessage(&msg, &reply));
+	int32 error;
+	if (reply.FindInt32("error", &error) >= B_OK)
+		CheckRet(error);
+	return B_OK;
+}
+
+status_t VideoNodeProxy::SwapChainRequested(const SwapChainSpec& spec)
+{
+	BMessage msg(videoNodeRequestSwapChainMsg);
+	msg.AddData("spec", B_RAW_TYPE, &spec, sizeof(SwapChainSpec));
+	Link().SendMessage(&msg);
+	return B_OK;
+}
+
+status_t VideoNodeProxy::SwapChainChangedInt(bool isValid, ObjectDeleter<SwapChain> &swapChain)
+{
+	BMessage msg(videoNodeSwapChainChangedMsg);
+	msg.AddBool("isValid", isValid);
+	if (isValid) {
+		CheckRet(swapChain->ToMessage(msg, "swapChain"));
+	}
+
+	BMessage reply;
+	CheckRet(Link().SendMessage(&msg, &reply));
+	int32 error;
+	if (reply.FindInt32("error", &error) >= B_OK)
+		CheckRet(error);
+	return B_OK;
+}
+
+
+//#pragma mark - VideoNode
 
 VideoNode::VideoNode(const char* name):
 	BHandler(name),
 	fIsConnected(false),
-	fSwapChainValid(false),
+	fLink(this, BMessenger()),
 	fOwnsSwapChain(false)
 {
-	memset(&fSwapChain, 0, sizeof(SwapChain));
 }
 
 VideoNode::~VideoNode()
@@ -49,43 +100,12 @@ status_t VideoNode::ConnectTo(const BMessenger& link)
 		return B_OK;
 
 	if (IsConnected()) {
-		BMessage reply;
-		BMessage msg(videoNodeConnectMsg);
-		msg.AddBool("doConnect", false);
-		CheckRet(SendMessageSync(this, Link(), &msg, &reply));
-		fLink = BMessenger();
-		fIsConnected = false;
-		Connected(false);
+		CheckRet(fLink.Get().ConnectInt(false, BMessenger()));
+		ConnectInt(false, BMessenger());
 	}
 	if (link.IsValid()) {
-/*
-		struct LinkReleaser {
-			VideoNode& base;
-			bool doRelease;
-			LinkReleaser(VideoNode& base): base(base), doRelease(true) {}
-			void Detach() {doRelease = false;}
-			~LinkReleaser()
-			{
-				if (doRelease) {
-					base.fLink = BMessenger();
-					base.fIsConnected = false;
-				}
-			}
-		} linkReleaser(*this);
-*/
-		BMessage reply;
-		BMessage msg(videoNodeConnectMsg);
-		msg.AddBool("doConnect", true);
-		msg.AddMessenger("link", BMessenger(this));
-		CheckRet(SendMessageSync(this, link, &msg, &reply));
-		int32 error;
-		if (reply.FindInt32("error", &error) >= B_OK)
-			CheckRet(error);
-
-//		linkReleaser.Detach();
-		fLink = link;
-		fIsConnected = true;
-		Connected(true);
+		CheckRet(VideoNodeRef(this, link).Get().ConnectInt(true, BMessenger(this)));
+		ConnectInt(true, link);
 	}
 	return B_OK;
 }
@@ -96,7 +116,10 @@ void VideoNode::Connected(bool isActive)
 
 status_t VideoNode::SetSwapChain(const SwapChain* swapChain)
 {
-	printf("VideoNode::SetSwapChain()\n");
+	printf("VideoNode::SetSwapChain(%p)\n", swapChain);
+	if (swapChain != NULL) {
+		DumpSwapChain(*swapChain);
+	}
 
 	if (swapChain == NULL) {
 		if (!SwapChainValid())
@@ -104,46 +127,31 @@ status_t VideoNode::SetSwapChain(const SwapChain* swapChain)
 		if (!OwnsSwapChain())
 			return B_NOT_ALLOWED;
 
-		fBuffers.Unset();
-		fSwapChainValid = false;
-		fOwnsSwapChain = false;
-
+		ObjectDeleter<SwapChain> swapChainNull;
 		if (IsConnected()) {
-			BMessage msg(videoNodeSwapChainChangedMsg);
-			msg.AddBool("isValid", false);
-			BMessage reply;
-			CheckRet(SendMessageSync(this, Link(), &msg, &reply));
+			CheckRet(fLink.Get().SwapChainChangedInt(false, swapChainNull));
 		}
-
-		SwapChainChanged(false);
+		CheckRet(SwapChainChangedInt(false, swapChainNull));
 		return B_OK;
 	}
 
 	if (swapChain->size != sizeof(SwapChain))
 		return B_BAD_VALUE;
 
-	memcpy(&fSwapChain, swapChain, swapChain->size);
-	fBuffers.SetTo(new VideoBuffer[fSwapChain.bufferCnt]);
-	fSwapChain.buffers = fBuffers.Get();
-	memcpy(fSwapChain.buffers, swapChain->buffers, fSwapChain.bufferCnt*sizeof(VideoBuffer));
+	ObjectDeleter<SwapChain> swapChainCopy;
+	CheckRet(swapChain->Copy(swapChainCopy));
 
-	fSwapChainValid = true;
 	fOwnsSwapChain = true;
 
-	printf("  swapChain: \n");
-	printf("    size: %" B_PRIuSIZE "\n", fSwapChain.size);
-	printf("    bufferCnt: %" B_PRIu32 "\n", fSwapChain.bufferCnt);
-
 	if (IsConnected()) {
-		BMessage msg(videoNodeSwapChainChangedMsg);
-		msg.AddBool("isValid", true);
-		msg.AddData("swapChain", B_RAW_TYPE, &fSwapChain, sizeof(VideoBuffer) - sizeof(void*));
-		msg.AddData("buffers", B_RAW_TYPE, swapChain->buffers, fSwapChain.bufferCnt*sizeof(VideoBuffer));
-		BMessage reply;
-		CheckRet(SendMessageSync(this, Link(), &msg, &reply));
+			// may move swapChainCopyto itself making it NULL
+			CheckRet(fLink.Get().SwapChainChangedInt(true, swapChainCopy));
 	}
+	if (!swapChainCopy.IsSet()) {
+		CheckRet(swapChain->Copy(swapChainCopy));
+	}
+	CheckRet(SwapChainChangedInt(true, swapChainCopy));
 
-	SwapChainChanged(true);
 	return B_OK;
 }
 
@@ -155,12 +163,7 @@ status_t VideoNode::RequestSwapChain(const SwapChainSpec& spec)
 	if (!IsConnected())
 		return B_ERROR;
 
-	BMessage msg(videoNodeRequestSwapChainMsg);
-	msg.AddData("spec", B_RAW_TYPE, &spec, sizeof(SwapChainSpec) - sizeof(void*));
-	msg.AddData("bufferSpecs", B_RAW_TYPE, spec.bufferSpecs, spec.bufferCnt*sizeof(BufferSpec));
-	Link().SendMessage(&msg);
-
-	return B_OK;
+	return fLink.Get().SwapChainRequested(spec);
 }
 
 
@@ -174,33 +177,55 @@ void VideoNode::SwapChainChanged(bool isValid)
 }
 
 
+status_t VideoNode::ConnectInt(bool doConnect, const BMessenger &link)
+{
+	if (doConnect) {
+		if (IsConnected())
+			return B_ERROR; // already connected
+		if (!link.IsValid())
+			return B_ERROR;
+		fLink.SetLink(link);
+	} else {
+		if (!IsConnected())
+			return B_ERROR; // not connected
+		fLink.SetLink(BMessenger());
+	}
+	fIsConnected = doConnect;
+	if (!IsConnected() && SwapChainValid() && !OwnsSwapChain()) {
+		ObjectDeleter<SwapChain> swapChain;
+		SwapChainChangedInt(false, swapChain);
+	}
+	Connected(doConnect);
+	return B_OK;
+}
+
+status_t VideoNode::SwapChainChangedInt(bool isValid, ObjectDeleter<SwapChain> &swapChain)
+{
+	if (isValid) {
+		fSwapChain.SetTo(swapChain.Detach());
+	} else {
+		fSwapChain.Unset();
+		fOwnsSwapChain = false;
+	}
+	SwapChainChanged(isValid);
+	return B_OK;
+}
+
+
 void VideoNode::MessageReceived(BMessage* msg)
 {
 	switch (msg->what) {
 	case videoNodeConnectMsg: {
 		bool doConnect;
+		BMessenger link;
 		CheckReply(msg, ReplaceError(msg->FindBool("doConnect", &doConnect), B_BAD_VALUE));
 		if (doConnect) {
-			if (IsConnected())
-				CheckReply(msg, B_ERROR); // already connected
-			CheckReply(msg, ReplaceError(msg->FindMessenger("link", &fLink), B_BAD_VALUE));
-			if (!fLink.IsValid())
-				CheckReply(msg, B_ERROR);
-		} else {
-			if (!IsConnected())
-				CheckReply(msg, B_ERROR); // not connected
-			fLink = BMessenger();
+			CheckReply(msg, ReplaceError(msg->FindMessenger("link", &link), B_BAD_VALUE));
 		}
+		CheckReply(msg, ConnectInt(doConnect, link));
+
 		BMessage reply(B_REPLY);
 		msg->SendReply(&reply);
-		fIsConnected = doConnect;
-		if (!IsConnected() && SwapChainValid() && !OwnsSwapChain()) {
-			fBuffers.Unset();
-			fSwapChainValid = false;
-			fOwnsSwapChain = false;
-			SwapChainChanged(false);
-		}
-		Connected(doConnect);
 		return;
 	}
 	case videoNodeRequestSwapChainMsg: {
@@ -208,53 +233,29 @@ void VideoNode::MessageReceived(BMessage* msg)
 		const void* data;
 		ssize_t size;
 		SwapChainSpec spec;
-		BufferSpec* bufferSpecs;
 		CheckReply(msg, ReplaceError(msg->FindData("spec", B_RAW_TYPE, &data, &size), B_BAD_VALUE));
-		if ((size_t)size < sizeof(SwapChainSpec) - sizeof(void*))
+		if ((size_t)size < sizeof(SwapChainSpec))
 			CheckReply(msg, B_BAD_VALUE);
-		memcpy(&spec, data, sizeof(SwapChainSpec) - sizeof(void*));
-		CheckReply(msg, ReplaceError(msg->FindData("bufferSpecs", B_RAW_TYPE, (const void**)&bufferSpecs, &size), B_BAD_VALUE));
-		if ((size_t)size < spec.bufferCnt*sizeof(BufferSpec))
-			CheckReply(msg, B_BAD_VALUE);
-		spec.bufferSpecs = bufferSpecs;
+		memcpy(&spec, data, sizeof(SwapChainSpec));
 		CheckReply(msg, SwapChainRequested(spec));
+
 		BMessage reply(B_REPLY);
 		msg->SendReply(&reply);
-		// SwapChainRequested(spec);
 		return;
 	}
 	case videoNodeSwapChainChangedMsg: {
 		printf("videoNodeSwapChainChangedMsg\n");
 		bool isValid;
 		CheckReply(msg, ReplaceError(msg->FindBool("isValid", &isValid), B_BAD_VALUE));
+		ObjectDeleter<SwapChain> swapChain;
 		if (isValid) {
-			const void* data;
-			ssize_t size;
-			SwapChain swapChain;
-			VideoBuffer* buffers;
-			CheckReply(msg, ReplaceError(msg->FindData("swapChain", B_RAW_TYPE, &data, &size), B_BAD_VALUE));
-			if ((size_t)size < sizeof(SwapChain) - sizeof(void*))
-				CheckReply(msg, B_BAD_VALUE);
-			memcpy(&swapChain, data, sizeof(SwapChain) - sizeof(void*));
-			CheckReply(msg, ReplaceError(msg->FindData("buffers", B_RAW_TYPE, (const void**)&buffers, &size), B_BAD_VALUE));
-			if ((size_t)size < swapChain.bufferCnt*sizeof(VideoBuffer))
-				CheckReply(msg, B_BAD_VALUE);
-			swapChain.buffers = buffers;
-
-			memcpy(&fSwapChain, &swapChain, sizeof(SwapChain));
-			fBuffers.SetTo(new VideoBuffer[fSwapChain.bufferCnt]);
-			fSwapChain.buffers = fBuffers.Get();
-			memcpy(fSwapChain.buffers, swapChain.buffers, fSwapChain.bufferCnt*sizeof(VideoBuffer));
-
-			fSwapChainValid = true;
-		} else {
-			fBuffers.Unset();
-			fSwapChainValid = false;
+			CheckReply(msg, SwapChain::NewFromMessage(swapChain, *msg, "swapChain"));
 		}
+		CheckReply(msg, SwapChainChangedInt(isValid, swapChain));
 
-		SwapChainChanged(isValid);
 		BMessage reply(B_REPLY);
 		msg->SendReply(&reply);
+		return;
 	}
 	}
 	BHandler::MessageReceived(msg);
@@ -268,4 +269,37 @@ void _EXPORT WriteMessenger(const BMessenger& obj)
 		BMessenger::Private((BMessenger*)&obj).Port(),
 		BMessenger::Private((BMessenger*)&obj).Token()
 	);
+}
+
+void _EXPORT DumpSwapChain(const SwapChain &swapChain)
+{
+	printf("swapChain: \n");
+	printf("  size: %" B_PRIuSIZE "\n", swapChain.size);
+	printf("  bufferCnt: %" B_PRIu32 "\n", swapChain.bufferCnt);
+	printf("  buffers:\n");
+	for (uint32 i = 0; i < swapChain.bufferCnt; i++) {
+		const VideoBuffer &buffer = swapChain.buffers[i];
+		printf("    %" B_PRIu32 "\n", i);
+		switch (buffer.ref.kind) {
+			case bufferRefArea: {
+				printf("      ref.kind: area\n");
+				printf("      ref.area.id: %" B_PRId32 "\n", buffer.ref.area.id);
+				break;
+			}
+			case bufferRefGpu: {
+				printf("      ref.kind: gpu\n");
+				printf("      ref.area.id: %" B_PRId32 "\n",   buffer.ref.gpu.id);
+				printf("      ref.area.team: %" B_PRId32 "\n", buffer.ref.gpu.team);
+				break;
+			}
+			default:
+				printf("      ref.kind: ?(%d)\n", buffer.ref.kind);
+		}
+		printf("      ref.offset: %" B_PRIuSIZE "\n",       buffer.ref.offset);
+		printf("      ref.length: %" B_PRIu64 "\n",         buffer.ref.size);
+		printf("      format.bytesPerRow: %" B_PRIu32 "\n", buffer.format.bytesPerRow);
+		printf("      format.width: %" B_PRIu32 "\n",       buffer.format.width);
+		printf("      format.height: %" B_PRIu32 "\n",      buffer.format.height);
+		printf("      format.colorSpace: %d\n",             buffer.format.colorSpace);
+	}
 }

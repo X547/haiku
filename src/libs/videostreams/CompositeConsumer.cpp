@@ -1,5 +1,6 @@
 #include "CompositeConsumer.h"
 #include "VideoBufferUtils.h"
+#include <stdio.h>
 
 #define CheckRet(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
@@ -26,59 +27,82 @@ void CompositeConsumer::Connected(bool isActive)
 	} else {
 		printf("CompositeConsumer: disconnected\n");
 		SetSwapChain(NULL);
-		fBitmaps.Unset();
+		fSwapChainBind.Unset();
+		fDisplayBitmap = NULL;
 		fBase->Invalidate(fSurface->frame);
 	}
 }
 
-status_t CompositeConsumer::SwapChainRequested(const SwapChainSpec& spec)
+status_t CompositeConsumer::SwapChainRequested(const SwapChainSpec& spec0)
 {
-	printf("CompositeConsumer::SwapChainRequested(%" B_PRIuSIZE ")\n", spec.bufferCnt);
+	printf("CompositeConsumer::SwapChainRequested(%" B_PRIuSIZE ")\n", spec0.bufferCnt);
 
-	uint32 bufferCnt = spec.bufferCnt;
-	
-	fBitmaps.SetTo(new ObjectDeleter<BBitmap>[bufferCnt]);
-	for (uint32 i = 0; i < bufferCnt; i++) {
-		fBitmaps[i].SetTo(new BBitmap(fSurface->frame.OffsetToCopy(B_ORIGIN), spec.bufferSpecs[i].colorSpace));
+	// keep old display bitmap
+	if (fDisplayBitmap != NULL) {
+		for (uint32 i = 0; i < fBitmapCnt; i++) {
+			if (fSwapChainBind.Buffers()[i].bitmap.Get() == fDisplayBitmap) {
+				fDisplayBitmapDeleter.SetTo(fSwapChainBind.Buffers()[i].bitmap.Detach());
+			}
+		}
 	}
-	SwapChain swapChain;
-	swapChain.size = sizeof(SwapChain);
-	swapChain.presentEffect = spec.presentEffect;
-	swapChain.bufferCnt = bufferCnt;
-	ArrayDeleter<VideoBuffer> buffers(new VideoBuffer[bufferCnt]);
-	swapChain.buffers = buffers.Get();
-	for (uint32 i = 0; i < bufferCnt; i++) {
-		buffers[i].id = i;
-		CheckRet(VideoBufferFromBitmap(buffers[i], *fBitmaps[i].Get()));
-	}
-	SetSwapChain(&swapChain);
+
+	SwapChainSpec spec = spec0;
+	spec.width = (int32)fSurface->frame.Width() + 1;
+	spec.height = (int32)fSurface->frame.Height() + 1;
+
+	fBitmapCnt = spec.bufferCnt;
+	ObjectDeleter<SwapChain> swapChain;
+	CheckRet(fSwapChainBind.Alloc(swapChain, spec));
+	SetSwapChain(swapChain.Get());
+
 	return B_OK;
 }
 
+void CompositeConsumer::SwapChainChanged(bool isValid)
+{
+	VideoConsumer::SwapChainChanged(isValid);
+	if (!isValid) {
+		fSwapChainBind.Unset();
+		return;
+	}
+	if (!OwnsSwapChain()) {
+		DumpSwapChain(GetSwapChain());
+		fSwapChainBind.ConnectTo(GetSwapChain());
+	}
+}
+
+
 void CompositeConsumer::Present(int32 bufferId, const BRegion* dirty)
 {
-	if (GetSwapChain().presentEffect == presentEffectCopy) {
-		BBitmap *dstBmp = fBitmaps[DisplayBufferId()].Get();
-		BBitmap *srcBmp = fBitmaps[bufferId].Get();
-		if (dirty != NULL) {
-			for (int32 i = 0; i < dirty->CountRects(); i++) {
-				BRect rect = dirty->RectAt(i);
-				dstBmp->ImportBits(srcBmp, rect.LeftTop(), rect.LeftTop(), rect.Size());
+	fDisplayBitmapDeleter.Unset();
+	fDisplayBitmap = fSwapChainBind.Buffers()[bufferId].bitmap.Get();
+
+	switch (GetSwapChain().presentEffect) {
+		case presentEffectCopy: {
+			BBitmap *dstBmp = fSwapChainBind.Buffers()[DisplayBufferId()].bitmap.Get();
+			BBitmap *srcBmp = fSwapChainBind.Buffers()[bufferId].bitmap.Get();
+			if (dirty != NULL) {
+				for (int32 i = 0; i < dirty->CountRects(); i++) {
+					BRect rect = dirty->RectAt(i);
+					dstBmp->ImportBits(srcBmp, rect.LeftTop(), rect.LeftTop(), rect.Size());
+				}
+			} else {
+				dstBmp->ImportBits(srcBmp);
 			}
-		} else {
-			dstBmp->ImportBits(srcBmp);
+			break;
+		}
+		case presentEffectSwap: {
+			break;
 		}
 	}
 	fBase->InvalidateSurface(this, dirty);
-	Presented();
+	PresentedInfo presentedInfo{};
+	Presented(presentedInfo);
 }
 
 BBitmap* CompositeConsumer::DisplayBitmap()
 {
-	int32 bufferId = DisplayBufferId();
-	if (bufferId < 0)
-		return NULL;
-	return fBitmaps[bufferId].Get();
+	return fDisplayBitmap;
 }
 
 RasBuf32 CompositeConsumer::DisplayRasBuf()
