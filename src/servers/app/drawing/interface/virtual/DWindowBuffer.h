@@ -14,7 +14,6 @@ public:
 	virtual						~DWindowBuffer();
 
 	virtual	status_t			InitCheck() const;
-	virtual	bool				IsGraphicsMemory() const { return true;}
 
 	virtual	color_space			ColorSpace() const;
 	virtual	void*				Bits() const;
