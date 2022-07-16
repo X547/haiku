@@ -17,7 +17,10 @@ public:
 	inline int32 Length() {return fLen;}
 	bool Add(int32 val);
 	int32 Remove();
+	void RemoveAt(int32 idx);
 	int32 Begin();
+	int32 ItemAt(int32 idx);
+	int32 FindItem(int32 val);
 };
 
 

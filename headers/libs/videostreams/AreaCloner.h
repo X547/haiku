@@ -7,7 +7,7 @@
 #include <map>
 
 
-class MappedArea: public BReferenceable
+class _EXPORT MappedArea: public BReferenceable
 {
 private:
 	friend class AreaCloner;
@@ -25,7 +25,7 @@ public:
 };
 
 
-class AreaCloner {
+class _EXPORT AreaCloner {
 private:
 	friend class MappedArea;
 
