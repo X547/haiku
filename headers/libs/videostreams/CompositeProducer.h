@@ -1,8 +1,10 @@
 #ifndef _COMPOSITEPRODUCER_H_
 #define _COMPOSITEPRODUCER_H_
 
-#include "TestProducerBase.h"
+#include "VideoProducer.h"
+#include "VideoBufferBindSW.h"
 #include "RasBuf.h"
+#include <Region.h>
 #include <MessageRunner.h>
 
 #include <private/kernel/util/DoublyLinkedList.h>
@@ -54,12 +56,15 @@ private:
 	};
 
 	DoublyLinkedList<Surface> fSurfaces;
-	ArrayDeleter<MappedBuffer> fMappedBuffers;
+	SwapChainBindSW fSwapChainBind;
 	uint32 fValidPrevBufCnt;
 	BRegion fDirty, fPrevDirty;
 	bool fUpdateRequested;
+	bool fSwapChainChanging = false;
+	int32 fPending = 0;
 
-	void Restore(const BRegion& dirty);
+	void UpdateSwapChain(int32 width, int32 height);
+	void Restore(int32 bufferId, const BRegion& dirty);
 
 public:
 	CompositeProducer(const char* name);
@@ -67,11 +72,10 @@ public:
 
 	void Connected(bool isActive) final;
 	void SwapChainChanged(bool isValid) final;
-	void Presented() final;
+	void Presented(const PresentedInfo &presentedInfo) final;
 	void MessageReceived(BMessage* msg) final;
 	
-	inline RasBuf32 RenderBufferRasBuf();
-	void FillRegion(const BRegion& region, uint32 color);
+	inline RasBuf32 GetRasBuf(int32 bufferId);
 	void Produce();
 
 	CompositeConsumer* NewSurface(const char* name, const SurfaceUpdate& update);
@@ -85,13 +89,18 @@ public:
 };
 
 
-RasBuf32 CompositeProducer::RenderBufferRasBuf()
+RasBuf32 CompositeProducer::GetRasBuf(int32 bufferId)
 {
-	const VideoBuffer& buf = *RenderBuffer();
+	if (bufferId < 0) {
+		RasBuf32 rb {};
+		return rb;
+	}
+	const VideoBuffer &buf = GetSwapChain().buffers[bufferId];
+	const auto &mappedBuffer = fSwapChainBind.Buffers()[bufferId];
 	RasBuf32 rb = {
-		.colors = (uint32*)fMappedBuffers[RenderBufferId()].bits,
+		.colors = (uint32*)mappedBuffer.bits,
 		.stride = buf.format.bytesPerRow / 4,
-		.width = buf.format.width,
+		.width  = buf.format.width,
 		.height = buf.format.height,		
 	};
 	return rb;

@@ -1,4 +1,5 @@
 #include "CompositeProxy.h"
+#include <stdio.h>
 
 
 //#define CheckRet(err) {status_t _err = (err); if (_err < B_OK) return _err;}
