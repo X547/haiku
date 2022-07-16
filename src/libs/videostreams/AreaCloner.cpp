@@ -1,19 +1,22 @@
 #include "AreaCloner.h"
 
 #include <stdio.h>
+#include <string.h>
 
 
 MappedArea::MappedArea(area_id srcArea):
-	fSrcArea(srcArea),
-	fArea(clone_area("cloned buffer", (void**)&fAdr, B_ANY_ADDRESS, B_READ_AREA | B_WRITE_AREA, srcArea))
+	fSrcArea(srcArea)
 {
+	area_info info;
+	status_t res = get_area_info(srcArea, &info);
+	if (res < B_OK) {
+		fprintf(stderr, "[!] MappedArea: bad source area %d: %#" B_PRIx32 "(%s)\n", srcArea, res, strerror(res));
+		fAdr = NULL;
+		return;
+	}
+	fArea.SetTo(clone_area("cloned buffer", (void**)&fAdr, B_ANY_ADDRESS, B_READ_AREA | B_WRITE_AREA | B_CLONEABLE_AREA, srcArea));
 	if (!fArea.IsSet()) {
-		printf("can't clone area, assuming kernel area\n");
-		area_info info;
-		if (get_area_info(srcArea, &info) < B_OK) {
-			fAdr = NULL;
-			return;
-		}
+		fprintf(stderr, "[!] MappedArea: can't clone area %d: %#" B_PRIx32 "(%s), assuming kernel area\n", srcArea, fArea.Get(), strerror(fArea.Get()));
 		fAdr = (uint8*)info.address;
 	}
 }

@@ -17,7 +17,8 @@ for architectureObject in [ MultiArchSubDirSetup ] {
 			CompositeProducer.cpp
 			CompositeProxy.cpp
 			RasBuf.cpp
-			TestProducerBase.cpp
+			VideoBufferBindBitmap.cpp
+			VideoBufferBindSW.cpp
 			VideoBufferUtils.cpp
 			VideoConsumer.cpp
 			VideoNode.cpp
