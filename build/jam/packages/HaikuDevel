@@ -10,6 +10,8 @@ local arch = $(TARGET_ARCH) ;
 AddFilesToPackage develop lib :
 	<src!system!glue!arch!$(arch)!$(architecture)>crti.o
 	<src!system!glue!arch!$(arch)!$(architecture)>crtn.o
+	<$(architecture)>crtbeginS.o
+	<$(architecture)>crtendS.o
 	<src!system!glue!$(architecture)>init_term_dyn.o
 	<src!system!glue!$(architecture)>start_dyn.o
 	<src!system!glue!$(architecture)>haiku_version_glue.o
