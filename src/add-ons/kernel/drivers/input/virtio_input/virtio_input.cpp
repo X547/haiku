@@ -19,6 +19,7 @@
 
 #include <virtio_input_driver.h>
 
+#include <util/AutoLock.h>
 #include <AutoDeleter.h>
 #include <AutoDeleterOS.h>
 #include <AutoDeleterDrivers.h>
@@ -46,6 +47,8 @@ struct Packet {
 
 
 struct VirtioInputDevice {
+	mutex lock;
+
 	device_node* node;
 	::virtio_device virtio_device;
 	virtio_device_interface* virtio;
@@ -400,6 +403,33 @@ virtio_input_ioctl(void* cookie, uint32 op, void* buffer, size_t length)
 
 			return B_OK;
 		}
+		case virtioInputGetConfig: {
+			if (buffer == NULL || length < sizeof(VirtioInputConfig))
+				return B_BAD_VALUE;
+
+			MutexLocker(info->lock);
+
+			VirtioInputConfig config;
+			status_t res = user_memcpy(&config, buffer, offsetof(VirtioInputConfig, size));
+			if (res < B_OK)
+				return res;
+
+			res = info->virtio->write_device_config(
+				info->virtio_device, 0, &config, offsetof(VirtioInputConfig, size));
+			if (res < B_OK)
+				return res;
+
+			res = info->virtio->read_device_config(
+				info->virtio_device, 0, &config, sizeof(VirtioInputConfig));
+			if (res < B_OK)
+				return res;
+
+			res = user_memcpy(buffer, &config, sizeof(VirtioInputConfig));
+			if (res < B_OK)
+				return res;
+
+			return B_OK;
+		}
 	}
 
 	return B_DEV_INVALID_IOCTL;
@@ -462,6 +492,7 @@ virtio_input_init_driver(device_node *node, void **cookie)
 		return B_NO_MEMORY;
 
 	memset(info.Get(), 0, sizeof(*info.Get()));
+	mutex_init(&info->lock, "virtio input lock");
 
 	info->sem_cb.SetTo(create_sem(0, "virtio_input_cb"));
 	if (!info->sem_cb.IsSet())
