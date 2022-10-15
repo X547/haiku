@@ -11,8 +11,9 @@
 
 
 enum {
-	virtioInputRead     = B_DEVICE_OP_CODES_END + 1,
-	virtioInputCancelIO = B_DEVICE_OP_CODES_END + 2,
+	virtioInputRead      = B_DEVICE_OP_CODES_END + 1,
+	virtioInputCancelIO  = B_DEVICE_OP_CODES_END + 2,
+	virtioInputGetConfig = B_DEVICE_OP_CODES_END + 3,
 };
 
 

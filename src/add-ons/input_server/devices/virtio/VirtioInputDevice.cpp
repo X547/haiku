@@ -12,8 +12,12 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <vector>
+
 #include <Application.h>
 #include <String.h>
+#include <Directory.h>
+#include <Path.h>
 
 
 //#define TRACE_VIRTIO_INPUT_DEVICE
@@ -155,38 +159,53 @@ VirtioInputDevice::~VirtioInputDevice()
 status_t
 VirtioInputDevice::InitCheck()
 {
-	static input_device_ref *devices[3];
-	input_device_ref **devicesEnd = devices;
+	std::vector<input_device_ref*> devices;
 
 	FileDescriptorCloser fd;
 
-	// TODO: dynamically scan and detect device type
+	// TODO: node monitoring
+	BDirectory dir("/dev/input/virtio");
+	if (dir.InitCheck() < B_OK || dir.Rewind() < B_OK)
+		return B_NO_INIT;
 
-	ObjectDeleter<VirtioInputHandler> tablet(
-		new TabletHandler(this, "VirtIO tablet"));
-	fd.SetTo(open("/dev/input/virtio/0/raw", O_RDWR));
-	if (fd.IsSet()) {
-		tablet->SetFd(fd.Detach());
-		*devicesEnd++ = tablet->Ref();
-		tablet.Detach();
-	} else {
-		TRACE("Unable to detect tablet device!");
+	entry_ref ref;
+	while (dir.GetNextRef(&ref) >= B_OK) {
+		BPath path(&ref);
+		path.Append("raw");
+
+		fd.SetTo(open(path.Path(), O_RDWR | O_CLOEXEC));
+		if (!fd.IsSet())
+			continue;
+
+		VirtioInputConfig config;
+		memset(&config, 0, sizeof(config));
+		config.select = kVirtioInputCfgEvBits;
+		config.subsel = kVirtioInputEvAbs;
+		if (ioctl(fd.Get(), virtioInputGetConfig, &config, sizeof(config)) < B_OK)
+			continue;
+
+		if (config.size >= 1
+			&& (config.bitmap[0] & (1 << kVirtioInputAbsX)) != 0
+			&& (config.bitmap[0] & (1 << kVirtioInputAbsY)) != 0) {
+			// has absolute X/Y axis -> tablet
+			ObjectDeleter<VirtioInputHandler> tablet(
+				new TabletHandler(this, "VirtIO tablet"));
+			tablet->SetFd(fd.Detach());
+			devices.push_back(tablet->Ref());
+			tablet.Detach();
+		} else {
+			// assume keyboard by default
+			ObjectDeleter<VirtioInputHandler> keyboard(
+				new KeyboardHandler(this, "VirtIO keyboard"));
+			keyboard->SetFd(fd.Detach());
+			devices.push_back(keyboard->Ref());
+			keyboard.Detach();
+		}
 	}
 
-	ObjectDeleter<VirtioInputHandler> keyboard(
-		new KeyboardHandler(this, "VirtIO keyboard"));
-	fd.SetTo(open("/dev/input/virtio/1/raw", O_RDWR));
-	if (fd.IsSet()) {
-		keyboard->SetFd(fd.Detach());
-		*devicesEnd++ = keyboard->Ref();
-		keyboard.Detach();
-	} else {
-		TRACE("Unable to detect keyboard device!");
-	}
+	devices.push_back(NULL);
 
-	*devicesEnd = NULL;
-
-	RegisterDevices(devices);
+	RegisterDevices(&devices[0]);
 	return B_OK;
 }
 
