@@ -27,6 +27,26 @@ enum {
 #define PORT_ADDED		0x01
 #define PORT_REMOVED	0x02
 
+
+struct PortReadCallback : DoublyLinkedListLinkImpl<PortReadCallback> {
+	typedef DoublyLinkedList<PortReadCallback> List;
+
+	int32 fSeq;
+
+	virtual void Do(BReferenceable *port) = 0;
+};
+
+struct PortWriteCallback : DoublyLinkedListLinkImpl<PortWriteCallback> {
+	typedef DoublyLinkedList<PortWriteCallback> List;
+
+	int32 fSeq;
+
+	status_t Write(BReferenceable *_port, int32 msgCode, const void* buffer, size_t bufferSize, PortReadCallback *callback);
+
+	virtual bool Do(BReferenceable *port) = 0;
+};
+
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -40,6 +60,8 @@ size_t port_team_link_offset();
 
 status_t select_port(int32 object, struct select_info *info, bool kernel);
 status_t deselect_port(int32 object, struct select_info *info, bool kernel);
+
+status_t add_port_write_callback(port_id id, PortWriteCallback *callback);
 
 // currently private API
 status_t writev_port_etc(port_id id, int32 msgCode, const iovec *msgVecs,

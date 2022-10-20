@@ -89,6 +89,8 @@
 
 namespace {
 
+class Port;
+
 struct port_message : DoublyLinkedListLinkImpl<port_message> {
 	int32				code;
 	size_t				size;
@@ -132,6 +134,8 @@ struct Port : public KernelReferenceable {
 		// messages read from port since creation
 	select_info*		select_infos;
 	MessageList			messages;
+	PortReadCallback::List read_callbacks;
+	PortWriteCallback::List write_callbacks;
 
 	Port(team_id owner, int32 queueLength, const char* name)
 		:
@@ -155,6 +159,12 @@ struct Port : public KernelReferenceable {
 	{
 		while (port_message* message = messages.RemoveHead())
 			put_port_message(message);
+
+		while (PortReadCallback* callback = read_callbacks.RemoveHead())
+			callback->Do(NULL);
+
+		while (PortWriteCallback* callback = write_callbacks.RemoveHead())
+			callback->Do(NULL);
 
 		mutex_destroy(&lock);
 	}
@@ -1210,6 +1220,101 @@ deselect_port(int32 id, struct select_info* info, bool kernel)
 }
 
 
+status_t PortWriteCallback::Write(BReferenceable *_port, int32 msgCode, const void* buffer, size_t bufferSize, PortReadCallback *callback)
+{
+	Port *portRef = static_cast<Port*>(_port);
+
+	port_message* message = NULL;
+	status_t status = get_port_message(msgCode, bufferSize, B_RELATIVE_TIMEOUT, 0, &message, *portRef);
+	if (status != B_OK) {
+		if (status == B_BAD_PORT_ID) {
+			// the port had to be unlocked and is now no longer there
+			T(Write(id, 0, 0, 0, 0, B_BAD_PORT_ID));
+			return B_BAD_PORT_ID;
+		}
+
+		goto error;
+	}
+
+	// sender credentials
+	message->sender = geteuid();
+	message->sender_group = getegid();
+	message->sender_team = team_get_current_team_id();
+	
+	memcpy(message->buffer, buffer, bufferSize);
+
+	if (callback != NULL) {
+		callback->fSeq = portRef->total_count + portRef->read_count;
+		portRef->read_callbacks.Insert(callback);
+	}
+
+	portRef->messages.Add(message);
+	portRef->read_count++;
+
+	T(Write(id, portRef->read_count, portRef->write_count, message->code,
+		message->size, B_OK));
+
+	notify_port_select_events(portRef, B_EVENT_READ);
+	portRef->read_condition.NotifyOne();
+	return B_OK;
+
+error:
+	// Give up our slot in the queue again, and let someone else
+	// try and fail
+	T(Write(id, portRef->read_count, portRef->write_count, 0, 0, status));
+	portRef->write_count++;
+	notify_port_select_events(portRef, B_EVENT_WRITE);
+	portRef->write_condition.NotifyOne();
+
+	return status;
+}
+
+
+static status_t
+add_port_write_callback_locked(Port *portRef, PortWriteCallback *callback, bool canCallNow = true)
+{
+	ASSERT_ALWAYS(!portRef->write_callbacks.Contains(callback));
+
+	callback->fSeq = portRef->total_count + (portRef->capacity - portRef->write_count);
+
+#if 0
+	dprintf("add_port_write_callback_locked, seq: %" B_PRId32 "\n", callback->fSeq);
+	dprintf("  total_count: %" B_PRId32 "\n", portRef->total_count);
+	dprintf("  read_count: %" B_PRId32 "\n", portRef->read_count);
+	dprintf("  write_count: %" B_PRId32 "\n", portRef->write_count);
+#endif
+
+	portRef->write_count--;
+	if (!canCallNow || portRef->write_count <= 0) {
+		portRef->write_callbacks.Insert(callback);
+	} else {
+		if (callback->Do(portRef))
+			add_port_write_callback_locked(portRef, callback, false);
+	}
+
+	return B_OK;
+}
+
+
+status_t
+add_port_write_callback(port_id id, PortWriteCallback *callback)
+{
+	if (!sPortsActive || id < 0)
+		return B_BAD_PORT_ID;
+
+	BReference<Port> portRef = get_locked_port(id);
+	if (portRef == NULL)
+		return B_BAD_PORT_ID;
+
+	MutexLocker locker(portRef->lock, true);
+
+	if (is_port_closed(portRef))
+		return B_BAD_PORT_ID;
+
+	return add_port_write_callback_locked(portRef, callback);
+}
+
+
 port_id
 find_port(const char* name)
 {
@@ -1516,9 +1621,36 @@ read_port_etc(port_id id, int32* _code, void* buffer, size_t bufferSize,
 	portRef->write_count++;
 	portRef->read_count--;
 
-	notify_port_select_events(portRef, B_EVENT_WRITE);
-	portRef->write_condition.NotifyOne();
-		// make one spot in queue available again for write
+#if 0
+	dprintf("read_port_etc\n");
+	dprintf("  total_count: %" B_PRId32 "\n", portRef->total_count);
+	dprintf("  read_count: %" B_PRId32 "\n", portRef->read_count);
+	dprintf("  write_count: %" B_PRId32 "\n", portRef->write_count);
+#endif
+
+	if (!portRef->read_callbacks.IsEmpty()
+		&& portRef->read_callbacks.Head()->fSeq == portRef->total_count - 1) {
+		PortReadCallback *callback = portRef->read_callbacks.RemoveHead();
+		callback->Do(portRef);
+	}
+
+#if 0
+	if (!portRef->write_callbacks.IsEmpty()) {
+		dprintf("portRef->write_callbacks.Head()->fSeq: %" B_PRId32 "\n", portRef->write_callbacks.Head()->fSeq);
+		dprintf("last seq: %" B_PRId32 "\n", portRef->total_count - 1 + portRef->capacity);
+	}
+#endif
+
+	if (!portRef->write_callbacks.IsEmpty()
+		&& portRef->write_callbacks.Head()->fSeq - (portRef->total_count - 1 + portRef->capacity) <= 0) {
+		PortWriteCallback *callback = portRef->write_callbacks.RemoveHead();
+		if (callback->Do(portRef))
+			add_port_write_callback_locked(portRef.Get(), callback);
+	} else {
+		notify_port_select_events(portRef, B_EVENT_WRITE);
+		portRef->write_condition.NotifyOne();
+			// make one spot in queue available again for write
+	}
 
 	T(Read(portRef, message->code, std::min(bufferSize, message->size)));
 
