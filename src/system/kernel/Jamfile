@@ -59,6 +59,7 @@ KernelMergeObject kernel_core.o :
 	UserTimer.cpp
 	wait_for_objects.cpp
 	watch_objects.cpp
+	watch_objects_test.cpp
 
 	# locks
 	lock.cpp

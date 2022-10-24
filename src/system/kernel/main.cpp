@@ -288,6 +288,9 @@ _start(kernel_args *bootKernelArgs, int currentCPU)
 }
 
 
+void do_watch_objects_test();
+
+
 static int32
 main2(void* /*unused*/)
 {
@@ -373,6 +376,8 @@ main2(void* /*unused*/)
 	// Note: don't confuse the kernel_args structure (which is never freed)
 	// with the kernel args ranges it contains (and which are freed here).
 	vm_free_kernel_args(&sKernelArgs);
+
+	do_watch_objects_test();
 
 	// start the init process
 	{
