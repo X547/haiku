@@ -15,17 +15,16 @@ struct select_sync;
 
 
 typedef struct select_info {
+	status_t (*notify)(select_info* sync, uint16 events);
 	struct select_info*	next;				// next in the object's list
-	struct select_sync*	sync;
+	struct select_sync* sync;
 	int32				events;
 	uint16				selected_events;
 } select_info;
 
 typedef struct select_sync {
+	void (*put)(select_sync* sync);
 	int32				ref_count;
-	sem_id				sem;
-	uint32				count;
-	struct select_info*	set;
 } select_sync;
 
 #define SELECT_FLAG(type) (1L << (type - 1))
@@ -45,6 +44,8 @@ extern "C" {
 extern void		put_select_sync(select_sync* sync);
 extern status_t	notify_select_events(select_info* info, uint16 events);
 extern void		notify_select_events_list(select_info* list, uint16 events);
+extern status_t	select_object(object_wait_info *info, struct select_info* sync, bool kernel);
+extern status_t	deselect_object(object_wait_info *info, struct select_info* sync, bool kernel);
 
 extern ssize_t	_user_wait_for_objects(object_wait_info* userInfos,
 					int numInfos, uint32 flags, bigtime_t timeout);

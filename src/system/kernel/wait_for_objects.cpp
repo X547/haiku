@@ -46,6 +46,13 @@
 using std::nothrow;
 
 
+typedef struct select_sync_impl : public select_sync {
+	sem_id				sem;
+	uint32				count;
+	struct select_info*	set;
+} select_sync_impl;
+
+
 struct select_sync_pool_entry
 	: DoublyLinkedListLinkImpl<select_sync_pool_entry> {
 	selectsync			*sync;
@@ -377,14 +384,50 @@ fd_zero(fd_set *set, int numFDs)
 }
 
 
+void
+put_select_sync_impl(select_sync* sync)
+{
+	FUNCTION(("put_select_sync_impl(%p): -> %ld\n", sync, sync->ref_count - 1));
+
+	if (atomic_add(&sync->ref_count, -1) == 1) {
+		delete_sem(static_cast<select_sync_impl*>(sync)->sem);
+		delete[] static_cast<select_sync_impl*>(sync)->set;
+		delete sync;
+	}
+}
+
+
 static status_t
-create_select_sync(int numFDs, select_sync*& _sync)
+notify_select_events_impl(select_info* info, uint16 events)
+{
+	FUNCTION(("notify_select_events_impl(%p (%p), 0x%x)\n", info, info->sync,
+		events));
+
+	if (info == NULL
+		|| info->sync == NULL
+		|| static_cast<select_sync_impl*>(info->sync)->sem < B_OK)
+		return B_BAD_VALUE;
+
+	atomic_or(&info->events, events);
+
+	// only wake up the waiting select()/poll() call if the events
+	// match one of the selected ones
+	if (info->selected_events & events)
+		return release_sem_etc(static_cast<select_sync_impl*>(info->sync)->sem, 1, B_DO_NOT_RESCHEDULE);
+
+	return B_OK;
+}
+
+
+static status_t
+create_select_sync(int numFDs, select_sync_impl*& _sync)
 {
 	// create sync structure
-	select_sync* sync = new(nothrow) select_sync;
+	select_sync_impl* sync = new(nothrow) select_sync_impl;
 	if (sync == NULL)
 		return B_NO_MEMORY;
-	ObjectDeleter<select_sync> syncDeleter(sync);
+	ObjectDeleter<select_sync_impl> syncDeleter(sync);
+	sync->put = put_select_sync_impl;
 
 	// create info set
 	sync->set = new(nothrow) select_info[numFDs];
@@ -401,6 +444,7 @@ create_select_sync(int numFDs, select_sync*& _sync)
 	sync->ref_count = 1;
 
 	for (int i = 0; i < numFDs; i++) {
+		sync->set[i].notify = notify_select_events_impl;
 		sync->set[i].next = NULL;
 		sync->set[i].sync = sync;
 	}
@@ -416,13 +460,7 @@ create_select_sync(int numFDs, select_sync*& _sync)
 void
 put_select_sync(select_sync* sync)
 {
-	FUNCTION(("put_select_sync(%p): -> %ld\n", sync, sync->ref_count - 1));
-
-	if (atomic_add(&sync->ref_count, -1) == 1) {
-		delete_sem(sync->sem);
-		delete[] sync->set;
-		delete sync;
-	}
+	sync->put(sync);
 }
 
 
@@ -448,7 +486,7 @@ common_select(int numFDs, fd_set *readSet, fd_set *writeSet, fd_set *errorSet,
 	}
 
 	// allocate sync object
-	select_sync* sync;
+	select_sync_impl* sync;
 	status = create_select_sync(numFDs, sync);
 	if (status != B_OK)
 		return status;
@@ -555,7 +593,7 @@ common_poll(struct pollfd *fds, nfds_t numFDs, bigtime_t timeout,
 	const sigset_t *sigMask, bool kernel)
 {
 	// allocate sync object
-	select_sync* sync;
+	select_sync_impl* sync;
 	status_t status = create_select_sync(numFDs, sync);
 	if (status != B_OK)
 		return status;
@@ -648,7 +686,7 @@ common_wait_for_objects(object_wait_info* infos, int numInfos, uint32 flags,
 	status_t status = B_OK;
 
 	// allocate sync object
-	select_sync* sync;
+	select_sync_impl* sync;
 	status = create_select_sync(numInfos, sync);
 	if (status != B_OK)
 		return status;
@@ -657,17 +695,13 @@ common_wait_for_objects(object_wait_info* infos, int numInfos, uint32 flags,
 
 	bool invalid = false;
 	for (int i = 0; i < numInfos; i++) {
-		uint16 type = infos[i].type;
-		int32 object = infos[i].object;
-
 		// initialize events masks
 		sync->set[i].selected_events = infos[i].events
 			| B_EVENT_INVALID | B_EVENT_ERROR | B_EVENT_DISCONNECTED;
 		sync->set[i].events = 0;
 		infos[i].events = 0;
 
-		if (type >= kSelectOpsCount
-			|| kSelectOps[type].select(object, sync->set + i, kernel) != B_OK) {
+		if (select_object(&infos[i], sync->set + i, kernel) != B_OK) {
 			sync->set[i].events = B_EVENT_INVALID;
 			infos[i].events = B_EVENT_INVALID;
 				// indicates that the object doesn't need to be deselected
@@ -683,10 +717,8 @@ common_wait_for_objects(object_wait_info* infos, int numInfos, uint32 flags,
 	// deselect objects
 
 	for (int i = 0; i < numInfos; i++) {
-		uint16 type = infos[i].type;
-
-		if (type < kSelectOpsCount && (infos[i].events & B_EVENT_INVALID) == 0)
-			kSelectOps[type].deselect(infos[i].object, sync->set + i, kernel);
+		if ((infos[i].events & B_EVENT_INVALID) == 0)
+			deselect_object(&infos[i], sync->set + i, kernel);
 	}
 
 	// collect the events that have happened in the meantime
@@ -716,22 +748,7 @@ common_wait_for_objects(object_wait_info* infos, int numInfos, uint32 flags,
 status_t
 notify_select_events(select_info* info, uint16 events)
 {
-	FUNCTION(("notify_select_events(%p (%p), 0x%x)\n", info, info->sync,
-		events));
-
-	if (info == NULL
-		|| info->sync == NULL
-		|| info->sync->sem < B_OK)
-		return B_BAD_VALUE;
-
-	atomic_or(&info->events, events);
-
-	// only wake up the waiting select()/poll() call if the events
-	// match one of the selected ones
-	if (info->selected_events & events)
-		return release_sem_etc(info->sync->sem, 1, B_DO_NOT_RESCHEDULE);
-
-	return B_OK;
+	return info->notify(info, events);
 }
 
 
@@ -743,6 +760,26 @@ notify_select_events_list(select_info* list, uint16 events)
 		notify_select_events(info, events);
 		info = info->next;
 	}
+}
+
+
+status_t
+select_object(object_wait_info *info, struct select_info* sync, bool kernel)
+{
+	if (info->type >= kSelectOpsCount)
+		return B_BAD_VALUE;
+
+	return kSelectOps[info->type].select(info->object, sync, kernel);
+}
+
+
+status_t
+deselect_object(object_wait_info *info, struct select_info* sync, bool kernel)
+{
+	if (info->type >= kSelectOpsCount)
+		return B_BAD_VALUE;
+
+	return kSelectOps[info->type].deselect(info->object, sync, kernel);
 }
 
 
