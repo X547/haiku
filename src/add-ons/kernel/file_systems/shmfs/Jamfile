@@ -1,0 +1,14 @@
+SubDir HAIKU_TOP src add-ons kernel file_systems shmfs ;
+
+UsePrivateKernelHeaders ;
+
+KernelAddon shmfs :
+	kernel_interface.cpp
+	ShmfsVolume.cpp
+	ShmfsVnode.cpp
+	ShmfsFileVnode.cpp
+	ShmfsDirectoryVnode.cpp
+	ShmfsSymlinkVnode.cpp
+	ShmfsAttribute.cpp
+	ExternalAllocator.cpp
+	;
