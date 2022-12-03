@@ -18,8 +18,8 @@ class ProtocolHandler;
 
 class HIDDevice {
 public:
-								HIDDevice(uint16 descriptorAddress, i2c_device_interface* i2c,
-									i2c_device i2cCookie);
+								HIDDevice(uint16 descriptorAddress, i2c_bus_interface* i2cBus,
+									i2c_bus i2cBusCookie, i2c_addr address);
 								~HIDDevice();
 
 			status_t			InitCheck() const { return fStatus; }
@@ -79,9 +79,9 @@ private:
 
 			uint8*				fReportDescriptor;
 
-			i2c_device_interface*	fI2C;
-			i2c_device				fI2CCookie;
-	
+			i2c_bus_interface*	fI2cBus;
+			i2c_bus				fI2cBusCookie;
+			i2c_addr			fDeviceAddress;
 };
 
 

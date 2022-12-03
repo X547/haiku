@@ -23,8 +23,8 @@
 #include <new>
 
 
-HIDDevice::HIDDevice(uint16 descriptorAddress, i2c_device_interface* i2c,
-	i2c_device i2cCookie)
+HIDDevice::HIDDevice(uint16 descriptorAddress, i2c_bus_interface* i2cBus,
+	i2c_bus i2cBusCookie, i2c_addr address)
 	:	fStatus(B_NO_INIT),
 		fTransferLastschedule(0),
 		fTransferScheduled(0),
@@ -36,8 +36,9 @@ HIDDevice::HIDDevice(uint16 descriptorAddress, i2c_device_interface* i2c,
 		fProtocolHandlerCount(0),
 		fProtocolHandlerList(NULL),
 		fDescriptorAddress(descriptorAddress),
-		fI2C(i2c),
-		fI2CCookie(i2cCookie)
+		fI2cBus(i2cBus),
+		fI2cBusCookie(i2cBusCookie),
+		fDeviceAddress(address)
 {
 	// fetch HID descriptor
 	fStatus = _FetchBuffer((uint8*)&fDescriptorAddress,
@@ -331,11 +332,11 @@ status_t
 HIDDevice::_ExecCommand(i2c_op op, uint8* cmd, size_t cmdLength, void* buffer,
 	size_t bufferLength)
 {
-	status_t status = fI2C->acquire_bus(fI2CCookie);
+	status_t status = fI2cBus->acquire_bus(fI2cBusCookie);
 	if (status != B_OK)
 		return status;
-	status = fI2C->exec_command(fI2CCookie, I2C_OP_READ_STOP, cmd, cmdLength,
+	status = fI2cBus->exec_command(fI2cBusCookie, op, fDeviceAddress, cmd, cmdLength,
 		buffer, bufferLength);
-	fI2C->release_bus(fI2CCookie);
+	fI2cBus->release_bus(fI2cBusCookie);
 	return status;
 }
