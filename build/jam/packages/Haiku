@@ -28,9 +28,9 @@ AddFilesToPackage add-ons kernel busses agp_gart : <agp_gart>intel@x86,x86_64 ;
 AddFilesToPackage add-ons kernel busses ata
 	: generic_ide_pci it8211 legacy_sata silicon_image_3112 highpoint_ide_pci ide_isa@x86 ;
 
-AddFilesToPackage add-ons kernel busses i2c : pch_i2c@x86,x86_64 ;
+AddFilesToPackage add-ons kernel busses i2c : pch_i2c@x86,x86_64 ocores_i2c@riscv64 ;
 AddFilesToPackage add-ons kernel busses mmc : sdhci_pci ;
-AddFilesToPackage add-ons kernel busses pci : 
+AddFilesToPackage add-ons kernel busses pci :
 	<pci>designware@riscv64 <pci>ecam@riscv64,arm,arm64 <pci>x86@x86,x86_64 ;
 AddFilesToPackage add-ons kernel busses random : ccp_rng@x86,x86_64 virtio_rng ;
 AddFilesToPackage add-ons kernel busses scsi : ahci virtio_scsi ;
@@ -66,7 +66,7 @@ AddNewDriversToPackage disk virtual : ram_disk virtio_block ;
 AddNewDriversToPackage power		: $(SYSTEM_ADD_ONS_DRIVERS_POWER) ;
 AddNewDriversToPackage sensor		: $(SYSTEM_ADD_ONS_DRIVERS_SENSOR) ;
 AddNewDriversToPackage network		: usb_ecm virtio_net ;
-AddNewDriversToPackage input		: i2c_elan virtio_input ;
+AddNewDriversToPackage input		: i2c_elan i2c_hid virtio_input ;
 #AddNewDriversToPackage display		: display_adapter@x86 ;
 
 # legacy drivers
