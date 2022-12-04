@@ -11,6 +11,7 @@ SYSTEM_BIN = [ FFilterByBuildFeatures
 	ftpd
 	getarch groupadd groupdel groupmod
 	hd hey
+	<bin>i2c
 	ifconfig iroster isvolume
 	kernel_debugger keymap keystore
 	launch_roster linkcatkeys listarea listattr listimage listdev listfont
@@ -224,7 +225,7 @@ SYSTEM_ADD_ONS_DRIVERS_SENSOR = [ FFilterByBuildFeatures
 
 SYSTEM_ADD_ONS_BUS_MANAGERS = [ FFilterByBuildFeatures
 	acpi@x86,x86_64,arm64 agp_gart@x86,x86_64 ata
-	i2c@x86,x86_64 isa@x86,x86_64
+	i2c isa@x86,x86_64
 	mmc
 	scsi
 	pci ps2@x86,x86_64
