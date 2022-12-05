@@ -1,0 +1,7 @@
+SubDir HAIKU_TOP src add-ons kernel rtc goldfish ;
+
+UsePrivateKernelHeaders ;
+UsePrivateHeaders shared ;
+
+KernelAddon goldfish :
+	goldfish.cpp ;
