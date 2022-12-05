@@ -19,6 +19,20 @@ struct kernel_args;
 #define RTC_EPOCH_BASE_YEAR	1970
 
 #ifdef __cplusplus
+
+class RealTimeClock {
+public:
+	virtual uint32 GetHwTime() = 0;
+	virtual void SetHwTime(uint32 seconds) = 0;
+};
+
+extern "C" {
+void rtc_set_hook(RealTimeClock* hook);
+}
+
+#endif
+
+#ifdef __cplusplus
 extern "C" {
 #endif
 

@@ -40,6 +40,8 @@ static bool sIsGMT = false;
 static bigtime_t sTimezoneOffset = 0;
 static char sTimezoneName[B_FILE_NAME_LENGTH] = "GMT";
 
+static RealTimeClock* sRtcHook = NULL;
+
 
 static void
 real_time_clock_changed()
@@ -58,7 +60,8 @@ rtc_system_to_hw(void)
 	seconds = (arch_rtc_get_system_time_offset(sRealTimeData) + system_time()
 		+ (sIsGMT ? 0 : sTimezoneOffset)) / 1000000;
 
-	arch_rtc_set_hw_time(seconds);
+	if (sRtcHook != NULL)
+		sRtcHook->SetHwTime(seconds);
 }
 
 
@@ -66,9 +69,11 @@ rtc_system_to_hw(void)
 static void
 rtc_hw_to_system(void)
 {
-	uint32 current_time;
+	uint32 current_time = 0;
 
-	current_time = arch_rtc_get_hw_time();
+	if (sRtcHook != NULL)
+		current_time = sRtcHook->GetHwTime();
+
 	set_real_time_clock(current_time + (sIsGMT ? 0 : sTimezoneOffset));
 }
 
@@ -124,6 +129,13 @@ rtc_init(kernel_args *args)
 
 
 //	#pragma mark - public kernel API
+
+void
+rtc_set_hook(RealTimeClock* hook)
+{
+	sRtcHook = hook;
+	rtc_hw_to_system();
+}
 
 
 void
