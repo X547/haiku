@@ -30,6 +30,10 @@
 #endif
 
 
+static Node* sDevices[32];
+uint32 sDeviceCount;
+
+
 static off_t
 get_next_check_sum_offset(int32 index, off_t maxSize)
 {
@@ -65,15 +69,25 @@ compute_check_sum(Node* device, off_t offset)
 }
 
 
+status_t
+platform_add_device(Node* device)
+{
+	if (sDeviceCount >= B_COUNT_OF(sDevices))
+		return B_BAD_INDEX;
+
+	sDevices[sDeviceCount++] = device;
+	return B_OK;
+}
+
+
 //#pragma mark -
 
 status_t
 platform_add_boot_device(struct stage2_args* args, NodeList* devicesList)
 {
-	ObjectDeleter<Node> device(CreateNvmeBlockDev());
-	if (device.IsSet()) {
-		devicesList->Insert(device.Detach());
-	}
+	for (uint32 i = 0; i < sDeviceCount; i++)
+		devicesList->Insert(sDevices[i]);
+
 	return devicesList->Count() > 0 ? B_OK : B_ENTRY_NOT_FOUND;
 }
 
@@ -130,4 +144,9 @@ platform_register_boot_device(Node* device)
 void
 platform_cleanup_devices()
 {
+	for (uint32 i = 0; i < sDeviceCount; i++) {
+		delete sDevices[i];
+		sDevices[i] = NULL;
+	}
+	sDeviceCount = 0;
 }

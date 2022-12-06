@@ -5,6 +5,8 @@
 
 
 #include "virtio.h"
+#include "devices.h"
+#include "VirtioBlockDevice.h"
 
 #include <new>
 #include <string.h>
@@ -255,6 +257,14 @@ virtio_init()
 			gKeyboardDev->ScheduleIO(new(std::nothrow) IORequest(ioOpWrite,
 				malloc(sizeof(VirtioInputPacket)), sizeof(VirtioInputPacket)));
 		}
+	}
+
+	for (int i = 0;; i++) {
+		ObjectDeleter<VirtioBlockDevice> device(CreateVirtioBlockDev(i));
+		if (!device.IsSet()) break;
+		dprintf("virtio_block[%d]\n", i);
+		if (platform_add_device(device.Get()) < B_OK) break;
+		device.Detach();
 	}
 }
 
