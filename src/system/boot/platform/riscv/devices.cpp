@@ -70,7 +70,7 @@ compute_check_sum(Node* device, off_t offset)
 status_t
 platform_add_boot_device(struct stage2_args* args, NodeList* devicesList)
 {
-	ObjectDeleter<Node> device(CreateAtaBlockDev());
+	ObjectDeleter<Node> device(CreateNvmeBlockDev());
 	if (device.IsSet()) {
 		devicesList->Insert(device.Detach());
 	}
