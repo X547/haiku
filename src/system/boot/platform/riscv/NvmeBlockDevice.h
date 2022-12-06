@@ -7,15 +7,12 @@
 #ifndef _NVMEBLOCKDEVICE_H_
 #define _NVMEBLOCKDEVICE_H_
 
-
 #include <boot/partitions.h>
 
 #include <AutoDeleter.h>
 
-
 void* aligned_malloc(size_t required_bytes, size_t alignment);
-void aligned_free(void* p);
-
+void  aligned_free(void* p);
 
 struct NvmeRegs {
 	uint32 cap1;
@@ -70,13 +67,13 @@ enum {
 
 enum {
 	nvmeStatusSuccess = 0,
-	vnmeStatusBadOp = 1,
+	nvmeStatusBadOp = 1,
 	// TODO
 };
 
 struct NvmeSubmissionPacket {
 	uint8 opcode;
-	uint8 unknown1;
+	uint8 flags;
 	uint16 cmdId;
 	uint8 unknown2[20];
 	uint64 prp1;
@@ -87,8 +84,8 @@ struct NvmeSubmissionPacket {
 };
 
 struct NvmeCompletionPacket {
-	uint32 unknown1;
-	uint32 reserved1;
+	uint32 specific;
+	uint32 reserved;
 	uint16 submQueueHead;
 	uint16 submQueueId;
 	uint16 cmdId;
@@ -100,7 +97,6 @@ struct NvmeCompletionPacket {
 		uint16 val;
 	} status;
 };
-
 
 class NvmeBlockDevice : public Node {
 public:
@@ -126,6 +122,7 @@ private:
 		uint16 complLen{};
 		uint32 submHead{}, submTail{}, submPendingTail{};
 		uint32 complHead{};
+		bool   phase{};
 
 		status_t Init();
 	};
@@ -139,8 +136,9 @@ private:
 	off_t fSize{};
 	Queue fQueues[2];
 	
-	NvmeSubmissionPacket *BeginSubmission(uint32 queueId);
+	NvmeSubmissionPacket* BeginSubmission(uint32 queueId);
 	void CommitSubmissions(uint32 queueId);
+	uint16 CompletionStatus(uint32 queueId);
 };
 
 
