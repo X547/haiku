@@ -100,7 +100,7 @@ struct NvmeCompletionPacket {
 
 class NvmeBlockDevice : public Node {
 public:
-	NvmeBlockDevice();
+	NvmeBlockDevice(void* regs);
 	virtual ~NvmeBlockDevice();
 	status_t Init();
 
@@ -126,7 +126,7 @@ private:
 
 		status_t Init();
 	};
-	
+
 	enum {
 		queueIdAdmin = 0,
 		queueIdIo = 1,
@@ -135,14 +135,14 @@ private:
 	volatile NvmeRegs* fRegs{};
 	off_t fSize{};
 	Queue fQueues[2];
-	
+
 	NvmeSubmissionPacket* BeginSubmission(uint32 queueId);
 	void CommitSubmissions(uint32 queueId);
 	uint16 CompletionStatus(uint32 queueId);
 };
 
 
-NvmeBlockDevice* CreateNvmeBlockDev();
+NvmeBlockDevice* CreateNvmeBlockDev(void* regsAdr);
 
 
 #endif	// _NVMEBLOCKDEVICE_H_
