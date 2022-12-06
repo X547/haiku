@@ -5,15 +5,43 @@
 #include <ByteOrder.h>
 #include <AutoDeleter.h>
 
+#include "devices.h"
+#include "NvmeBlockDevice.h"
+
 #include <string.h>
 #include <new>
 
+
 static PciInitInfo sPciInitInfo{};
 
-enum {
+enum PciBarKind {
 	kRegIo,
 	kRegMmio32,
 	kRegMmio64,
+	kRegMmio1MB,
+	kRegUnknown,
+};
+
+union PciAddress {
+	struct {
+		uint32 offset: 8;
+		uint32 function: 3;
+		uint32 device: 5;
+		uint32 bus: 8;
+		uint32 unused: 8;
+	};
+	uint32 val;
+};
+
+union PciAddressEcam {
+	struct {
+		uint32 offset: 12;
+		uint32 function: 3;
+		uint32 device: 5;
+		uint32 bus: 8;
+		uint32 unused: 4;
+	};
+	uint32 val;
 };
 
 struct {
@@ -82,32 +110,22 @@ LookupInterruptMap(uint32_t childAdr, uint32_t childIrq)
 }
 
 
-static uint32
-EncodePciAddress(uint8 bus, uint8 device, uint8 function)
-{
-	return bus % (1 << 8) * (1 << 16)
-		+ device % (1 << 5) * (1 << 11)
-		+ function % (1 << 3) * (1 << 8);
-}
-
-static void
-DecodePciAddress(uint32_t adr, uint8& bus, uint8& device, uint8& function)
-{
-	bus = adr / (1 << 16) % (1 << 8);
-	device = adr / (1 << 11) % (1 << 5);
-	function = adr / (1 << 8) % (1 << 3);
-}
-
-
 static inline addr_t
 PciConfigAdr(uint8 bus, uint8 device, uint8 function, uint16 offset)
 {
-	addr_t address = sPciInitInfo.configRegs.start + EncodePciAddress(bus, device, function) * (1 << 4) + offset;
-	if (address < sPciInitInfo.configRegs.start
-		|| address /*+ size*/ > sPciInitInfo.configRegs.start + sPciInitInfo.configRegs.size)
+	PciAddressEcam address {
+		.offset = offset,
+		.function = function,
+		.device = device,
+		.bus = bus
+	};
+	PciAddressEcam addressEnd = address;
+	addressEnd.offset = /*~(uint32)0*/ 4095;
+
+	if (addressEnd.val >= sPciInitInfo.configRegs.size)
 		return 0;
 
-	return address;
+	return sPciInitInfo.configRegs.start + address.val;
 }
 
 
@@ -158,8 +176,8 @@ static void WriteReg16(addr_t adr, uint32 value)
 }
 
 static status_t
-read_pci_config(void *cookie, uint8 bus, uint8 device, uint8 function,
-	uint16 offset, uint8 size, uint32 *value)
+read_pci_config(void* cookie, uint8 bus, uint8 device, uint8 function,
+	uint16 offset, uint8 size, uint32* value)
 {
 	addr_t address = PciConfigAdr(bus, device, function, offset);
 	if (address == 0)
@@ -168,7 +186,7 @@ read_pci_config(void *cookie, uint8 bus, uint8 device, uint8 function,
 	switch (size) {
 		case 1: *value = ReadReg8(address); break;
 		case 2: *value = ReadReg16(address); break;
-		case 4: *value = *(uint32*)address; break;
+		case 4: *value = *(vuint32*)address; break;
 		default:
 			return B_ERROR;
 	}
@@ -178,7 +196,7 @@ read_pci_config(void *cookie, uint8 bus, uint8 device, uint8 function,
 
 
 static status_t
-write_pci_config(void *cookie, uint8 bus, uint8 device, uint8 function,
+write_pci_config(void* cookie, uint8 bus, uint8 device, uint8 function,
 	uint16 offset, uint8 size, uint32 value)
 {
 	addr_t address = PciConfigAdr(bus, device, function, offset);
@@ -188,7 +206,7 @@ write_pci_config(void *cookie, uint8 bus, uint8 device, uint8 function,
 	switch (size) {
 		case 1: WriteReg8(address, value); break;
 		case 2: WriteReg16(address, value); break;
-		case 4: *(uint32*)address = value; break;
+		case 4: *(vuint32*)address = value; break;
 		default:
 			return B_ERROR;
 	}
@@ -197,13 +215,121 @@ write_pci_config(void *cookie, uint8 bus, uint8 device, uint8 function,
 }
 
 
+static PciBarKind
+GetPciBarKind(uint32 val)
+{
+	if (val % 2 == 1)
+		return kRegIo;
+	if (val / 2 % 4 == 0)
+		return kRegMmio32;
+	if (val / 2 % 4 == 1)
+		return kRegMmio1MB;
+	if (val / 2 % 4 == 2)
+		return kRegMmio64;
+	return kRegUnknown;
+}
+
+
+static void
+GetBarValMask(uint32& val, uint32& mask, uint8 bus, uint8 device, uint8 function, uint16 offset)
+{
+	val = 0;
+	mask = 0;
+	read_pci_config (NULL, bus, device, function, offset, 4, &val);
+	write_pci_config(NULL, bus, device, function, offset, 4, 0xffffffff);
+	read_pci_config (NULL, bus, device, function, offset, 4, &mask);
+	write_pci_config(NULL, bus, device, function, offset, 4, val);
+}
+
+
+static void
+GetBarKindValSize(PciBarKind& barKind, uint64& val, uint64& size, uint8 bus, uint8 device, uint8 function, uint16 offset)
+{
+	uint32 oldValLo = 0, oldValHi = 0, sizeLo = 0, sizeHi = 0;
+	GetBarValMask(oldValLo, sizeLo, bus, device, function, offset);
+	barKind = GetPciBarKind(oldValLo);
+	val = oldValLo;
+	size = sizeLo;
+	if (barKind == kRegMmio64) {
+		GetBarValMask(oldValHi, sizeHi, bus, device, function, offset + 4);
+		val  += ((uint64)oldValHi) << 32;
+		size += ((uint64)sizeHi  ) << 32;
+	} else {
+		if (sizeLo != 0)
+			size += ((uint64)0xffffffff) << 32;
+	}
+	if (barKind == kRegIo)
+		val &= ~(uint64)0x3;
+	else
+		val &= ~(uint64)0xf;
+	size = ~(size & ~(uint64)0xf) + 1;
+}
+
+
+static uint64
+GetBarVal(uint8 bus, uint8 device, uint8 function, uint16 offset)
+{
+	uint32 oldValLo = 0, oldValHi = 0;
+	read_pci_config(NULL, bus, device, function, offset, 4, &oldValLo);
+	PciBarKind barKind = GetPciBarKind(oldValLo);
+	uint64 val = oldValLo;
+	if (barKind == kRegMmio64) {
+		read_pci_config(NULL, bus, device, function, offset + 5, 4, &oldValHi);
+		val += ((uint64)oldValHi) << 32;
+	}
+	if (barKind == kRegIo)
+		val &= ~(uint64)0x3;
+	else
+		val &= ~(uint64)0xf;
+	return val;
+}
+
+
+static void
+SetBarVal(uint8 bus, uint8 device, uint8 function, uint16 offset, PciBarKind barKind, uint64 val)
+{
+	write_pci_config(NULL, bus, device, function, offset, 4, (uint32)val);
+	if (barKind == kRegMmio64)
+		write_pci_config(NULL, bus, device, function, offset + 4, 4, (uint32)(val >> 32));
+}
+
+
+static bool
+AllocBar(uint8 bus, uint8 device, uint8 function, uint16 offset)
+{
+	bool allocBars = true;
+
+	PciBarKind regKind;
+	uint64 val, size;
+	GetBarKindValSize(regKind, val, size, bus, device, function, offset);
+	switch (regKind) {
+		case kRegIo:     dprintf("IOPORT"); break;
+		case kRegMmio32: dprintf("MMIO32"); break;
+		case kRegMmio64: dprintf("MMIO64"); break;
+		default:
+			dprintf("?(%#x)", (unsigned)(val%16));
+			dprintf("\n");
+			return false;
+	}
+
+	dprintf(", adr: 0x%" B_PRIx64 ", size: 0x%" B_PRIx64, val, size);
+
+	if (allocBars && size != 0) {
+		val = AllocRegister(regKind, size);
+		SetBarVal(bus, device, function, offset, regKind, val);
+		dprintf(" -> 0x%" B_PRIx64, val);
+	}
+
+	dprintf("\n");
+
+	return regKind == kRegMmio64;
+}
+
 
 static void
 AllocRegsForDevice(uint8 bus, uint8 device, uint8 function)
 {
 	dprintf("AllocRegsForDevice(bus: %d, device: %d, function: %d)\n", bus, device, function);
-
-	bool allocBars = true;
 
 	uint32 vendorID = 0, deviceID = 0;
 	read_pci_config(NULL, bus, device, function, PCI_vendor_id, 2, &vendorID);
@@ -212,8 +338,7 @@ AllocRegsForDevice(uint8 bus, uint8 device, uint8 function)
 	dprintf("  deviceID: %#04" B_PRIx32 "\n", deviceID);
 
 	uint32 headerType = 0;
-	read_pci_config(NULL, bus, device, function,
-		PCI_header_type, 1, &headerType);
+	read_pci_config(NULL, bus, device, function, PCI_header_type, 1, &headerType);
 	headerType = headerType % 0x80;
 
 	dprintf("  headerType: ");
@@ -235,128 +360,65 @@ AllocRegsForDevice(uint8 bus, uint8 device, uint8 function)
 		dprintf("  subordinateBus: %u\n", subordinateBus);
 	}
 
-	uint32 oldValLo = 0, oldValHi = 0, sizeLo = 0, sizeHi = 0;
-	uint64 val, size;
 	for (int i = 0; i < ((headerType == PCI_header_type_PCI_to_PCI_bridge) ? 2 : 6); i++) {
-
 		dprintf("  bar[%d]: ", i);
-
-		read_pci_config(NULL, bus, device, function,
-			PCI_base_registers + i*4, 4, &oldValLo);
-
-		int regKind;
-		if (oldValLo % 2 == 1) {
-			regKind = kRegIo;
-			dprintf("IOPORT");
-		} else if (oldValLo / 2 % 4 == 0) {
-			regKind = kRegMmio32;
-			dprintf("MMIO32");
-		} else if (oldValLo / 2 % 4 == 2) {
-			regKind = kRegMmio64;
-			dprintf("MMIO64");
-		} else {
-			dprintf("?(%d)", oldValLo / 2 % 4);
-			dprintf("\n");
-			continue;
-		}
-
-		read_pci_config (NULL, bus, device, function, PCI_base_registers + i*4, 4, &oldValLo);
-		write_pci_config(NULL, bus, device, function, PCI_base_registers + i*4, 4, 0xffffffff);
-		read_pci_config (NULL, bus, device, function, PCI_base_registers + i*4, 4, &sizeLo);
-		write_pci_config(NULL, bus, device, function, PCI_base_registers + i*4, 4, oldValLo);
-		val = oldValLo;
-		size = sizeLo;
-		if (regKind == kRegMmio64) {
-			read_pci_config (NULL, bus, device, function, PCI_base_registers + (i + 1)*4, 4, &oldValHi);
-			write_pci_config(NULL, bus, device, function, PCI_base_registers + (i + 1)*4, 4, 0xffffffff);
-			read_pci_config (NULL, bus, device, function, PCI_base_registers + (i + 1)*4, 4, &sizeHi);
-			write_pci_config(NULL, bus, device, function, PCI_base_registers + (i + 1)*4, 4, oldValHi);
-			val  += ((uint64)oldValHi) << 32;
-			size += ((uint64)sizeHi  ) << 32;
-		} else {
-			if (sizeLo != 0)
-				size += ((uint64)0xffffffff) << 32;
-		}
-		val &= ~(uint64)0xf;
-		size = ~(size & ~(uint64)0xf) + 1;
-/*
-		dprintf(", oldValLo: 0x%" B_PRIx32 ", sizeLo: 0x%" B_PRIx32, oldValLo,
-			sizeLo);
-		if (regKind == regMmio64) {
-			dprintf(", oldValHi: 0x%" B_PRIx32 ", sizeHi: 0x%" B_PRIx32,
-				oldValHi, sizeHi);
-		}
-*/
-		dprintf(", adr: 0x%" B_PRIx64 ", size: 0x%" B_PRIx64, val, size);
-
-		if (allocBars && /*val == 0 &&*/ size != 0) {
-			if (regKind == kRegMmio64) {
-				val = AllocRegister(regKind, size);
-				write_pci_config(NULL, bus, device, function,
-					PCI_base_registers + (i + 0)*4, 4, (uint32)val);
-				write_pci_config(NULL, bus, device, function,
-					PCI_base_registers + (i + 1)*4, 4,
-					(uint32)(val >> 32));
-				dprintf(" -> 0x%" B_PRIx64, val);
-			} else {
-				val = AllocRegister(regKind, size);
-				write_pci_config(NULL, bus, device, function,
-					PCI_base_registers + i*4, 4, (uint32)val);
-				dprintf(" -> 0x%" B_PRIx64, val);
-			}
-		}
-
-		dprintf("\n");
-
-		if (regKind == kRegMmio64)
+		if (AllocBar(bus, device, function, PCI_base_registers + i*4))
 			i++;
 	}
-
 	// ROM
-	dprintf("  rom_bar: ");
+	dprintf("  romBar: ");
 	uint32 romBaseOfs = (headerType == PCI_header_type_PCI_to_PCI_bridge) ? PCI_bridge_rom_base : PCI_rom_base;
-	read_pci_config (NULL, bus, device, function, romBaseOfs, 4, &oldValLo);
-	write_pci_config(NULL, bus, device, function, romBaseOfs, 4, 0xfffffffe);
-	read_pci_config (NULL, bus, device, function, romBaseOfs, 4, &sizeLo);
-	write_pci_config(NULL, bus, device, function, romBaseOfs, 4, oldValLo);
-
-	val = oldValLo & PCI_rom_address_mask;
-	size = ~(sizeLo & ~(uint32)0xf) + 1;
-	dprintf("adr: 0x%" B_PRIx64 ", size: 0x%" B_PRIx64, val, size);
-	if (allocBars && /*val == 0 &&*/ size != 0) {
-		val = AllocRegister(kRegMmio32, size);
-		write_pci_config(NULL, bus, device, function,
-			PCI_rom_base, 4, (uint32)val);
-		dprintf(" -> 0x%" B_PRIx64, val);
-	}
-	dprintf("\n");
+	AllocBar(bus, device, function, romBaseOfs);
 
 	uint32 intPin = 0;
-	read_pci_config(NULL, bus, device, function,
-		PCI_interrupt_pin, 1, &intPin);
+	read_pci_config(NULL, bus, device, function, PCI_interrupt_pin, 1, &intPin);
 
-	InterruptMap* intMap = LookupInterruptMap(EncodePciAddress(bus, device, function), intPin);
+	PciAddress pciAddress{
+		.function = function,
+		.device = device,
+		.bus = bus
+	};
+	InterruptMap* intMap = LookupInterruptMap(pciAddress.val, intPin);
 	if (intMap == NULL)
 		dprintf("no interrupt mapping for childAdr: (%d:%d:%d), childIrq: %d)\n", bus, device, function, intPin);
-	else {
-		write_pci_config(NULL, bus, device, function,
-			PCI_interrupt_line, 1, intMap->parentIrq);
-	}
+	else
+		write_pci_config(NULL, bus, device, function, PCI_interrupt_line, 1, intMap->parentIrq);
 
 	uint32 intLine = 0;
-	read_pci_config(NULL, bus, device, function,
-		PCI_interrupt_line, 1, &intLine);
+	read_pci_config(NULL, bus, device, function, PCI_interrupt_line, 1, &intLine);
 	dprintf("  intLine: %u\n", intLine);
 	dprintf("  intPin: ");
 	switch (intPin) {
-	case 0: dprintf("-"); break;
-	case 1: dprintf("INTA#"); break;
-	case 2: dprintf("INTB#"); break;
-	case 3: dprintf("INTC#"); break;
-	case 4: dprintf("INTD#"); break;
-	default: dprintf("?(%u)", intPin); break;
+		case 0: dprintf("-"); break;
+		case 1: dprintf("INTA#"); break;
+		case 2: dprintf("INTB#"); break;
+		case 3: dprintf("INTC#"); break;
+		case 4: dprintf("INTD#"); break;
+		default: dprintf("?(%u)", intPin); break;
 	}
 	dprintf("\n");
+}
+
+
+static void
+PciForEachDevice(bool (*handler)(void* arg, uint8 bus, uint8 device, uint8 function), void* arg)
+{
+	// TODO: improve enumeration
+	for (int j = 0; j < /*8*/ 1; j++) {
+		for (int i = 0; i < 32; i++) {
+			uint32 vendorID = 0;
+			status_t res = read_pci_config(NULL, j, i, 0, PCI_vendor_id, 2, &vendorID);
+			if (res >= B_OK && vendorID != 0xffff) {
+				uint32 headerType = 0;
+				read_pci_config(NULL, j, i, 0, PCI_header_type, 1, &headerType);
+				if ((headerType & 0x80) != 0) {
+					for (int k = 0; k < 8; k++)
+						if (!handler(arg, j, i, k)) return;
+				} else
+					if (!handler(arg, j, i, 0)) return;
+			}
+		}
+	}
 }
 
 
@@ -364,37 +426,48 @@ static void
 AllocRegs()
 {
 	dprintf("AllocRegs()\n");
-	// TODO: improve enumeration
-	for (int j = 0; j < /*8*/ 1; j++) {
-		for (int i = 0; i < 32; i++) {
-			//dprintf("%d, %d\n", j, i);
-			uint32 vendorID = 0;
-			status_t res = read_pci_config(NULL, j, i, 0, PCI_vendor_id, 2, &vendorID);
-			if (res >= B_OK && vendorID != 0xffff) {
-				uint32 headerType = 0;
-				read_pci_config(NULL, j, i, 0,
-					PCI_header_type, 1, &headerType);
-				if ((headerType & 0x80) != 0) {
-					for (int k = 0; k < 8; k++)
-						AllocRegsForDevice(j, i, k);
-				} else
-					AllocRegsForDevice(j, i, 0);
-			}
+	PciForEachDevice([](void* arg, uint8 bus, uint8 device, uint8 function) {
+		AllocRegsForDevice(bus, device, function);
+		return true;
+	}, NULL);
+}
+
+
+static void
+PciLookupDrivers()
+{
+	dprintf("PciLookupDrivers()\n");
+	PciForEachDevice([](void* arg, uint8 bus, uint8 device, uint8 function) {
+		uint32 baseClass = 0, subClass = 0;
+		read_pci_config(NULL, bus, device, function, PCI_class_base, 1, &baseClass);
+		read_pci_config(NULL, bus, device, function, PCI_class_sub, 1, &subClass);
+		if (baseClass == PCI_mass_storage && subClass == PCI_nvm) {
+			void* regs = (void*)(addr_t)GetBarVal(bus, device, function, PCI_base_registers);
+			ObjectDeleter<NvmeBlockDevice> device(CreateNvmeBlockDev(regs));
+			if (!device.IsSet())
+				return true;
+
+			if (platform_add_device(device.Get()) >= B_OK)
+				device.Detach();
 		}
-	}
+		return true;
+	}, NULL);
 }
 
 
 void
-pci_init0(PciInitInfo *info)
+pci_init0(PciInitInfo* info)
 {
 	sPciInitInfo = *info;
 }
+
 
 void
 pci_init()
 {
 	dprintf("pci_init\n");
+	if (sPciInitInfo.configRegs.size == 0)
+		return;
 
 	sInterruptMapMask.childAdr = B_BENDIAN_TO_HOST_INT32(*((uint32*)sPciInitInfo.intMapMask + 0));
 	sInterruptMapMask.childIrq = B_BENDIAN_TO_HOST_INT32(*((uint32*)sPciInitInfo.intMapMask + 3));
@@ -419,16 +492,13 @@ pci_init()
 	for (size_t i = 0; i < sInterruptMapLen; i++) {
 		dprintf("    ");
 		// child unit address
-		uint8 bus, device, function;
-		DecodePciAddress(sInterruptMap[i].childAdr, bus, device, function);
-		dprintf("bus: %" B_PRIu32, bus);
-		dprintf(", dev: %" B_PRIu32, device);
-		dprintf(", fn: %" B_PRIu32, function);
+		PciAddress pciAddress{.val = sInterruptMap[i].childAdr};
+		dprintf("bus: %" B_PRIu32, pciAddress.bus);
+		dprintf(", dev: %" B_PRIu32, pciAddress.device);
+		dprintf(", fn: %" B_PRIu32, pciAddress.function);
 
-		dprintf(", childIrq: %" B_PRIu32,
-			sInterruptMap[i].childIrq);
-		dprintf(", parentIrq: (%" B_PRIu32,
-			sInterruptMap[i].parentIrqCtrl);
+		dprintf(", childIrq: %" B_PRIu32, sInterruptMap[i].childIrq);
+		dprintf(", parentIrq: (%" B_PRIu32, sInterruptMap[i].parentIrqCtrl);
 		dprintf(", %" B_PRIu32, sInterruptMap[i].parentIrq);
 		dprintf(")\n");
 		if (i % 4 == 3 && (i + 1 < sInterruptMapLen))
@@ -475,4 +545,5 @@ pci_init()
 	}
 
 	if (true) AllocRegs();
+	PciLookupDrivers();
 }
