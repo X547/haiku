@@ -68,9 +68,9 @@ uint16 NvmeBlockDevice::CompletionStatus(uint32 queueId)
 	return packet->status.status;
 }
 
-NvmeBlockDevice::NvmeBlockDevice()
+NvmeBlockDevice::NvmeBlockDevice(void* regs)
 {
-	fRegs = (volatile NvmeRegs*)(0x40000000);
+	fRegs = (volatile NvmeRegs*)(regs);
 }
 
 // Seems like this is never called, and it breaks the next boot stage
@@ -115,7 +115,7 @@ NvmeBlockDevice::Init()
 	dprintf("  fRegs->adminSubmQueue: %#" B_PRIx64 "\n", GetLoHi(fRegs->adminSubmQueueAdrLo, fRegs->adminSubmQueueAdrHi));
 	dprintf("  fRegs->adminComplQueue: %#" B_PRIx64 "\n", GetLoHi(fRegs->adminComplQueueAdrLo, fRegs->adminComplQueueAdrHi));
 	dprintf("  fRegs->adminQueueAttrs: %" B_PRIu16 ", %" B_PRIu16 "\n", fRegs->adminQueueAttrs.submQueueLen, fRegs->adminQueueAttrs.complQueueLen);
-	
+
 	NvmeSubmissionPacket* packet = BeginSubmission(0);
 	packet->opcode = nvmeAdminOpCreateSubmQueue;
 	packet->prp1 = (addr_t)fQueues[1].submArray.Get();
@@ -125,7 +125,7 @@ NvmeBlockDevice::Init()
 		dprintf("Failed to create IO submission queue\n");
 		return B_UNSUPPORTED;
 	}
-	
+
 	packet = BeginSubmission(0);
 	packet->opcode = nvmeAdminOpCreateComplQueue;
 	packet->prp1 = (addr_t)fQueues[1].complArray.Get();
@@ -135,7 +135,7 @@ NvmeBlockDevice::Init()
 		dprintf("Failed to create IO completion queue\n");
 		return B_UNSUPPORTED;
 	}
-	
+
 	uint64_t* ident_buff = (uint64_t*)aligned_malloc(4096, 4096);
 	packet = BeginSubmission(0);
 	packet->opcode = nvmeAdminOpIdentity;
@@ -150,15 +150,15 @@ NvmeBlockDevice::Init()
 	aligned_free(ident_buff);
 
 	dprintf("  fSize: %#" B_PRIx64 "\n", fSize);
-	
+
 	return B_OK;
 }
 
 ssize_t
 NvmeBlockDevice::ReadAt(void* cookie, off_t pos, void* buffer, size_t bufferSize)
-{	
+{
 	//dprintf("ReadAt(%p, %ld, %p, %ld)\n", cookie, pos, buffer, bufferSize);
-	
+
 	// No PRP support yet, just read sector by sector into a temporary buffer
 	// MUST BE PAGE ALIGNED!
 	uint64_t* buff = (uint64_t*)aligned_malloc(4096, 4096);
@@ -177,7 +177,7 @@ NvmeBlockDevice::ReadAt(void* cookie, off_t pos, void* buffer, size_t bufferSize
 		memcpy(((uint8_t*)buffer) + i, buff, (bufferSize > 512) ? 512 : bufferSize);
 	}
 	aligned_free(buff);
-	
+
 	return bufferSize;
 }
 
@@ -195,9 +195,9 @@ NvmeBlockDevice::Size() const
 }
 
 NvmeBlockDevice*
-CreateNvmeBlockDev()
+CreateNvmeBlockDev(void* regs)
 {
-	ObjectDeleter<NvmeBlockDevice> device(new(std::nothrow) NvmeBlockDevice());
+	ObjectDeleter<NvmeBlockDevice> device(new(std::nothrow) NvmeBlockDevice(regs));
 	if (!device.IsSet())
 		panic("Can't allocate memory for NvmeBlockDevice!");
 
