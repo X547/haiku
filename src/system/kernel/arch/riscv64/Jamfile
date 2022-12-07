@@ -16,6 +16,7 @@ KernelMergeObject kernel_arch_riscv64.o :
 	arch_elf.cpp
 	arch_int.cpp
 	acpi_irq_routing_table.cpp
+	generic_int.cpp
 	arch_platform.cpp
 	arch_real_time_clock.cpp
 	arch_smp.cpp
