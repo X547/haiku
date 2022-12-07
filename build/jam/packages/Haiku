@@ -47,7 +47,7 @@ AddFilesToPackage add-ons kernel generic
 		locked_pool mpu401 scsi_periph smbios@x86,x86_64 <module>tty ;
 AddFilesToPackage add-ons kernel partitioning_systems
 	: amiga_rdb@m68k apple@ppc sun@sparc efi_gpt intel session ;
-AddFilesToPackage add-ons kernel interrupt_controllers : openpic@ppc ;
+AddFilesToPackage add-ons kernel interrupt_controllers : openpic@ppc plic@riscv64 ;
 AddFilesToPackage add-ons kernel power cpufreq : amd_pstates@x86,x86_64 intel_pstates@x86,x86_64 ;
 AddFilesToPackage add-ons kernel power cpuidle : intel_cstates@x86,x86_64 ;
 
@@ -196,6 +196,7 @@ AddBootModuleSymlinksToPackage
 	mmc mmc_disk
 	nvme_disk
 	openpic@ppc
+	plic@riscv64
 	packagefs pci
 	fdt@riscv64,arm,arm64
 	scsi scsi_cd scsi_disk scsi_periph silicon_image_3112 highpoint_ide_pci
