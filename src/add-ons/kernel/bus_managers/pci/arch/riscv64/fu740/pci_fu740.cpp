@@ -14,31 +14,54 @@
 extern ArchPCIController* gArchPCI;
 
 
-static int32
-msi_interrupt_handler(void* arg)
-{
-	if (gArchPCI == NULL) {
-		dprintf("  irq on unconfigured PCI bus!\n");
-		return B_ERROR;
-	}
-
-	return gArchPCI->HandleMSIIrq(arg);
-}
+//#pragma mark - MSI interrupt controller
 
 
 int32
 PCIFU740::HandleMSIIrq(void* arg)
 {
-//      dprintf("MsiInterruptHandler()\n");
-	uint32 status = GetDbuRegs()->msiIntr[0].status;
+//	dprintf("PCIFU740::HandleMSIIrq()\n");
+	PCIFU740* pci = static_cast<PCIFU740*>(arg);
+	uint32 status = pci->GetDbuRegs()->msiIntr[0].status;
 	for (int i = 0; i < 32; i++) {
 		if (((1 << i) & status) != 0) {
-//                      dprintf("MSI IRQ: %d (%ld)\n", i, gStartMsiIrq + i);
-			int_io_interrupt_handler(fMsiStartIrq + i, false);
-			GetDbuRegs()->msiIntr[0].status = (1 << i);
+//			dprintf("MSI IRQ: %d (%ld)\n", i, fStartMsiIrq + i);
+			int_io_interrupt_handler(pci->fMsiStartIrq + i, false);
+			pci->GetDbuRegs()->msiIntr[0].status = (1 << i);
 		}
 	}
 	return B_HANDLED_INTERRUPT;
+}
+
+
+void
+PCIFU740::EnableIoInterrupt(int vector)
+{
+	dprintf("PCIFU740::EnableIoInterrupt(%d)\n", vector);
+	uint32 irq = vector - fMsiStartIrq;
+	GetDbuRegs()->msiIntr[irq / 32].enable |= 1 << (irq % 32);
+}
+
+
+void
+PCIFU740::DisableIoInterrupt(int vector)
+{
+	dprintf("PCIFU740::DisableIoInterrupt(%d)\n", vector);
+	uint32 irq = vector - fMsiStartIrq;
+	GetDbuRegs()->msiIntr[irq / 32].enable &= ~(1 << (irq % 32));
+}
+
+
+void
+PCIFU740::ConfigureIoInterrupt(int irq, uint32 config)
+{
+}
+
+
+int32
+PCIFU740::AssignToCpu(int32 irq, int32 cpu)
+{
+	return 0;
 }
 
 
@@ -56,19 +79,19 @@ PCIFU740::InitMSI(int32 msiIrq)
 	}
 
 	fMsiPhysAddr = pe.address;
-        dprintf("  fMsiPhysAddr: %#" B_PRIxADDR "\n", fMsiPhysAddr);
-        GetDbuRegs()->msiAddrLo = (uint32)fMsiPhysAddr;
-        GetDbuRegs()->msiAddrHi = (uint32)(fMsiPhysAddr >> 32);
+	dprintf("  fMsiPhysAddr: %#" B_PRIxADDR "\n", fMsiPhysAddr);
+	GetDbuRegs()->msiAddrLo = (uint32)fMsiPhysAddr;
+	GetDbuRegs()->msiAddrHi = (uint32)(fMsiPhysAddr >> 32);
 
-        GetDbuRegs()->msiIntr[0].enable = 0xffffffff;
-        GetDbuRegs()->msiIntr[0].mask = 0xffffffff;
+	GetDbuRegs()->msiIntr[0].enable = 0;
+	GetDbuRegs()->msiIntr[0].mask = 0xffffffff;
 
-	result = install_io_interrupt_handler(msiIrq, msi_interrupt_handler, NULL, 0);
+	result = install_io_interrupt_handler(msiIrq, HandleMSIIrq, this, 0);
 	if (result != B_OK) {
 		dprintf("  unable to attach MSI irq handler!\n");
 		return result;
 	}
-	result = allocate_io_interrupt_vectors(32, &fMsiStartIrq, INTERRUPT_TYPE_IRQ);
+	result = allocate_io_interrupt_vectors_ex(32, &fMsiStartIrq, INTERRUPT_TYPE_IRQ, static_cast<InterruptSource*>(this));
 
 	if (result != B_OK) {
 		dprintf("  unable to attach MSI irq handler!\n");
@@ -105,6 +128,9 @@ PCIFU740::FreeMSIIrq(int32 irq)
 }
 
 
+//#pragma mark -
+
+
 status_t
 PCIFU740::AtuMap(uint32 index, uint32 direction, uint32 type, uint64 parentAdr, uint64 childAdr,
 	uint32 size)
@@ -123,8 +149,8 @@ PCIFU740::AtuMap(uint32 index, uint32 direction, uint32 type, uint64 parentAdr, 
 	atu->ctrl2 = kPciAtuEnable;
 
 	for (;;) {
-	        if ((atu->ctrl2 & kPciAtuEnable) != 0)
-	                break;
+		if ((atu->ctrl2 & kPciAtuEnable) != 0)
+			break;
 	}
 
 	return B_OK;
@@ -181,22 +207,22 @@ PCIFU740::AtuDump()
 						first = false;
 					else
 						dprintf(", ");
-                                       switch (i) {
-                                               case 30:
-                                                       dprintf("barModeEnable");
-                                                       break;
-                                               case 31:
-                                                       dprintf("enable");
-                                                       break;
-                                               default:
-                                                       dprintf("? (%" B_PRIu32 ")", i);
-                                                       break;
-                                       }
-                               }
-                       }
-                       dprintf("}\n");
-               }
-       }
+					switch (i) {
+						case 30:
+							dprintf("barModeEnable");
+							break;
+						case 31:
+							dprintf("enable");
+							break;
+						default:
+							dprintf("? (%" B_PRIu32 ")", i);
+							break;
+					}
+				}
+			}
+			dprintf("}\n");
+		}
+	}
 }
 
 

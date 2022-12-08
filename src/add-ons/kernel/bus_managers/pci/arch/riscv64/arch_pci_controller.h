@@ -21,30 +21,32 @@
 #include <util/AutoLock.h>
 
 
-enum {
-    kRegIo,
-    kRegMmio32,
-    kRegMmio64,
+enum PciBarKind {
+	kRegIo,
+	kRegMmio32,
+	kRegMmio64,
+	kRegMmio1MB,
+	kRegUnknown,
 };
 
 struct RegisterRange {
-    phys_addr_t parentBase;
-    phys_addr_t childBase;
-    size_t size;
-    phys_addr_t free;
+	phys_addr_t parentBase;
+	phys_addr_t childBase;
+	size_t size;
+	phys_addr_t free;
 };
 
 
 struct InterruptMapMask {
-    uint32_t childAdr;
-    uint32_t childIrq;
+	uint32_t childAdr;
+	uint32_t childIrq;
 };
 
 struct InterruptMap {
-    uint32_t childAdr;
-    uint32_t childIrq;
-    uint32_t parentIrqCtrl;
-    uint32_t parentIrq;
+	uint32_t childAdr;
+	uint32_t childIrq;
+	uint32_t parentIrqCtrl;
+	uint32_t parentIrq;
 };
 
 
@@ -61,7 +63,6 @@ virtual status_t				InitMSI(int32 irq) = 0;
 virtual int32					AllocateMSIIrq() = 0;
 virtual void					FreeMSIIrq(int32 irq) = 0;
 virtual	void					InitDeviceMSI(uint8 bus, uint8 device, uint8 function) = 0;
-virtual int32					HandleMSIIrq(void* arg) = 0;
 
 virtual	addr_t					ConfigAddress(uint8 bus, uint8 device, uint8 function,
 									uint16 offset) = 0;
@@ -73,13 +74,13 @@ virtual bool					AllocateBar() = 0;
 									uint8& function);
 
 		addr_t					GetIoRegs() { return fIoBase; };
-	volatile PciDbiRegs*				GetDbuRegs();
 
 		RegisterRange*			GetRegisterRange(int range);
 		void					SetRegisterRange(int kind, phys_addr_t parentBase,
 									phys_addr_t childBase, size_t size);
 
 		phys_addr_t				AllocRegister(int kind, size_t size);
+		bool					AllocBar(uint8 bus, uint8 device, uint8 function, uint16 offset);
 		void					AllocRegsForDevice(uint8 bus, uint8 device, uint8 function);
 
 		InterruptMap*			LookupInterruptMap(uint32_t childAdr, uint32_t childIrq);
