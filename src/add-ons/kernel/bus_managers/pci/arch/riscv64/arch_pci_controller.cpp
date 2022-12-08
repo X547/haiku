@@ -18,6 +18,73 @@ extern PCI* gPCI;
 ArchPCIController* gArchPCI = NULL;
 
 
+static status_t read_pci_config(void *cookie, uint8 bus, uint8 device, uint8 function,
+	uint16 offset, uint8 size, uint32 *value);
+static status_t write_pci_config(void *cookie, uint8 bus, uint8 device, uint8 function,
+	uint16 offset, uint8 size, uint32 value);
+
+
+static PciBarKind
+GetPciBarKind(uint32 val)
+{
+	if (val % 2 == 1)
+		return kRegIo;
+	if (val / 2 % 4 == 0)
+		return kRegMmio32;
+	if (val / 2 % 4 == 1)
+		return kRegMmio1MB;
+	if (val / 2 % 4 == 2)
+		return kRegMmio64;
+	return kRegUnknown;
+}
+
+
+static void
+GetBarValMask(uint32& val, uint32& mask, uint8 bus, uint8 device, uint8 function, uint16 offset)
+{
+	val = 0;
+	mask = 0;
+	read_pci_config (NULL, bus, device, function, offset, 4, &val);
+	write_pci_config(NULL, bus, device, function, offset, 4, 0xffffffff);
+	read_pci_config (NULL, bus, device, function, offset, 4, &mask);
+	write_pci_config(NULL, bus, device, function, offset, 4, val);
+}
+
+
+static void
+GetBarKindValSize(PciBarKind& barKind, uint64& val, uint64& size,
+	uint8 bus, uint8 device, uint8 function, uint16 offset)
+{
+	uint32 oldValLo = 0, oldValHi = 0, sizeLo = 0, sizeHi = 0;
+	GetBarValMask(oldValLo, sizeLo, bus, device, function, offset);
+	barKind = GetPciBarKind(oldValLo);
+	val = oldValLo;
+	size = sizeLo;
+	if (barKind == kRegMmio64) {
+		GetBarValMask(oldValHi, sizeHi, bus, device, function, offset + 4);
+		val  += ((uint64)oldValHi) << 32;
+		size += ((uint64)sizeHi  ) << 32;
+	} else {
+		if (sizeLo != 0)
+			size += ((uint64)0xffffffff) << 32;
+	}
+	if (barKind == kRegIo)
+		val &= ~(uint64)0x3;
+	else
+		val &= ~(uint64)0xf;
+	size = ~(size & ~(uint64)0xf) + 1;
+}
+
+
+static void
+SetBarVal(uint8 bus, uint8 device, uint8 function, uint16 offset, PciBarKind barKind, uint64 val)
+{
+	write_pci_config(NULL, bus, device, function, offset, 4, (uint32)val);
+	if (barKind == kRegMmio64)
+		write_pci_config(NULL, bus, device, function, offset + 4, 4, (uint32)(val >> 32));
+}
+
+
 ArchPCIController::ArchPCIController()
 	:
 	fMsiPhysAddr(0),
@@ -27,9 +94,6 @@ ArchPCIController::ArchPCIController()
 	fConfigPhysBase(0),
 	fConfigBase(0),
 	fConfigSize(0),
-	fDbiPhysBase(0),
-	fDbiBase(0),
-	fDbiSize(0),
 	fIoBase(0),
 	fInterruptMapLen(0)
 {
@@ -57,17 +121,6 @@ ArchPCIController::DecodePciAddress(uint32_t adr, uint8& bus, uint8& device, uin
 	bus = adr / (1 << 16) % (1 << 8);
 	device = adr / (1 << 11) % (1 << 5);
 	function = adr / (1 << 8) % (1 << 3);
-}
-
-
-volatile PciDbiRegs*
-ArchPCIController::GetDbuRegs()
-{
-	if (fDbiBase == 0) {
-		return NULL;
-	}
-
-	return (PciDbiRegs*)fDbiBase;
 }
 
 
@@ -128,6 +181,7 @@ void
 ArchPCIController::AllocRegs()
 {
 	dprintf("AllocRegs()\n");
+
 	// TODO: improve enumeration
 	for (int j = 0; j < 8; j++) {
 		for (int i = 0; i < 32; i++) {
@@ -148,6 +202,52 @@ ArchPCIController::AllocRegs()
 }
 
 
+static uint32 ReadReg8(addr_t adr)
+{
+	uint32 ofs = adr % 4;
+	adr = adr / 4 * 4;
+	union {
+		uint32 in;
+		uint8 out[4];
+	} val{.in = *(vuint32*)adr};
+	return val.out[ofs];
+}
+
+static uint32 ReadReg16(addr_t adr)
+{
+	uint32 ofs = adr / 2 % 2;
+	adr = adr / 4 * 4;
+	union {
+		uint32 in;
+		uint16 out[2];
+	} val{.in = *(vuint32*)adr};
+	return val.out[ofs];
+}
+
+static void WriteReg8(addr_t adr, uint32 value)
+{
+	uint32 ofs = adr % 4;
+	adr = adr / 4 * 4;
+	union {
+		uint32 in;
+		uint8 out[4];
+	} val{.in = *(vuint32*)adr};
+	val.out[ofs] = (uint8)value;
+	*(vuint32*)adr = val.in;
+}
+
+static void WriteReg16(addr_t adr, uint32 value)
+{
+	uint32 ofs = adr / 2 % 2;
+	adr = adr / 4 * 4;
+	union {
+		uint32 in;
+		uint16 out[2];
+	} val{.in = *(vuint32*)adr};
+	val.out[ofs] = (uint16)value;
+	*(vuint32*)adr = val.in;
+}
+
 status_t
 ArchPCIController::ReadConfig(void *cookie, uint8 bus, uint8 device, uint8 function,
 	uint16 offset, uint8 size, uint32 *value)
@@ -158,10 +258,10 @@ ArchPCIController::ReadConfig(void *cookie, uint8 bus, uint8 device, uint8 funct
 
 	switch (size) {
 		case 1:
-			*value = *(uint8*)address;
+			*value = ReadReg8(address);
 			break;
 		case 2:
-			*value = *(uint16*)address;
+			*value = ReadReg16(address);
 			break;
 		case 4:
 			*value = *(uint32*)address;
@@ -184,10 +284,10 @@ ArchPCIController::WriteConfig(void *cookie, uint8 bus, uint8 device, uint8 func
 
 	switch (size) {
 		case 1:
-			*(uint8*)address = value;
+			WriteReg8(address, value);
 			break;
 		case 2:
-			*(uint16*)address = value;
+			WriteReg16(address, value);
 			break;
 		case 4:
 			*(uint32*)address = value;
@@ -201,211 +301,106 @@ ArchPCIController::WriteConfig(void *cookie, uint8 bus, uint8 device, uint8 func
 
 
 
+bool
+ArchPCIController::AllocBar(uint8 bus, uint8 device, uint8 function, uint16 offset)
+{
+	bool allocBars = AllocateBar();
+
+	PciBarKind regKind;
+	uint64 val, size;
+	GetBarKindValSize(regKind, val, size, bus, device, function, offset);
+	switch (regKind) {
+		case kRegIo:     dprintf("IOPORT"); break;
+		case kRegMmio32: dprintf("MMIO32"); break;
+		case kRegMmio64: dprintf("MMIO64"); break;
+		default:
+			dprintf("?(%#x)", (unsigned)(val%16));
+			dprintf("\n");
+			return false;
+	}
+
+	dprintf(", adr: 0x%" B_PRIx64 ", size: 0x%" B_PRIx64, val, size);
+
+	if (allocBars && size != 0) {
+		val = AllocRegister(regKind, size);
+		SetBarVal(bus, device, function, offset, regKind, val);
+		dprintf(" -> 0x%" B_PRIx64, val);
+	}
+
+	dprintf("\n");
+
+	return regKind == kRegMmio64;
+}
+
+
 void
 ArchPCIController::AllocRegsForDevice(uint8 bus, uint8 device, uint8 function)
 {
-	dprintf("AllocRegsForDevice(bus: %d, device: %d, function: %d)\n", bus,
-		device, function);
+	dprintf("AllocRegsForDevice(bus: %d, device: %d, function: %d)\n", bus, device, function);
 
-	bool allocBars = AllocateBar();
-
-	status_t result = B_OK;
-
-	// TODO: Better error checking on all ReadConfig / WriteConfig calls
-
-	uint32 vendorID = 0;
-	uint32 deviceID = 0;
-
-	result = ReadConfig(NULL, bus, device, function, PCI_vendor_id, 2, &vendorID);
-	if (result != B_OK)
-		dprintf("Error: unable to read vendorID!\n");
-	else
-		dprintf("  vendorID: %#04" B_PRIx32 "\n", vendorID);
-
-	result = ReadConfig(NULL, bus, device, function, PCI_device_id, 2, &deviceID);
-	if (result != B_OK)
-		dprintf("Error: unable to read deviceID!\n");
-	else
-		dprintf("  deviceID: %#04" B_PRIx32 "\n", deviceID);
+	uint32 vendorID = 0, deviceID = 0;
+	read_pci_config(NULL, bus, device, function, PCI_vendor_id, 2, &vendorID);
+	read_pci_config(NULL, bus, device, function, PCI_device_id, 2, &deviceID);
+	dprintf("  vendorID: %#04" B_PRIx32 "\n", vendorID);
+	dprintf("  deviceID: %#04" B_PRIx32 "\n", deviceID);
 
 	uint32 headerType = 0;
-	result = ReadConfig(NULL, bus, device, function, PCI_header_type, 1, &headerType);
-	if (result != B_OK)
-		dprintf("Error: unable to read header type!\n");
-	else {
-		headerType = headerType % 0x80;
-		dprintf("  headerType: ");
-		switch (headerType) {
-			case PCI_header_type_generic:
-				dprintf("generic");
-				break;
-			case PCI_header_type_PCI_to_PCI_bridge:
-				dprintf("bridge");
-				break;
-			case PCI_header_type_cardbus:
-				dprintf("cardbus");
-				break;
-			default:
-				dprintf("?(%u)", headerType);
-		}
-		dprintf("\n");
-	}
+	read_pci_config(NULL, bus, device, function, PCI_header_type, 1, &headerType);
+	headerType = headerType % 0x80;
 
-	if (headerType == PCI_header_type_PCI_to_PCI_bridge) {
-		uint32 primaryBus;
-		uint32 secondaryBus;
-		uint32 subordinateBus;
-
-		result = ReadConfig(NULL, bus, device, function, PCI_primary_bus, 1, &primaryBus);
-		if (result != B_OK)
-			dprintf("Error: Unable to read primaryBus!\n");
-		else
-			dprintf("  primaryBus: %u\n", primaryBus);
-
-		result = ReadConfig(NULL, bus, device, function, PCI_secondary_bus, 1, &secondaryBus);
-		if (result != B_OK)
-			dprintf("Error: Unable to read secondaryBus!\n");
-		else
-			dprintf("  secondaryBus: %u\n", secondaryBus);
-
-		result = ReadConfig(NULL, bus, device, function, PCI_subordinate_bus, 1, &subordinateBus);
-		if (result != B_OK)
-			dprintf("Error: Unable to read subordinateBus!\n");
-		else
-			dprintf("  subordinateBus: %u\n", subordinateBus);
-	}
-
-	uint32 oldValLo = 0;
-	uint32 oldValHi = 0;
-	uint32 sizeLo = 0;
-	uint32 sizeHi = 0;
-	uint64 val;
-	uint64 size;
-
-	for (int i = 0; i < ((headerType == PCI_header_type_PCI_to_PCI_bridge) ? 2 : 6); i++) {
-
-		dprintf("  bar[%d]: ", i);
-
-		ReadConfig(NULL, bus, device, function, PCI_base_registers + i*4, 4, &oldValLo);
-
-		int regKind;
-		if (oldValLo % 2 == 1) {
-			regKind = kRegIo;
-			dprintf("IOPORT");
-		} else if (oldValLo / 2 % 4 == 0) {
-			regKind = kRegMmio32;
-			dprintf("MMIO32");
-		} else if (oldValLo / 2 % 4 == 2) {
-			regKind = kRegMmio64;
-			dprintf("MMIO64");
-		} else {
-			dprintf("?(%d)", oldValLo / 2 % 4);
-			dprintf("\n");
-			continue;
-		}
-
-		ReadConfig(NULL, bus, device, function, PCI_base_registers + i*4, 4, &oldValLo);
-		WriteConfig(NULL, bus, device, function, PCI_base_registers + i*4, 4, 0xffffffff);
-		ReadConfig(NULL, bus, device, function, PCI_base_registers + i*4, 4, &sizeLo);
-		WriteConfig(NULL, bus, device, function, PCI_base_registers + i*4, 4, oldValLo);
-
-		val = oldValLo;
-		size = sizeLo;
-		if (regKind == kRegMmio64) {
-			ReadConfig(NULL, bus, device, function, PCI_base_registers + (i + 1)*4, 4,
-				&oldValHi);
-			WriteConfig(NULL, bus, device, function, PCI_base_registers + (i + 1)*4, 4,
-				0xffffffff);
-			ReadConfig(NULL, bus, device, function, PCI_base_registers + (i + 1)*4, 4,
-				&sizeHi);
-			WriteConfig(NULL, bus, device, function, PCI_base_registers + (i + 1)*4, 4,
-				oldValHi);
-			val  += ((uint64)oldValHi) << 32;
-			size += ((uint64)sizeHi  ) << 32;
-		} else {
-			if (sizeLo != 0)
-				size += ((uint64)0xffffffff) << 32;
-		}
-		val &= ~(uint64)0xf;
-		size = ~(size & ~(uint64)0xf) + 1;
-/*
-		dprintf(", oldValLo: 0x%" B_PRIx32 ", sizeLo: 0x%" B_PRIx32, oldValLo,
-			sizeLo);
-		if (regKind == regMmio64) {
-			dprintf(", oldValHi: 0x%" B_PRIx32 ", sizeHi: 0x%" B_PRIx32,
-				oldValHi, sizeHi);
-		}
-*/
-		dprintf(", adr: 0x%" B_PRIx64 ", size: 0x%" B_PRIx64, val, size);
-
-		if (allocBars && /*val == 0 &&*/ size != 0) {
-			if (regKind == kRegMmio64) {
-				val = AllocRegister(regKind, size);
-				WriteConfig(NULL, bus, device, function,
-					PCI_base_registers + (i + 0)*4, 4, (uint32)val);
-				WriteConfig(NULL, bus, device, function,
-					PCI_base_registers + (i + 1)*4, 4,
-					(uint32)(val >> 32));
-				dprintf(" -> 0x%" B_PRIx64, val);
-			} else {
-				val = AllocRegister(regKind, size);
-				WriteConfig(NULL, bus, device, function,
-					PCI_base_registers + i*4, 4, (uint32)val);
-				dprintf(" -> 0x%" B_PRIx64, val);
-			}
-		}
-
-		dprintf("\n");
-
-		if (regKind == kRegMmio64)
-			i++;
-	}
-
-	// ROM
-	dprintf("  rom_bar: ");
-	uint32 romBaseOfs = (headerType == PCI_header_type_PCI_to_PCI_bridge) ? PCI_bridge_rom_base : PCI_rom_base;
-	ReadConfig(NULL, bus, device, function, romBaseOfs, 4, &oldValLo);
-	WriteConfig(NULL, bus, device, function, romBaseOfs, 4, 0xfffffffe);
-	ReadConfig(NULL, bus, device, function, romBaseOfs, 4, &sizeLo);
-	WriteConfig(NULL, bus, device, function, romBaseOfs, 4, oldValLo);
-
-	val = oldValLo & PCI_rom_address_mask;
-	size = ~(sizeLo & ~(uint32)0xf) + 1;
-	dprintf("adr: 0x%" B_PRIx64 ", size: 0x%" B_PRIx64, val, size);
-	if (allocBars && /*val == 0 &&*/ size != 0) {
-		val = AllocRegister(kRegMmio32, size);
-		WriteConfig(NULL, bus, device, function,
-			PCI_rom_base, 4, (uint32)val);
-		dprintf(" -> 0x%" B_PRIx64, val);
+	dprintf("  headerType: ");
+	switch (headerType) {
+		case PCI_header_type_generic:
+			dprintf("generic");
+			break;
+		case PCI_header_type_PCI_to_PCI_bridge:
+			dprintf("bridge");
+			break;
+		case PCI_header_type_cardbus:
+			dprintf("cardbus");
+			break;
+		default:
+			dprintf("?(%u)", headerType);
 	}
 	dprintf("\n");
 
-	uint32 intPin = 0;
-	result = ReadConfig(NULL, bus, device, function, PCI_interrupt_pin, 1, &intPin);
+	if (headerType == PCI_header_type_PCI_to_PCI_bridge) {
+		uint32 primaryBus = 0, secondaryBus = 0, subordinateBus = 0;
+		read_pci_config(NULL, bus, device, function, PCI_primary_bus, 1, &primaryBus);
+		read_pci_config(NULL, bus, device, function, PCI_secondary_bus, 1, &secondaryBus);
+		read_pci_config(NULL, bus, device, function, PCI_subordinate_bus, 1, &subordinateBus);
+		dprintf("  primaryBus: %u\n", primaryBus);
+		dprintf("  secondaryBus: %u\n", secondaryBus);
+		dprintf("  subordinateBus: %u\n", subordinateBus);
+	}
 
-	if (result != B_OK)
-		dprintf("Error: Unable to read interrupt pin!\n");
+	for (int i = 0; i < ((headerType == PCI_header_type_PCI_to_PCI_bridge) ? 2 : 6); i++) {
+		dprintf("  bar[%d]: ", i);
+		if (AllocBar(bus, device, function, PCI_base_registers + i*4))
+			i++;
+	}
+	// ROM
+	dprintf("  romBar: ");
+	uint32 romBaseOfs = (headerType == PCI_header_type_PCI_to_PCI_bridge)
+		? PCI_bridge_rom_base : PCI_rom_base;
+	AllocBar(bus, device, function, romBaseOfs);
+
+	uint32 intPin = 0;
+	read_pci_config(NULL, bus, device, function, PCI_interrupt_pin, 1, &intPin);
 
 	InterruptMap* intMap = LookupInterruptMap(EncodePciAddress(bus, device, function), intPin);
-	if (intMap == NULL) {
-		dprintf("no interrupt mapping for childAdr: (%d:%d:%d), childIrq: %d)\n", bus,
-			device, function, intPin);
-	} else {
-		WriteConfig(NULL, bus, device, function, PCI_interrupt_line,
-			1, intMap->parentIrq);
-	}
+	if (intMap == NULL)
+		dprintf("no interrupt mapping for childAdr: (%d:%d:%d), childIrq: %d)\n",
+			bus, device, function, intPin);
+	else
+		write_pci_config(NULL, bus, device, function, PCI_interrupt_line, 1, intMap->parentIrq);
 
 	InitDeviceMSI(bus, device, function);
 
-	uint32 intLine;
-	result = ReadConfig(NULL, bus, device, function, PCI_interrupt_line, 1, &intLine);
-	if (result != B_OK)
-		dprintf("Error: Unable to read PCI interrupt line!\n");
-	else {
-		dprintf("  intLine: %u\n", intLine);
-		dprintf("  intPin: ");
-	}
-
+	uint32 intLine = 0;
+	read_pci_config(NULL, bus, device, function, PCI_interrupt_line, 1, &intLine);
+	dprintf("  intLine: %u\n", intLine);
+	dprintf("  intPin: ");
 	switch (intPin) {
 		case 0:
 			dprintf("-");
