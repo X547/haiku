@@ -14,6 +14,7 @@
 
 #include <ata_adapter.h>
 #include <tracing.h>
+#include <AutoDeleterOS.h>
 
 #define debug_level_flow 0
 #define debug_level_error 3
@@ -42,6 +43,48 @@
 static ata_for_controller_interface *sATA;
 static device_manager_info *sDeviceManager;
 
+static area_id sRegsArea = -1;
+uint8 *sMappedRegs;
+
+static void MmioOp(uint64 offset, uint32 &val, uint32 size, bool isWrite)
+{
+	//dprintf("MmioOp(%#" B_PRIx64 ", %" B_PRIu32 ", %d)\n", offset, size, isWrite);
+	
+	if (sMappedRegs == 0) {
+		phys_addr_t regs = 0x40000000;
+		size_t regsSize = 0x3000;
+		sRegsArea = map_physical_memory("ATA MMIO", regs, regsSize,
+			B_ANY_KERNEL_ADDRESS, B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA,
+			(void**)&sMappedRegs);
+	}
+
+	uint8 *adr = sMappedRegs + offset - 0x1000;
+
+	if (!isWrite) {
+		switch (size) {
+			case 1: val = *(vuint8*)adr; break;
+			case 2: val = *(vuint16*)adr; break;
+			case 4: val = *(vuint32*)adr; break;
+			default: panic("illegal size");
+		}
+	} else {
+		switch (size) {
+			case 1: *(vuint8*)adr = val; break;
+			case 2: *(vuint16*)adr = val; break;
+			case 4: *(vuint32*)adr = val; break;
+			default: panic("illegal size");
+		}
+	}
+	//dprintf("-MmioOp\n");
+}
+
+static void Write8(uint64 offset, uint32 val) {MmioOp(offset, val, 1, true);}
+static void Write16(uint64 offset, uint32 val) {MmioOp(offset, val, 2, true);}
+static void Write32(uint64 offset, uint32 val) {MmioOp(offset, val, 4, true);}
+static uint8 Read8(uint64 offset) {uint32 val; MmioOp(offset, val, 1, false); return (uint8)val;}
+static uint16 Read16(uint64 offset) {uint32 val; MmioOp(offset, val, 2, false); return (uint16)val;}
+static uint32 Read32(uint64 offset) {uint32 val; MmioOp(offset, val, 4, false); return val;}
+
 
 static void
 set_channel(ata_adapter_channel_info *channel, ata_channel ataChannel)
@@ -54,8 +97,8 @@ static status_t
 ata_adapter_write_command_block_regs(ata_adapter_channel_info *channel,
 	ata_task_file *tf, ata_reg_mask mask)
 {
-	pci_device_module_info *pci = channel->pci;
-	pci_device *device = channel->device;
+	//pci_device_module_info *pci = channel->pci;
+	//pci_device *device = channel->device;
 	int i;
 
 	uint16 ioaddr = channel->command_block_base;
@@ -67,12 +110,12 @@ ata_adapter_write_command_block_regs(ata_adapter_channel_info *channel,
 		// LBA48 registers must be written twice
 		if (((1 << (i + 7)) & mask) != 0) {
 			SHOW_FLOW( 4, "%x->HI(%x)", tf->raw.r[i + 7], i );
-			pci->write_io_8(device, ioaddr + 1 + i, tf->raw.r[i + 7]);
+			Write8(ioaddr + 1 + i, tf->raw.r[i + 7]);
 		}
 
 		if (((1 << i) & mask) != 0) {
 			SHOW_FLOW( 4, "%x->LO(%x)", tf->raw.r[i], i );
-			pci->write_io_8(device, ioaddr + 1 + i, tf->raw.r[i]);
+			Write8(ioaddr + 1 + i, tf->raw.r[i]);
 		}
 	}
 
@@ -84,8 +127,8 @@ static status_t
 ata_adapter_read_command_block_regs(ata_adapter_channel_info *channel,
 	ata_task_file *tf, ata_reg_mask mask)
 {
-	pci_device_module_info *pci = channel->pci;
-	pci_device *device = channel->device;
+	//pci_device_module_info *pci = channel->pci;
+	//pci_device *device = channel->device;
 	int i;
 
 	uint16 ioaddr = channel->command_block_base;
@@ -95,7 +138,7 @@ ata_adapter_read_command_block_regs(ata_adapter_channel_info *channel,
 
 	for (i = 0; i < 7; i++) {
 		if (((1 << i) & mask) != 0) {
-			tf->raw.r[i] = pci->read_io_8(device, ioaddr + 1 + i);
+			tf->raw.r[i] = Read8(ioaddr + 1 + i);
 			SHOW_FLOW( 4, "%x: %x", i, (int)tf->raw.r[i] );
 		}
 	}
@@ -107,22 +150,22 @@ ata_adapter_read_command_block_regs(ata_adapter_channel_info *channel,
 static uint8
 ata_adapter_get_altstatus(ata_adapter_channel_info *channel)
 {
-	pci_device_module_info *pci = channel->pci;
-	pci_device *device = channel->device;
+	//pci_device_module_info *pci = channel->pci;
+	//pci_device *device = channel->device;
 	uint16 altstatusaddr = channel->control_block_base;
 
 	if (channel->lost)
 		return 0x01; // Error bit
 
-	return pci->read_io_8(device, altstatusaddr);
+	return Read8(altstatusaddr);
 }
 
 
 static status_t
 ata_adapter_write_device_control(ata_adapter_channel_info *channel, uint8 val)
 {
-	pci_device_module_info *pci = channel->pci;
-	pci_device *device = channel->device;
+	//pci_device_module_info *pci = channel->pci;
+	//pci_device *device = channel->device;
 	uint16 device_control_addr = channel->control_block_base;
 
 	SHOW_FLOW(3, "%x", (int)val);
@@ -130,7 +173,7 @@ ata_adapter_write_device_control(ata_adapter_channel_info *channel, uint8 val)
 	if (channel->lost)
 		return B_ERROR;
 
-	pci->write_io_8(device, device_control_addr, val);
+	Write8(device_control_addr, val);
 
 	return B_OK;
 }
@@ -140,8 +183,8 @@ static status_t
 ata_adapter_write_pio(ata_adapter_channel_info *channel, uint16 *data,
 	int count, bool force_16bit)
 {
-	pci_device_module_info *pci = channel->pci;
-	pci_device *device = channel->device;
+	//pci_device_module_info *pci = channel->pci;
+	//pci_device *device = channel->device;
 
 	uint16 ioaddr = channel->command_block_base;
 
@@ -152,12 +195,12 @@ ata_adapter_write_pio(ata_adapter_channel_info *channel, uint16 *data,
 
 	if ((count & 1) != 0 || force_16bit) {
 		for (; count > 0; --count)
-			pci->write_io_16(device, ioaddr, *(data++));
+			Write16(ioaddr, *(data++));
 	} else {
 		uint32 *cur_data = (uint32 *)data;
 
 		for (; count > 0; count -= 2)
-			pci->write_io_32(device, ioaddr, *(cur_data++));
+			Write32(ioaddr, *(cur_data++));
 	}
 
 	return B_OK;
@@ -168,8 +211,8 @@ static status_t
 ata_adapter_read_pio(ata_adapter_channel_info *channel, uint16 *data,
 	int count, bool force_16bit)
 {
-	pci_device_module_info *pci = channel->pci;
-	pci_device *device = channel->device;
+	//pci_device_module_info *pci = channel->pci;
+	//pci_device *device = channel->device;
 
 	uint16 ioaddr = channel->command_block_base;
 
@@ -180,12 +223,12 @@ ata_adapter_read_pio(ata_adapter_channel_info *channel, uint16 *data,
 
 	if ((count & 1) != 0 || force_16bit) {
 		for (; count > 0; --count)
-			*(data++) = pci->read_io_16(device, ioaddr );
+			*(data++) = Read16(ioaddr );
 	} else {
 		uint32 *cur_data = (uint32 *)data;
 
 		for (; count > 0; count -= 2)
-			*(cur_data++) = pci->read_io_32(device, ioaddr);
+			*(cur_data++) = Read32(ioaddr);
 	}
 
 	return B_OK;
@@ -196,27 +239,27 @@ static int32
 ata_adapter_inthand(void *arg)
 {
 	ata_adapter_channel_info *channel = (ata_adapter_channel_info *)arg;
-	pci_device_module_info *pci = channel->pci;
-	pci_device *device = channel->device;
+	//pci_device_module_info *pci = channel->pci;
+	//pci_device *device = channel->device;
 	uint8 statusATA, statusBM;
 
 	TRACE_INT("ata_adapter_inthand\n");
 
 	// need to read bus master status first, because some controllers
 	// will clear the interrupt status bit once ATA status is read
-	statusBM = pci->read_io_8(device, channel->bus_master_base
+	statusBM = Read8(channel->bus_master_base
 		+ ATA_BM_STATUS_REG);
 	TRACE_INT("ata_adapter_inthand: BM-status 0x%02x\n", statusBM);
 
 	// test if the interrupt was really generated by our controller
 	if (statusBM & ATA_BM_STATUS_INTERRUPT) {
 		// read ATA status register to acknowledge interrupt
-		statusATA = pci->read_io_8(device, channel->command_block_base + 7);
+		statusATA = Read8(channel->command_block_base + 7);
 		TRACE_INT("ata_adapter_inthand: ATA-status 0x%02x\n", statusATA);
 
 		// clear pending PCI bus master DMA interrupt, for those
 		// controllers who don't clear it themselves
-		pci->write_io_8(device, channel->bus_master_base + ATA_BM_STATUS_REG,
+		Write8(channel->bus_master_base + ATA_BM_STATUS_REG,
 			(statusBM & 0xf8) | ATA_BM_STATUS_INTERRUPT);
 
 		if (!channel->dmaing) {
@@ -239,8 +282,8 @@ static status_t
 ata_adapter_prepare_dma(ata_adapter_channel_info *channel,
 	const physical_entry *sgList, size_t sgListCount, bool writeToDevice)
 {
-	pci_device_module_info *pci = channel->pci;
-	pci_device *device = channel->device;
+	//pci_device_module_info *pci = channel->pci;
+	//pci_device *device = channel->device;
 	uint8 command;
 	uint8 status;
 	prd_entry *prd = channel->prdt;
@@ -250,8 +293,7 @@ ata_adapter_prepare_dma(ata_adapter_channel_info *channel,
 		writeToDevice ? "write" : "read", sgListCount);
 
 	for (i = sgListCount - 1, prd = channel->prdt; i >= 0; --i, ++prd, ++sgList) {
-		prd->address = B_HOST_TO_LENDIAN_INT32((uint32)pci->ram_address(
-			device, sgList->address));
+		prd->address = B_HOST_TO_LENDIAN_INT32(sgList->address);
 		// 0 means 64K - this is done automatically be discarding upper 16 bits
 		prd->count = B_HOST_TO_LENDIAN_INT16((uint16)sgList->size);
 		prd->EOT = i == 0;
@@ -264,26 +306,25 @@ ata_adapter_prepare_dma(ata_adapter_channel_info *channel,
 			prd->address, prd->count, prd->EOT);
 	}
 
-	pci->write_io_32(device, channel->bus_master_base + ATA_BM_PRDT_ADDRESS,
-		(pci->read_io_32(device, channel->bus_master_base + ATA_BM_PRDT_ADDRESS) & 3)
-		| (B_HOST_TO_LENDIAN_INT32((uint32)pci->ram_address(device,
-			channel->prdt_phys)) & ~3));
+	Write32(channel->bus_master_base + ATA_BM_PRDT_ADDRESS,
+		(Read32(channel->bus_master_base + ATA_BM_PRDT_ADDRESS) & 3)
+		| (B_HOST_TO_LENDIAN_INT32(channel->prdt_phys) & ~3));
 
 	// reset interrupt and error signal
-	status = pci->read_io_8(device, channel->bus_master_base
+	status = Read8(channel->bus_master_base
 		+ ATA_BM_STATUS_REG) | ATA_BM_STATUS_INTERRUPT | ATA_BM_STATUS_ERROR;
-	pci->write_io_8(device,
+	Write8(
 		channel->bus_master_base + ATA_BM_STATUS_REG, status);
 
 	// set data direction
-	command = pci->read_io_8(device, channel->bus_master_base
+	command = Read8(channel->bus_master_base
 		+ ATA_BM_COMMAND_REG);
 	if (writeToDevice)
 		command &= ~ATA_BM_COMMAND_READ_FROM_DEVICE;
 	else
 		command |= ATA_BM_COMMAND_READ_FROM_DEVICE;
 
-	pci->write_io_8(device, channel->bus_master_base + ATA_BM_COMMAND_REG,
+	Write8(channel->bus_master_base + ATA_BM_COMMAND_REG,
 		command);
 
 	return B_OK;
@@ -293,18 +334,18 @@ ata_adapter_prepare_dma(ata_adapter_channel_info *channel,
 static status_t
 ata_adapter_start_dma(ata_adapter_channel_info *channel)
 {
-	pci_device_module_info *pci = channel->pci;
-	pci_device *device = channel->device;
+	//pci_device_module_info *pci = channel->pci;
+	//pci_device *device = channel->device;
 	uint8 command;
 
-	command = pci->read_io_8(device, channel->bus_master_base
+	command = Read8(channel->bus_master_base
 		+ ATA_BM_COMMAND_REG);
 
 	command |= ATA_BM_COMMAND_START_STOP;
 
 	channel->dmaing = true;
 
-	pci->write_io_8(device, channel->bus_master_base + ATA_BM_COMMAND_REG,
+	Write8(channel->bus_master_base + ATA_BM_COMMAND_REG,
 		command);
 
 	return B_OK;
@@ -314,25 +355,25 @@ ata_adapter_start_dma(ata_adapter_channel_info *channel)
 static status_t
 ata_adapter_finish_dma(ata_adapter_channel_info *channel)
 {
-	pci_device_module_info *pci = channel->pci;
-	pci_device *device = channel->device;
+	//pci_device_module_info *pci = channel->pci;
+	//pci_device *device = channel->device;
 	uint8 command;
 	uint8 status;
 
 	// read BM status first
-	status = pci->read_io_8(device, channel->bus_master_base
+	status = Read8(channel->bus_master_base
 		+ ATA_BM_STATUS_REG);
 
 	// stop DMA engine, this also clears ATA_BM_STATUS_ACTIVE
 	// in the BM status register
-	command = pci->read_io_8(device, channel->bus_master_base
+	command = Read8(channel->bus_master_base
 		+ ATA_BM_COMMAND_REG);
-	pci->write_io_8(device, channel->bus_master_base + ATA_BM_COMMAND_REG,
+	Write8(channel->bus_master_base + ATA_BM_COMMAND_REG,
 		command & ~ATA_BM_COMMAND_START_STOP);
 	channel->dmaing = false;
 
 	// reset error flag
-	pci->write_io_8(device, channel->bus_master_base + ATA_BM_STATUS_REG,
+	Write8(channel->bus_master_base + ATA_BM_STATUS_REG,
 		status | ATA_BM_STATUS_ERROR);
 
 	if ((status & ATA_BM_STATUS_ACTIVE) != 0)
@@ -593,7 +634,7 @@ ata_adapter_detect_channel(pci_device_module_info *pci, pci_device *pci_device,
 
 	if (supports_compatibility_mode) {
 		// read status of primary(!) channel to detect simplex
-		uint8 status = pci->read_io_8(pci_device, bus_master_base
+		uint8 status = Read8(bus_master_base
 			+ ATA_BM_STATUS_REG);
 
 		if (status & ATA_BM_STATUS_SIMPLEX_DMA && channel_index != 0) {
@@ -791,7 +832,7 @@ ata_adapter_probe_controller(device_node *parent, const char *controller_driver,
 	SHOW_FLOW0( 3, "" );
 
 	sDeviceManager->get_driver(parent, (driver_module_info **)&pci, (void **)&device);
-
+/*
 	command_block_base[0] = pci->read_pci_config(device, PCI_base_registers, 4 );
 	control_block_base[0] = pci->read_pci_config(device, PCI_base_registers + 4, 4);
 	command_block_base[1] = pci->read_pci_config(device, PCI_base_registers + 8, 4);
@@ -804,6 +845,14 @@ ata_adapter_probe_controller(device_node *parent, const char *controller_driver,
 	command_block_base[1] &= PCI_address_io_mask;
 	control_block_base[1] &= PCI_address_io_mask;
 	bus_master_base &= PCI_address_io_mask;
+*/
+
+	command_block_base[0] = 0x1000;
+	control_block_base[0] = 0x2000;
+	command_block_base[1] = 0;
+	control_block_base[1] = 0;
+	bus_master_base = 0x3000;
+	intnum = 4;
 
 	res = ata_adapter_detect_controller(pci, device, parent, bus_master_base,
 		controller_driver, controller_driver_type, controller_name, can_dma,
