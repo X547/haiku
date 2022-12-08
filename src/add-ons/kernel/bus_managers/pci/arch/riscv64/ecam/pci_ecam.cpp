@@ -32,13 +32,6 @@ PCIEcam::FreeMSIIrq(int32 irq)
 }
 
 
-int32
-PCIEcam::HandleMSIIrq(void* arg)
-{
-	return B_UNHANDLED_INTERRUPT;
-}
-
-
 status_t
 PCIEcam::Init(device_node* pciRootNode)
 {
