@@ -24,7 +24,7 @@
 
 
 HIDDevice::HIDDevice(uint16 descriptorAddress, i2c_bus_interface* i2cBus,
-	i2c_bus i2cBusCookie, i2c_addr address)
+	i2c_bus i2cBusCookie, i2c_addr address, long irqVector)
 	:	fStatus(B_NO_INIT),
 		fTransferLastschedule(0),
 		fTransferScheduled(0),
@@ -38,7 +38,8 @@ HIDDevice::HIDDevice(uint16 descriptorAddress, i2c_bus_interface* i2cBus,
 		fDescriptorAddress(descriptorAddress),
 		fI2cBus(i2cBus),
 		fI2cBusCookie(i2cBusCookie),
-		fDeviceAddress(address)
+		fDeviceAddress(address),
+		fIrqVector(irqVector)
 {
 	// fetch HID descriptor
 	fStatus = _FetchBuffer((uint8*)&fDescriptorAddress,
@@ -103,16 +104,15 @@ HIDDevice::HIDDevice(uint16 descriptorAddress, i2c_bus_interface* i2cBus,
 		return;
 	}
 
-	// We pad the allocation size so that we can always read 32 bits at a time
-	// (as done in HIDReportItem) without the need for an additional boundary
-	// check. We don't increase the transfer buffer size though as to not expose
-	// this implementation detail onto the device when scheduling transfers.
-	fTransferBuffer = (uint8 *)malloc(fTransferBufferSize + 3);
+	// Extra 2 bytes for buffer size header.
+	fTransferBuffer = (uint8 *)malloc(fTransferBufferSize + 2);
 	if (fTransferBuffer == NULL) {
 		TRACE_ALWAYS("failed to allocate transfer buffer\n");
 		fStatus = B_NO_MEMORY;
 		return;
 	}
+
+	install_io_interrupt_handler(fIrqVector, _InterruptReceived, this, 0);
 
 	ProtocolHandler::AddHandlers(*this, fProtocolHandlerList,
 		fProtocolHandlerCount);
@@ -122,6 +122,9 @@ HIDDevice::HIDDevice(uint16 descriptorAddress, i2c_bus_interface* i2cBus,
 
 HIDDevice::~HIDDevice()
 {
+	DPCQueue::DefaultQueue(B_URGENT_DISPLAY_PRIORITY)->Cancel(this);
+	remove_io_interrupt_handler(fIrqVector, _InterruptReceived, this);
+
 	ProtocolHandler *handler = fProtocolHandlerList;
 	while (handler != NULL) {
 		ProtocolHandler *next = handler->NextHandler();
@@ -166,17 +169,7 @@ HIDDevice::MaybeScheduleTransfer(HIDReport *report)
 	if (fRemoved)
 		return ENODEV;
 
-	if (atomic_get_and_set(&fTransferScheduled, 1) != 0) {
-		// someone else already caused a transfer to be scheduled
-		return B_OK;
-	}
-
-	snooze_until(fTransferLastschedule, B_SYSTEM_TIMEBASE);
-	fTransferLastschedule = system_time() + 10000;
-
-	TRACE("scheduling interrupt transfer of %lu bytes\n",
-		report->ReportSize());
-	return _FetchReport(report->Type(), report->ID(), report->ReportSize());
+	return B_OK;
 }
 
 
@@ -201,31 +194,6 @@ HIDDevice::ProtocolHandlerAt(uint32 index) const
 	}
 
 	return NULL;
-}
-
-
-void
-HIDDevice::_UnstallCallback(void *cookie, status_t status, void *data,
-	size_t actualLength)
-{
-	HIDDevice *device = (HIDDevice *)cookie;
-	if (status != B_OK) {
-		TRACE_ALWAYS("Unable to unstall device: %s\n", strerror(status));
-	}
-
-	// Now report the original failure, since we're ready to retry
-	_TransferCallback(cookie, B_ERROR, device->fTransferBuffer, 0);
-}
-
-
-void
-HIDDevice::_TransferCallback(void *cookie, status_t status, void *data,
-	size_t actualLength)
-{
-	HIDDevice *device = (HIDDevice *)cookie;
-
-	atomic_set(&device->fTransferScheduled, 0);
-	device->fParser.SetReport(status, device->fTransferBuffer, actualLength);
 }
 
 
@@ -273,53 +241,6 @@ HIDDevice::_SetPower(uint8 power)
 
 
 status_t
-HIDDevice::_FetchReport(uint8 type, uint8 id, size_t reportSize)
-{
-	uint8 reportId = id > 15 ? 15 : id;
-	size_t cmdLength = 6;
-	uint8 cmd[] = {
-		(uint8)(fDescriptor.wCommandRegister & 0xff),
-		(uint8)(fDescriptor.wCommandRegister >> 8),
-		(uint8)(reportId | (type << 4)),
-		I2C_HID_CMD_GET_REPORT,
-		0, 0, 0,
-	};
-
-	int dataOffset = 4;
-	int reportIdLength = 1;
-	if (reportId == 15) {
-		cmd[dataOffset++] = id;
-		cmdLength++;
-		reportIdLength++;
-	}
-	cmd[dataOffset++] = fDescriptor.wDataRegister & 0xff;
-	cmd[dataOffset++] = fDescriptor.wDataRegister >> 8;
-
-	size_t bufferLength = reportSize + reportIdLength + 2;
-
-	status_t status = _FetchBuffer(cmd, cmdLength, fTransferBuffer,
-		bufferLength);
-	if (status != B_OK) {
-		atomic_set(&fTransferScheduled, 0);
-		return status;
-	}
-
-	uint16 actualLength = fTransferBuffer[0] | (fTransferBuffer[1] << 8);
-	TRACE("_FetchReport %" B_PRIuSIZE " %" B_PRIu16 "\n", reportSize,
-		actualLength);
-	if (actualLength <= 2 || actualLength == 0xffff || bufferLength == 0)
-		actualLength = 0;
-	else
-		actualLength -= 2;
-
-	atomic_set(&fTransferScheduled, 0);
-	fParser.SetReport(status,
-		(uint8*)((addr_t)fTransferBuffer + 2), actualLength);
-	return B_OK;
-}
-
-
-status_t
 HIDDevice::_FetchBuffer(uint8* cmd, size_t cmdLength, void* buffer,
 	size_t bufferLength)
 {
@@ -339,4 +260,45 @@ HIDDevice::_ExecCommand(i2c_op op, uint8* cmd, size_t cmdLength, void* buffer,
 		buffer, bufferLength);
 	fI2cBus->release_bus(fI2cBusCookie);
 	return status;
+}
+
+
+int32
+HIDDevice::_InterruptReceived(void* arg)
+{
+	return static_cast<HIDDevice*>(arg)->_InterruptReceivedInt();
+}
+
+
+int32
+HIDDevice::_InterruptReceivedInt()
+{
+	if (atomic_get_and_set(&fDpcQueued, 1) == 0)
+		DPCQueue::DefaultQueue(B_URGENT_DISPLAY_PRIORITY)->Add(this);
+
+	return B_HANDLED_INTERRUPT;
+}
+
+
+void
+HIDDevice::DoDPC(DPCQueue* queue)
+{
+	atomic_set(&fDpcQueued, 0);
+
+	status_t status = _FetchBuffer(NULL, 0, fTransferBuffer, fTransferBufferSize + 2);
+	if (status != B_OK)
+		return;
+
+	uint16 actualLength = fTransferBuffer[0] | (fTransferBuffer[1] << 8);
+#if 0
+	if (actualLength == 0) {
+		// TODO: handle reset
+	}
+#endif
+	if (actualLength <= 2)
+		actualLength = 0;
+	else
+		actualLength -= 2;
+
+	fParser.SetReport(status, (uint8*)((addr_t)fTransferBuffer + 2), actualLength);
 }
