@@ -221,6 +221,7 @@ i2c_hid_init_driver(device_node *node, void **driverCookie)
 	i2c_bus_interface *i2cBus = NULL;
 	i2c_bus i2cBusCookie = NULL;
 	i2c_addr deviceAddress = 0;
+	long irqVector = -1;
 	uint32 descriptorAddress = 0;
 
 	DeviceNodePutter<&sDeviceManager> fdtI2cDevNode(sDeviceManager->get_parent_node(node));
@@ -235,13 +236,6 @@ i2c_hid_init_driver(device_node *node, void **driverCookie)
 	CHECK_RET(sDeviceManager->get_driver(fdtI2cBusNode.Get(), (driver_module_info**)&fdtI2cBusModule, (void**)&fdtI2cBus));
 	TRACE("(2)\n");
 
-#if 0
-	uint64 deviceAddress64;
-	if (!fdtI2cDevModule->get_reg(fdtI2cDev, 0, &deviceAddress64, NULL))
-		return B_ERROR;
-	TRACE("(3)\n");
-	deviceAddress = (i2c_addr)deviceAddress64;
-#endif
 	{
 		int attrLen;
 		const void *attr = fdtI2cDevModule->get_prop(fdtI2cDev, "reg", &attrLen);
@@ -251,11 +245,18 @@ i2c_hid_init_driver(device_node *node, void **driverCookie)
 		deviceAddress = B_BENDIAN_TO_HOST_INT32(*(const uint32*)attr);
 	}
 	{
+		uint64 val;
+		if (!fdtI2cDevModule->get_interrupt(fdtI2cDev, 0, NULL, &val))
+			return B_ERROR;
+		TRACE("(4)\n");
+		irqVector = val;
+	}
+	{
 		int attrLen;
 		const void *attr = fdtI2cDevModule->get_prop(fdtI2cDev, "hid-descr-addr", &attrLen);
 		if (attr == NULL || attrLen != 4)
 			return B_ERROR;
-		TRACE("(4)\n");
+		TRACE("(5)\n");
 		descriptorAddress = B_BENDIAN_TO_HOST_INT32(*(const uint32*)attr);
 	}
 	{
@@ -265,12 +266,12 @@ i2c_hid_init_driver(device_node *node, void **driverCookie)
 		};
 		device_node *i2cBusNode = NULL;
 		CHECK_RET(sDeviceManager->find_child_node(fdtI2cBusNode.Get(), attrs, &i2cBusNode));
-		TRACE("(5)\n");
+		TRACE("(6)\n");
 		DeviceNodePutter<&sDeviceManager> i2cBusNodePutter(i2cBusNode);
 		CHECK_RET(sDeviceManager->get_driver(i2cBusNode, (driver_module_info**)&i2cBus, (void**)&i2cBusCookie));
 	}
 
-	TRACE("(6)\n");
+	TRACE("(7)\n");
 	hid_driver_cookie *device = (hid_driver_cookie *)calloc(1, sizeof(hid_driver_cookie));
 	if (device == NULL)
 		return B_NO_MEMORY;
@@ -281,7 +282,7 @@ i2c_hid_init_driver(device_node *node, void **driverCookie)
 
 	mutex_lock(&sDriverLock);
 	HIDDevice *hidDevice
-		= new(std::nothrow) HIDDevice(descriptorAddress, i2cBus, i2cBusCookie, deviceAddress);
+		= new(std::nothrow) HIDDevice(descriptorAddress, i2cBus, i2cBusCookie, deviceAddress, irqVector);
 
 	if (hidDevice != NULL && hidDevice->InitCheck() == B_OK) {
 		device->hidDevice = hidDevice;
