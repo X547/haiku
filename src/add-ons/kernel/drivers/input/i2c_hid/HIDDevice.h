@@ -8,6 +8,7 @@
 
 
 #include <i2c.h>
+#include <DPC.h>
 
 #include "HIDParser.h"
 
@@ -51,10 +52,10 @@ enum {
 class ProtocolHandler;
 
 
-class HIDDevice {
+class HIDDevice : private DPCCallback {
 public:
 								HIDDevice(uint16 descriptorAddress, i2c_bus_interface* i2cBus,
-									i2c_bus i2cBusCookie, i2c_addr address);
+									i2c_bus i2cBusCookie, i2c_addr address, long irqVector);
 								~HIDDevice();
 
 			status_t			InitCheck() const { return fStatus; }
@@ -75,26 +76,20 @@ public:
 			ProtocolHandler *	ProtocolHandlerAt(uint32 index) const;
 
 private:
-	static	void				_TransferCallback(void *cookie,
-									status_t status, void *data,
-									size_t actualLength);
-	static	void				_UnstallCallback(void *cookie,
-									status_t status, void *data,
-									size_t actualLength);
-
 			status_t			_Reset();
 			status_t			_SetPower(uint8 power);
 			status_t			_FetchBuffer(uint8* cmd, size_t cmdLength,
 									void* buffer, size_t bufferLength);
-			status_t			_FetchReport(uint8 type, uint8 id,
-									size_t reportSize);
 			status_t			_ExecCommand(i2c_op op, uint8* cmd,
 									size_t cmdLength, void* buffer,
 									size_t bufferLength);
 
+	static	int32				_InterruptReceived(void* arg);
+	inline	int32				_InterruptReceivedInt();
+			void				DoDPC(DPCQueue* queue) final;
+
 private:
 			status_t			fStatus;
-			
 
 			bigtime_t			fTransferLastschedule;
 			int32				fTransferScheduled;
@@ -117,6 +112,8 @@ private:
 			i2c_bus_interface*	fI2cBus;
 			i2c_bus				fI2cBusCookie;
 			i2c_addr			fDeviceAddress;
+			long				fIrqVector;
+			int32				fDpcQueued = 0;
 };
 
 
