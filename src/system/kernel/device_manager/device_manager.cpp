@@ -1773,6 +1773,7 @@ device_node::_GetNextDriverPath(void*& cookie, KPath& _path)
 					_AddPath(*stack, "busses/pci");
 					_AddPath(*stack, "interrupt_controllers");
 					_AddPath(*stack, "rtc");
+					_AddPath(*stack, "power");
 				}
 				break;
 		}
