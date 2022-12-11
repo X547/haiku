@@ -69,6 +69,13 @@ __cxa_pure_virtual()
 
 
 extern "C" int
+atexit(void (*func)(void))
+{
+	return 0;
+}
+
+
+extern "C" int
 __cxa_atexit(void (*hook)(void*), void* data, void* dsoHandle)
 {
 	return 0;

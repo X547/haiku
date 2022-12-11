@@ -53,7 +53,7 @@ class TransferMode {
 
 		static const uint8_t kDmaEnable = 1;
 		static const uint8_t kNoDmaOrNoData = 0;
-		
+
 	private:
 		volatile uint16_t fBits;
 } __attribute__((packed));
@@ -82,7 +82,7 @@ class Command {
 		static const uint8_t kNoReplyType = 0;
 		static const uint8_t kR1Type = kCheckIndex | kCRCEnable
 			| k32BitResponse;
-		static const uint8_t kR1bType = (kCheckIndex | kCRCEnable 
+		static const uint8_t kR1bType = (kCheckIndex | kCRCEnable
 			| k32BitResponseCheckBusy) & (~ kDataPresent);
  		static const uint8_t kR2Type = kCRCEnable | k128BitResponse;
 		static const uint8_t kR3Type = k32BitResponse;
@@ -178,7 +178,7 @@ class SoftwareReset {
 } __attribute__((packed));
 
 
-// #pragma mark Interrupt registers 
+// #pragma mark Interrupt registers
 #define SDHCI_INT_CMD_CMP			0x00000001	// command complete enable
 #define SDHCI_INT_TRANS_CMP			0x00000002	// transfer complete enable
 #define SDHCI_INT_BUF_READ_READY	0x00000020  // buffer read ready enable
@@ -324,16 +324,16 @@ struct registers {
 
 	// Preset values
 	volatile uint64_t preset_value[2];
-	volatile uint32_t :32;
+	volatile uint32_t unknown1;
 	volatile uint16_t uhs2_preset_value;
-	volatile uint16_t :16;
+	volatile uint16_t unknown2;
 
 	// ADMA3
 	volatile uint64_t adma3_id_address;
 
 	// UHS-II
 	volatile uint16_t uhs2_block_size;
-	volatile uint16_t :16;
+	volatile uint16_t unknown3;
 	volatile uint32_t uhs2_block_count;
 	volatile uint8_t uhs2_command_packet[20];
 	volatile uint16_t uhs2_transfer_mode;

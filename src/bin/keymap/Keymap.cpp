@@ -163,7 +163,7 @@ struct re_pattern_buffer tildetabBuf;
 void
 dump_map(FILE* file, const char* name, int32* map)
 {
-	fprintf(file, "\t%s:\n\t{\n", name);
+	fprintf(file, "\t.%s =\n\t{\n", name);
 
 	for (uint32 i = 0; i < 16; i++) {
 		fputs("\t\t", file);
@@ -180,7 +180,7 @@ dump_map(FILE* file, const char* name, int32* map)
 void
 dump_keys(FILE* file, const char* name, int32* keys)
 {
-	fprintf(file, "\t%s:\n\t{\n", name);
+	fprintf(file, "\t.%s =\n\t{\n", name);
 
 	for (uint32 i = 0; i < 4; i++) {
 		fprintf(file, "\t\t");
@@ -636,27 +636,27 @@ Keymap::SaveAsCppHeader(const char* fileName, const char* mapName)
 	fputs("const key_map kSystemKeymap = {\n", file);
 
 	// version, default lock settings, modifier keys
-	fprintf(file, "\tversion:%" B_PRIu32 ",\n", fKeys.version);
-	fprintf(file, "\tcaps_key:0x%" B_PRIx32 ",\n", fKeys.caps_key);
-	fprintf(file, "\tscroll_key:0x%" B_PRIx32 ",\n", fKeys.scroll_key);
-	fprintf(file, "\tnum_key:0x%" B_PRIx32 ",\n", fKeys.num_key);
-	fprintf(file, "\tleft_shift_key:0x%" B_PRIx32 ",\n", fKeys.left_shift_key);
-	fprintf(file, "\tright_shift_key:0x%" B_PRIx32 ",\n",
+	fprintf(file, "\t.version = %" B_PRIu32 ",\n", fKeys.version);
+	fprintf(file, "\t.caps_key = 0x%" B_PRIx32 ",\n", fKeys.caps_key);
+	fprintf(file, "\t.scroll_key = 0x%" B_PRIx32 ",\n", fKeys.scroll_key);
+	fprintf(file, "\t.num_key = 0x%" B_PRIx32 ",\n", fKeys.num_key);
+	fprintf(file, "\t.left_shift_key = 0x%" B_PRIx32 ",\n", fKeys.left_shift_key);
+	fprintf(file, "\t.right_shift_key = 0x%" B_PRIx32 ",\n",
 		fKeys.right_shift_key);
-	fprintf(file, "\tleft_command_key:0x%" B_PRIx32 ",\n",
+	fprintf(file, "\t.left_command_key = 0x%" B_PRIx32 ",\n",
 		fKeys.left_command_key);
-	fprintf(file, "\tright_command_key:0x%" B_PRIx32 ",\n",
+	fprintf(file, "\t.right_command_key = 0x%" B_PRIx32 ",\n",
 		fKeys.right_command_key);
-	fprintf(file, "\tleft_control_key:0x%" B_PRIx32 ",\n",
+	fprintf(file, "\t.left_control_key = 0x%" B_PRIx32 ",\n",
 		fKeys.left_control_key);
-	fprintf(file, "\tright_control_key:0x%" B_PRIx32 ",\n",
+	fprintf(file, "\t.right_control_key = 0x%" B_PRIx32 ",\n",
 		fKeys.right_control_key);
-	fprintf(file, "\tleft_option_key:0x%" B_PRIx32 ",\n",
+	fprintf(file, "\t.left_option_key = 0x%" B_PRIx32 ",\n",
 		fKeys.left_option_key);
-	fprintf(file, "\tright_option_key:0x%" B_PRIx32 ",\n",
+	fprintf(file, "\t.right_option_key = 0x%" B_PRIx32 ",\n",
 		fKeys.right_option_key);
-	fprintf(file, "\tmenu_key:0x%" B_PRIx32 ",\n", fKeys.menu_key);
-	fprintf(file, "\tlock_settings:0x%" B_PRIx32 ",\n", fKeys.lock_settings);
+	fprintf(file, "\t.menu_key = 0x%" B_PRIx32 ",\n", fKeys.menu_key);
+	fprintf(file, "\t.lock_settings = 0x%" B_PRIx32 ",\n", fKeys.lock_settings);
 
 	// maps
 	dump_map(file, "control_map", fKeys.control_map);
@@ -677,13 +677,13 @@ Keymap::SaveAsCppHeader(const char* fileName, const char* mapName)
 	dump_keys(file, "tilde_dead_key", fKeys.tilde_dead_key);
 
 	// dead key tables
-	fprintf(file, "\tacute_tables:0x%" B_PRIx32 ",\n", fKeys.acute_tables);
-	fprintf(file, "\tgrave_tables:0x%" B_PRIx32 ",\n", fKeys.grave_tables);
-	fprintf(file, "\tcircumflex_tables:0x%" B_PRIx32 ",\n",
+	fprintf(file, "\t.acute_tables = 0x%" B_PRIx32 ",\n", fKeys.acute_tables);
+	fprintf(file, "\t.grave_tables = 0x%" B_PRIx32 ",\n", fKeys.grave_tables);
+	fprintf(file, "\t.circumflex_tables = 0x%" B_PRIx32 ",\n",
 		fKeys.circumflex_tables);
-	fprintf(file, "\tdieresis_tables:0x%" B_PRIx32 ",\n",
+	fprintf(file, "\t.dieresis_tables = 0x%" B_PRIx32 ",\n",
 		fKeys.dieresis_tables);
-	fprintf(file, "\ttilde_tables:0x%" B_PRIx32 ",\n", fKeys.tilde_tables);
+	fprintf(file, "\t.tilde_tables = 0x%" B_PRIx32 ",\n", fKeys.tilde_tables);
 
 	fputs("};\n\n", file);
 

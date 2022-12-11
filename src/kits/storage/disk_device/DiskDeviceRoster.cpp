@@ -34,6 +34,7 @@
 		   changes.
 */
 
+#if 0
 /*!	\brief find_directory constants of the add-on dirs to be searched. */
 static const directory_which kAddOnDirs[] = {
 	B_USER_NONPACKAGED_ADDONS_DIRECTORY,
@@ -44,6 +45,7 @@ static const directory_which kAddOnDirs[] = {
 /*!	\brief Size of the kAddOnDirs array. */
 static const int32 kAddOnDirCount
 	= sizeof(kAddOnDirs) / sizeof(directory_which);
+#endif
 
 
 /*!	\brief Creates a BDiskDeviceRoster object.

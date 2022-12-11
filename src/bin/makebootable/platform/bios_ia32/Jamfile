@@ -6,6 +6,6 @@ UsePrivateHeaders shared storage ;
 UsePrivateSystemHeaders ;
 
 # write the stage 1 boot loader into the makebootable resources
-AddFileDataResource makebootable : RAWT:666:BootCode : stage1.bin ;
+#AddFileDataResource makebootable : RAWT:666:BootCode : stage1.bin ;
 
 BinCommand makebootable : makebootable.cpp : be [ TargetLibsupc++ ] ;

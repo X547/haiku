@@ -1442,7 +1442,7 @@ TDragRegion::Draw(BRect updateRect)
 void
 TDragRegion::DrawAfterChildren(BRect updateRect)
 {
-	if (fDragLocation != kDontDrawDragRegion || fDragLocation != kNoDragRegion)
+	if (fDragLocation != kDontDrawDragRegion && fDragLocation != kNoDragRegion)
 		DrawDragger();
 }
 

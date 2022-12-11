@@ -140,11 +140,15 @@ static const struct {
 };
 
 
+#if SIGNAL_TRACING
+
 static inline const char*
 signal_name(uint32 number)
 {
 	return number <= __MAX_SIGNO ? kSignalInfos[number].name : "invalid";
 }
+
+#endif
 
 
 // #pragma mark - SignalHandledCaller

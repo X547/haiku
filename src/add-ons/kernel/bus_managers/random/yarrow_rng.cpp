@@ -87,30 +87,6 @@ attach(OCTET *y, const OCTET *x, const uint32 anyA, const uint32 anyB,
 }
 
 
-/** detach by Yarrow Charnot. detaches x from y. can be seen as about
- *	2-3 rounds of RC6 decryption.
- */
-
-static inline void
-detach(OCTET *y, const OCTET *x, const uint32 sameA, const uint32 sameB,
-	const uint32 invoddC, const uint32 invoddD)
-{
-	OCTET _x;
-	OCTET _y;
-
-	_x.D[0] = x->D[0];
-	_x.D[1] = x->D[1];
-	_y.D[0] = y->D[1];
-	_y.D[1] = y->D[0];
-	_x.D[0] = rotl32((bswap32(_x.D[0]) | 1) * x->D[1], 5);
-	_x.D[1] = rotl32((bswap32(_x.D[1]) | 1) * x->D[0], 5);
-	_y.D[0] = rotr32(bswap32(_y.D[0] * invoddC - sameA), _x.D[1]) ^ _x.D[0];
-	_y.D[1] = rotr32(bswap32(_y.D[1] * invoddD - sameB), _x.D[0]) ^ _x.D[1];
-	y->D[0] = _y.D[0];
-	y->D[1] = _y.D[1];
-}
-
-
 /**	QUICKLY seeds in a 64 bit number, modified so that a subsequent call really
  *	"stirs" in another seed value (no bullshit XOR here!)
  */

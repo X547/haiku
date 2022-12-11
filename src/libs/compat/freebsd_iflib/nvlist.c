@@ -1463,6 +1463,8 @@ nvlist_add_nvpair(nvlist_t *nvl, const nvpair_t *nvp)
 	nvlist_update_size(nvl, newnvp, 1);
 }
 
+void nvlist_add_stringv(nvlist_t *nvl, const char *name, const char *valuefmt, va_list valueap) __printflike(3, 0);
+
 void
 nvlist_add_stringf(nvlist_t *nvl, const char *name, const char *valuefmt, ...)
 {

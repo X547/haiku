@@ -60,7 +60,7 @@ tcdrain(int fd)
 	 * interface which uses a non-zero last parameter to the
 	 * TCSBRK ioctl to signify this functionality.
 	 */
-	return ioctl(fd, TCSBRK, 1);
+	return ioctl(fd, TCSBRK, (void*)1);
 }
 
 
@@ -80,7 +80,7 @@ tcflow(int fd, int action)
 			return -1;
 	}
 
-	return ioctl(fd, TCXONC, action);
+	return ioctl(fd, TCXONC, (void*)action);
 }
 
 
@@ -88,7 +88,7 @@ tcflow(int fd, int action)
 int
 tcflush(int fd, int queueSelector)
 {
-	return ioctl(fd, TCFLSH, queueSelector);
+	return ioctl(fd, TCFLSH, (void*)queueSelector);
 }
 
 

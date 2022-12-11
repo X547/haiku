@@ -106,11 +106,49 @@ rule ArchitectureSetup architecture
 	HAIKU_WARNING_CCFLAGS_$(architecture) = -Wall
 		-Wno-multichar
 		-Wpointer-arith -Wsign-compare
-		-Wmissing-prototypes ;
+		-Wmissing-prototypes
+		-Wno-macro-redefined
+		-Wno-unused-const-variable
+		-Wno-unused-but-set-variable
+		-Wno-unused-private-field
+		-Wno-address-of-packed-member
+		-Wno-implicit-const-int-float-conversion
+		-Wno-null-dereference
+		-Wno-unknown-warning-option
+		-Wno-deprecated-non-prototype
+		-Wno-uninitialized-const-reference
+		-Wno-return-type-c-linkage
+		-Wno-potentially-evaluated-expression
+		-Wno-trigraphs
+		-Wno-empty-body
+		-Wno-uninitialized
+		-Wno-mismatched-tags
+		-Wno-#warnings
+		-Wno-unused-function
+		-Wno-int-conversion ;
 	HAIKU_WARNING_C++FLAGS_$(architecture) = -Wall
 		-Wno-multichar
 		-Wpointer-arith -Wsign-compare
-		-Wno-ctor-dtor-privacy -Woverloaded-virtual ;
+		-Wno-ctor-dtor-privacy -Woverloaded-virtual
+		-Wno-macro-redefined
+		-Wno-unused-const-variable
+		-Wno-unused-but-set-variable
+		-Wno-unused-private-field
+		-Wno-address-of-packed-member
+		-Wno-implicit-const-int-float-conversion
+		-Wno-null-dereference
+		-Wno-unknown-warning-option
+		-Wno-deprecated-non-prototype
+		-Wno-uninitialized-const-reference
+		-Wno-return-type-c-linkage
+		-Wno-potentially-evaluated-expression
+		-Wno-trigraphs
+		-Wno-empty-body
+		-Wno-uninitialized
+		-Wno-mismatched-tags
+		-Wno-#warnings
+		-Wno-unused-function
+		-Wno-int-conversion ;
 
 	# disable some Clang warnings that are not very useful
 	if $(HAIKU_CC_IS_CLANG_$(architecture)) = 1 {
@@ -124,18 +162,18 @@ rule ArchitectureSetup architecture
 
 	HAIKU_WERROR_FLAGS_$(architecture) = ;
 
-	if $(HAIKU_CC_IS_LEGACY_GCC_$(architecture)) != 1 {
-		# TODO: Remove all these.
-		HAIKU_WERROR_FLAGS_$(architecture) += -Wno-error=unused-but-set-variable
-			-Wno-error=deprecated -Wno-error=deprecated-declarations
-			-Wno-error=cpp -Wno-error=trigraphs -Wno-error=register ;
-		# These currently generate too many "false positives."
-		HAIKU_WERROR_FLAGS_$(architecture) += -Wno-error=address-of-packed-member
-			-Wno-error=stringop-overread -Wno-error=array-bounds ;
-		# But these can stay.
-		HAIKU_WERROR_FLAGS_$(architecture) += -Wno-error=cast-align
-			-Wno-error=format-truncation ;
-	}
+#	if $(HAIKU_CC_IS_LEGACY_GCC_$(architecture)) != 1 {
+#		# TODO: Remove all these.
+#		HAIKU_WERROR_FLAGS_$(architecture) += -Wno-error=unused-but-set-variable
+#			-Wno-error=deprecated -Wno-error=deprecated-declarations
+#			-Wno-error=cpp -Wno-error=trigraphs -Wno-error=register ;
+#		# These currently generate too many "false positives."
+#		HAIKU_WERROR_FLAGS_$(architecture) += -Wno-error=address-of-packed-member
+#			-Wno-error=stringop-overread -Wno-error=array-bounds ;
+#		# But these can stay.
+#		HAIKU_WERROR_FLAGS_$(architecture) += -Wno-error=cast-align
+#			-Wno-error=format-truncation ;
+#	}
 
 	# debug flags
 	local debugFlags = -ggdb ;
@@ -272,7 +310,7 @@ rule KernelArchitectureSetup architecture
 
 		case x86 :
 			HAIKU_KERNEL_PLATFORM ?= bios_ia32 ;
-			HAIKU_BOOT_TARGETS += bios_ia32 efi pxe_ia32 ;
+			#HAIKU_BOOT_TARGETS += bios_ia32 efi pxe_ia32 ;
 
 			HAIKU_BOOT_FLOPPY_IMAGE_SIZE = 2880 ; # in kB
 			# offset in floppy image (>= sizeof(haiku_loader))
@@ -297,7 +335,7 @@ rule KernelArchitectureSetup architecture
 		case x86_64 :
 			# x86_64 completely shares the x86 bootloader for MBR.
 			HAIKU_KERNEL_PLATFORM ?= bios_ia32 ;
-			HAIKU_BOOT_TARGETS += bios_ia32 efi pxe_ia32 ;
+			#HAIKU_BOOT_TARGETS += bios_ia32 efi pxe_ia32 ;
 
 			HAIKU_BOOT_FLOPPY_IMAGE_SIZE = 2880 ; # in kB
 			# offset in floppy image (>= sizeof(haiku_loader))
@@ -356,8 +394,6 @@ rule KernelArchitectureSetup architecture
 			# Clang does not yet understand this flag.
 			ccBaseFlags += -fno-semantic-interposition ;
 		}
-
-		ccBaseFlags += -ffreestanding ;
 	}
 
 	local c++BaseFlags = $(ccBaseFlags) -fno-exceptions ;

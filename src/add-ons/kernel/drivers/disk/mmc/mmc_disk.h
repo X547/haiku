@@ -27,7 +27,7 @@ enum MMCDiskFlags {
 
 
 // This is the device info structure, allocated once per device
-typedef struct {
+typedef struct mmc_disk_driver_info {
 	device_node* node;
 	device_node* parent;
 	void* parentCookie;

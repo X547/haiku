@@ -19,7 +19,7 @@ extern KMessage gBootVolume;
 extern "C" {
 #endif
 
-extern int main(struct stage2_args *args);
+extern int main_2(struct stage2_args *args);
 
 #ifdef __cplusplus
 }

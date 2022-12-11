@@ -253,7 +253,7 @@ SdhciBus::ExecuteCommand(uint8_t command, uint32_t argument, uint32_t* response)
 
 	if (replyType == Command::kR1bType)
 		fRegisters->transfer_mode = 0;
-	
+
 	fRegisters->argument = argument;
 	fRegisters->command.SendCommand(command, replyType);
 
@@ -568,7 +568,7 @@ SdhciBus::HandleInterrupt()
 		return B_UNHANDLED_INTERRUPT;
 	}
 #endif
-	
+
 	uint32_t intmask = fRegisters->interrupt_status;
 
 	// Shortcut: exit early if there is no interrupt or if the register is

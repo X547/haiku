@@ -423,7 +423,7 @@ DataView::Draw(BRect updateRect)
 	BPoint line_start(kHorizontalSpace + fCharWidth * 18 + fCharWidth / 2, 0);
 	BPoint line_end(line_start.x, Bounds().bottom);
 
-	rgb_color lineColor = tint_color(lineColor, B_LIGHTEN_2_TINT);
+	rgb_color lineColor = tint_color(make_color(0, 0, 0) /* TODO: check this */, B_LIGHTEN_2_TINT);
 	uint32 kDrawNumLines = 3;
 
 	BeginLineArray(kDrawNumLines);

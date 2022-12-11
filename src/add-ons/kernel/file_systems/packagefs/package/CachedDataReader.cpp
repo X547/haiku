@@ -20,13 +20,6 @@
 using BPackageKit::BHPKG::BBufferDataReader;
 
 
-static inline bool
-page_physical_number_less(const vm_page* a, const vm_page* b)
-{
-	return a->physical_page_number < b->physical_page_number;
-}
-
-
 // #pragma mark - PagesDataOutput
 
 

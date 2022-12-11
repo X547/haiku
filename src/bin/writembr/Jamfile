@@ -9,7 +9,8 @@ Application writembr :
 ;
 
 # Assemble the MBR code, and convert it into a header file
-BuildMBR [ FGristFiles mbr.bin ] : mbr.S ;
+Object [ FGristFiles mbr.o ] : mbr.S ;
+BuildMBR [ FGristFiles mbr.bin ] : [ FGristFiles mbr.o ] ;
 
 DataFileToSourceFile [ FGristFiles MBR.h ] : [ FGristFiles mbr.bin ]
 	: kMBR : kMBRSize ;

@@ -308,9 +308,9 @@ if $(HOST_ARCH) = m68k {
 if $(HOST_PLATFORM) != darwin {
 	# fix for new changes to DSO linking policies
 	HOST_LINKFLAGS += -Xlinker --no-as-needed ;
-	if $(HOST_CC_IS_LEGACY_GCC) != 1 {
-		HOST_LINKFLAGS += -Wl,--copy-dt-needed-entries ;
-	}
+#	if $(HOST_CC_IS_LEGACY_GCC) != 1 {
+#		HOST_LINKFLAGS += -Wl,--copy-dt-needed-entries ;
+#	}
 }
 
 

@@ -44,7 +44,7 @@ typedef Elf64_Half Elf64_Versym;
 
 #define EI_NIDENT	16
 
-typedef struct {
+typedef struct Elf32_Ehdr {
 	uint8		e_ident[EI_NIDENT];
 	Elf32_Half	e_type;
 	Elf32_Half	e_machine;
@@ -65,7 +65,7 @@ typedef struct {
 #endif
 } Elf32_Ehdr;
 
-typedef struct {
+typedef struct Elf64_Ehdr {
 	uint8		e_ident[EI_NIDENT];
 	Elf64_Half	e_type;
 	Elf64_Half	e_machine;
@@ -233,7 +233,7 @@ typedef struct {
 
 /*** section header ***/
 
-typedef struct {
+typedef struct Elf32_Shdr {
 	Elf32_Word	sh_name;
 	Elf32_Word	sh_type;
 	Elf32_Word	sh_flags;
@@ -246,7 +246,7 @@ typedef struct {
 	Elf32_Word	sh_entsize;
 } Elf32_Shdr;
 
-typedef struct {
+typedef struct Elf64_Shdr {
 	Elf64_Word	sh_name;
 	Elf64_Word	sh_type;
 	Elf64_Xword	sh_flags;
@@ -303,7 +303,7 @@ typedef struct {
 
 /*** program header ***/
 
-typedef struct {
+typedef struct Elf32_Phdr {
 	Elf32_Word	p_type;
 	Elf32_Off	p_offset;	/* offset from the beginning of the file of the segment */
 	Elf32_Addr	p_vaddr;	/* virtual address for the segment in memory */
@@ -319,7 +319,7 @@ typedef struct {
 #endif
 } Elf32_Phdr;
 
-typedef struct {
+typedef struct Elf64_Phdr {
 	Elf64_Word	p_type;
 	Elf64_Word	p_flags;
 	Elf64_Off	p_offset;	/* offset from the beginning of the file of the segment */
@@ -363,7 +363,7 @@ typedef struct {
 
 /* symbol table entry */
 
-typedef struct {
+typedef struct Elf32_Sym {
 	Elf32_Word	st_name;
 	Elf32_Addr	st_value;
 	Elf32_Word	st_size;
@@ -378,7 +378,7 @@ typedef struct {
 #endif
 } Elf32_Sym;
 
-typedef struct {
+typedef struct Elf64_Sym {
 	Elf64_Word	st_name;
 	uint8		st_info;
 	uint8		st_other;
@@ -440,7 +440,7 @@ typedef struct {
 
 /* relocation table entry */
 
-typedef struct {
+typedef struct Elf32_Rel {
 	Elf32_Addr r_offset;
 	Elf32_Word r_info;
 
@@ -450,7 +450,7 @@ typedef struct {
 #endif
 } Elf32_Rel;
 
-typedef struct {
+typedef struct Elf64_Rel {
 	Elf64_Addr	r_offset;
 	Elf64_Xword	r_info;
 
@@ -463,7 +463,7 @@ typedef struct {
 #ifdef __cplusplus
 typedef struct Elf32_Rela : public Elf32_Rel {
 #else
-typedef struct {
+typedef struct Elf32_Rela {
 	Elf32_Addr r_offset;
 	Elf32_Word r_info;
 #endif
@@ -473,7 +473,7 @@ typedef struct {
 #ifdef __cplusplus
 typedef struct Elf64_Rela : public Elf64_Rel {
 #else
-typedef struct {
+typedef struct Elf64_Rela {
 	Elf64_Addr		r_offset;
 	Elf64_Xword		r_info;
 #endif
@@ -491,7 +491,7 @@ typedef struct {
 
 /* dynamic section entry */
 
-typedef struct {
+typedef struct Elf32_Dyn {
 	Elf32_Sword d_tag;
 	union {
 		Elf32_Word d_val;
@@ -499,7 +499,7 @@ typedef struct {
 	} d_un;
 } Elf32_Dyn;
 
-typedef struct {
+typedef struct Elf64_Dyn {
 	Elf64_Sxword d_tag;
 	union {
 		Elf64_Xword	d_val;
@@ -562,7 +562,7 @@ typedef struct {
 
 /* version definition section */
 
-typedef struct {
+typedef struct Elf32_Verdef {
 	Elf32_Half	vd_version;		/* version revision */
 	Elf32_Half	vd_flags;		/* version information flags */
 	Elf32_Half	vd_ndx;			/* version index as specified in the
@@ -573,7 +573,7 @@ typedef struct {
 	Elf32_Word	vd_next;		/* byte offset to next verdef entry */
 } Elf32_Verdef;
 
-typedef struct {
+typedef struct Elf64_Verdef {
 	Elf64_Half	vd_version;		/* version revision */
 	Elf64_Half	vd_flags;		/* version information flags */
 	Elf64_Half	vd_ndx;			/* version index as specified in the
@@ -611,13 +611,13 @@ typedef struct {
 
 /* auxiliary version information */
 
-typedef struct {
+typedef struct Elf32_Verdaux {
 	Elf32_Word	vda_name;		/* string table offset to version or dependency
 								   name */
 	Elf32_Word	vda_next;		/* byte offset to next verdaux entry */
 } Elf32_Verdaux;
 
-typedef struct {
+typedef struct Elf64_Verdaux {
 	Elf64_Word	vda_name;		/* string table offset to version or dependency
 								   name */
 	Elf64_Word	vda_next;		/* byte offset to next verdaux entry */
@@ -626,7 +626,7 @@ typedef struct {
 
 /* version dependency section */
 
-typedef struct {
+typedef struct Elf32_Verneed {
 	Elf32_Half	vn_version;		/* version of structure */
 	Elf32_Half	vn_cnt;			/* number of associated vernaux entries */
 	Elf32_Word	vn_file;		/* byte offset to file name for this
@@ -635,7 +635,7 @@ typedef struct {
 	Elf32_Word	vn_next;		/* byte offset to next verneed entry */
 } Elf32_Verneed;
 
-typedef struct {
+typedef struct Elf64_Verneed {
 	Elf64_Half	vn_version;		/* version of structure */
 	Elf64_Half	vn_cnt;			/* number of associated vernaux entries */
 	Elf64_Word	vn_file;		/* byte offset to file name for this
@@ -652,7 +652,7 @@ typedef struct {
 
 /* auxiliary needed version information */
 
-typedef struct {
+typedef struct Elf32_Vernaux {
 	Elf32_Word	vna_hash;		/* dependency name hash value */
 	Elf32_Half	vna_flags;		/* dependency specific information flags */
 	Elf32_Half	vna_other;		/* version index as specified in the symbol
@@ -661,7 +661,7 @@ typedef struct {
 	Elf32_Word	vna_next;		/* byte offset to next vernaux entry */
 } Elf32_Vernaux;
 
-typedef struct {
+typedef struct Elf64_Vernaux {
 	Elf64_Word	vna_hash;		/* dependency name hash value */
 	Elf64_Half	vna_flags;		/* dependency specific information flags */
 	Elf64_Half	vna_other;		/* version index as specified in the symbol
@@ -678,13 +678,13 @@ typedef struct {
 
 /* note section header */
 
-typedef struct {
+typedef struct Elf32_Nhdr {
 	Elf32_Word n_namesz;		/* length of the note's name */
 	Elf32_Word n_descsz;		/* length of the note's descriptor */
 	Elf32_Word n_type;			/* note type */
 } Elf32_Nhdr;
 
-typedef struct {
+typedef struct Elf64_Nhdr {
 	Elf64_Word n_namesz;		/* length of the note's name */
 	Elf64_Word n_descsz;		/* length of the note's descriptor */
 	Elf64_Word n_type;			/* note type */
@@ -720,7 +720,7 @@ typedef Elf32_Note_Team Elf64_Note_Team;
  * Elf32_Note_Area_Entry[count];
  * char[] names
  */
-typedef struct {
+typedef struct Elf32_Note_Area_Entry {
 	int32		na_id;				/* area ID */
 	uint32		na_lock;			/* lock type (B_NO_LOCK, ...) */
 	uint32		na_protection;		/* protection (B_READ_AREA | ...) */
@@ -735,7 +735,7 @@ typedef struct {
  * Elf64_Note_Area_Entry[count];
  * char[] names
  */
-typedef struct {
+typedef struct Elf64_Note_Area_Entry {
 	int32		na_id;				/* area ID */
 	uint32		na_lock;			/* lock type (B_NO_LOCK, ...) */
 	uint32		na_protection;		/* protection (B_READ_AREA | ...) */
@@ -751,7 +751,7 @@ typedef struct {
  * Elf32_Note_Image_Entry[count];
  * char[] names
  */
-typedef struct {
+typedef struct Elf32_Note_Image_Entry {
 	int32		ni_id;				/* image ID */
 	int32		ni_type;			/* image type (B_APP_IMAGE, ...) */
 	uint32		ni_init_routine;	/* address of init function */
@@ -775,7 +775,7 @@ typedef struct {
  * Elf64_Note_Image_Entry[count];
  * char[] names
  */
-typedef struct {
+typedef struct Elf64_Note_Image_Entry {
 	int32		ni_id;				/* image ID */
 	int32		ni_type;			/* image type (B_APP_IMAGE, ...) */
 	uint64		ni_init_routine;	/* address of init function */
@@ -801,7 +801,7 @@ typedef struct {
  * {Elf32_Note_Thread_Entry, uint8[cpuStateSize] cpuState}[count];
  * char[] names
  */
-typedef struct {
+typedef struct Elf32_Note_Thread_Entry {
 	int32		nth_id;				/* thread ID */
 	int32		nth_state;			/* thread state (B_THREAD_RUNNING, ...) */
 	int32		nth_priority;		/* thread priority */
@@ -816,7 +816,7 @@ typedef struct {
  * {Elf64_Note_Thread_Entry, uint8[cpuStateSize] cpuState}[count];
  * char[] names
  */
-typedef struct {
+typedef struct Elf64_Note_Thread_Entry {
 	int32		nth_id;				/* thread ID */
 	int32		nth_state;			/* thread state (B_THREAD_RUNNING, ...) */
 	int32		nth_priority;		/* thread priority */

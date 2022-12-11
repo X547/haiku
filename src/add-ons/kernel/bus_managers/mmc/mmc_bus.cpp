@@ -260,7 +260,7 @@ MMCBus::_WorkerThread(void* cookie)
 		// until no one answers to CMD2. Then we know all cards have an RCA
 		// (and a matching published device on our side).
 		uint32_t cid[4];
-		
+
 		while (bus->ExecuteCommand(0, SD_ALL_SEND_CID, 0, cid) == B_OK) {
 			bus->ExecuteCommand(0, SD_SEND_RELATIVE_ADDR, 0, &response);
 
@@ -276,7 +276,7 @@ MMCBus::_WorkerThread(void* cookie)
 			// The card now has an RCA and it entered the data phase, which
 			// means our initializing job is over, we can pass it on to the
 			// mmc_disk driver.
-			
+
 			uint32_t vendor = cid[3] & 0xFFFFFF;
 			char name[6] = {(char)(cid[2] >> 24), (char)(cid[2] >> 16),
 				(char)(cid[2] >> 8), (char)cid[2], (char)(cid[1] >> 24), 0};
@@ -287,7 +287,7 @@ MMCBus::_WorkerThread(void* cookie)
 			uint8_t month = cid[0] & 0xF;
 			uint16_t year = 2000 + ((cid[0] >> 4) & 0xFF);
 			uint16_t rca = response >> 16;
-				
+
 			device_attr attrs[] = {
 				{ B_DEVICE_BUS, B_STRING_TYPE, {.string = "mmc" }},
 				{ B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "mmc device" }},

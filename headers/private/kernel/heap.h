@@ -90,7 +90,7 @@ status_t heap_init_post_thread();
 static inline void*
 malloc_etc(size_t size, uint32 flags)
 {
-	return memalign_etc(0, size, flags);
+	return memalign_etc(16, size, flags);
 }
 
 

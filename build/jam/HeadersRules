@@ -459,6 +459,9 @@ rule FStandardHeaders architecture
 	if $(HAIKU_CC_IS_CLANG_$(architecture)) = 1 {
 		headers += [ FDirName $(HAIKU_OUTPUT_DIR) clang_headers ] ;
 	}
+	headers += /Haiku/data/packages/llvm-15/build.x86_64/install/lib/clang/15.0.1/include ;
+	headers += /boot/system/develop/headers/c++/x86_64-unknown-haiku ;
+	headers += /boot/system/develop/tools/lib/gcc/x86_64-unknown-haiku/11.2.0/include/c++ ;
 
 	# Ordering here is important. We fill out things like limits.h and
 	# gcc only overrides if undefined.

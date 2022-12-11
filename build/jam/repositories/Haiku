@@ -12,7 +12,7 @@ local packages = [ FFilterByBuildFeatures
 	haiku
 	haiku_datatranslators
 	haiku_devel
-	haiku_loader
+#	haiku_loader
 
 	haiku_$(secondaryArchs)
 	haiku_$(secondaryArchs)_devel

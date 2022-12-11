@@ -512,6 +512,7 @@ MulticastStateHash::HashKey(const KeyType &key) const
 //	#pragma mark -
 
 
+#if 0
 static inline void
 dump_ipv6_header(IPv6Header &header)
 {
@@ -527,6 +528,7 @@ dump_ipv6_header(IPv6Header &header)
 		ip6_sprintf(&header.header.ip6_dst, addrbuf));
 #endif
 }
+#endif
 
 
 /*!	Attempts to re-assemble fragmented packets.

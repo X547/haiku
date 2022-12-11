@@ -1065,8 +1065,6 @@ IconView::SetIconSize(icon_size size)
 {
 	if (size < B_MINI_ICON)
 		size = B_MINI_ICON;
-	if (size > 256)
-		size = (icon_size)256;
 	if (size == fIconSize)
 		return;
 
