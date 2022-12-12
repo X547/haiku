@@ -60,9 +60,6 @@ virtual							~ArchPCIController();
 virtual	status_t				Init(device_node* pciRootNode) = 0;
 
 virtual status_t				InitMSI(int32 irq) = 0;
-virtual int32					AllocateMSIIrq() = 0;
-virtual void					FreeMSIIrq(int32 irq) = 0;
-virtual	void					InitDeviceMSI(uint8 bus, uint8 device, uint8 function) = 0;
 
 virtual	addr_t					ConfigAddress(uint8 bus, uint8 device, uint8 function,
 									uint16 offset) = 0;
