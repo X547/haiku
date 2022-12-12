@@ -86,16 +86,18 @@ struct PciDbiRegs {
 };
 
 
-class PCIFU740 : public ArchPCIController, public InterruptSource {
+class PCIFU740 : public ArchPCIController, public InterruptSource, public MsiDriver {
 
 			status_t			Init(device_node* pciRootNode);
 
 			PciDbiRegs volatile* GetDbuRegs() {return (PciDbiRegs volatile*)fDbiBase;}
 
 			status_t			InitMSI(int32 irq);
-			int32				AllocateMSIIrq();
-			void				FreeMSIIrq(int32 irq);
+			 status_t			AllocateVectors(uint8 count, uint8& startVector, uint64& address,
+									uint16& data) final;
+			 void				FreeVectors(uint8 count, uint8 startVector) final;
 	static	int32				HandleMSIIrq(void* arg);
+	inline	int32				HandleMSIIrqInt();
 
 			void				EnableIoInterrupt(int irq) final;
 			void				DisableIoInterrupt(int irq) final;
@@ -103,7 +105,6 @@ class PCIFU740 : public ArchPCIController, public InterruptSource {
 			int32				AssignToCpu(int32 irq, int32 cpu) final;
 
 			addr_t				ConfigAddress(uint8 bus, uint8 device, uint8 function, uint16 offset);
-			void				InitDeviceMSI(uint8 bus, uint8 device, uint8 function);
 			bool 				AllocateBar() { return false; }
 
 private:

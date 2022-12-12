@@ -395,8 +395,6 @@ ArchPCIController::AllocRegsForDevice(uint8 bus, uint8 device, uint8 function)
 	else
 		write_pci_config(NULL, bus, device, function, PCI_interrupt_line, 1, intMap->parentIrq);
 
-	InitDeviceMSI(bus, device, function);
-
 	uint32 intLine = 0;
 	read_pci_config(NULL, bus, device, function, PCI_interrupt_line, 1, &intLine);
 	dprintf("  intLine: %u\n", intLine);

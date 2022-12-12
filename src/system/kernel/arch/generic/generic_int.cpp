@@ -5,11 +5,13 @@
 
 
 #include <arch/generic/generic_int.h>
+#include <arch/generic/msi.h>
 
 #define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
 
 static InterruptSource* sSources[NUM_IO_VECTORS];
+static MsiDriver* sMsiDriver;
 
 
 void
@@ -72,4 +74,34 @@ free_io_interrupt_vectors_ex(long count, long startVector)
 	free_io_interrupt_vectors(count, startVector);
 	for (long i = 0; i < count; i++)
 		sSources[startVector + i] = NULL;
+}
+
+
+//#pragma mark - MSI
+
+void
+msi_set_driver(MsiDriver* driver)
+{
+	sMsiDriver = driver;
+}
+
+
+bool
+msi_supported()
+{
+	return sMsiDriver != NULL;
+}
+
+
+status_t
+msi_allocate_vectors(uint8 count, uint8 *startVector, uint64 *address, uint16 *data)
+{
+	return sMsiDriver->AllocateVectors(count, *startVector, *address, *data);
+}
+
+
+void
+msi_free_vectors(uint8 count, uint8 startVector)
+{
+	sMsiDriver->FreeVectors(count, startVector);
 }

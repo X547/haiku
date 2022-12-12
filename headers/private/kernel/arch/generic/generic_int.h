@@ -18,6 +18,12 @@ public:
 	virtual int32 AssignToCpu(int32 irq, int32 cpu) = 0;
 };
 
+class MsiDriver {
+public:
+	virtual status_t AllocateVectors(uint8 count, uint8& startVector, uint64& address, uint16& data) = 0;
+	virtual void FreeVectors(uint8 count, uint8 startVector) = 0;
+};
+
 
 extern "C" {
 
@@ -28,6 +34,8 @@ status_t reserve_io_interrupt_vectors_ex(long count, long startVector,
 status_t allocate_io_interrupt_vectors_ex(long count, long *startVector,
 	enum interrupt_type type, InterruptSource* source);
 void free_io_interrupt_vectors_ex(long count, long startVector);
+
+void msi_set_driver(MsiDriver* driver);
 
 }
 
