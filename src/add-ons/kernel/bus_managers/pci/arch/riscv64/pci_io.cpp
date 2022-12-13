@@ -21,7 +21,7 @@
 #endif
 
 
-extern ArchPCIController* gArchPCI;
+ArchPCIController* gArchPCI;
 addr_t gPCIeIoBase;
 
 
@@ -30,7 +30,7 @@ pci_io_init()
 {
 	TRACE("pci_io_init()\n");
 	if (gArchPCI == NULL)
-		return B_ERROR;
+		return B_OK;
 
 	gPCIeIoBase = gArchPCI->GetIoRegs();
 	return B_OK;

@@ -13,8 +13,12 @@
 
 #include <string.h>
 
+#include <AutoDeleterDrivers.h>
+
 #include "pci_private.h"
 #include "pci.h"
+
+#define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
 
 // name of PCI root module
@@ -24,54 +28,10 @@
 device_node* gPCIRootNode = NULL;
 
 
-static float
-pci_root_supports_device(device_node* parent)
-{
-	const char* bus;
-	if (gDeviceManager->get_attr_string(parent, B_DEVICE_BUS, &bus, false) < B_OK)
-		return -1.0f;
-
-#if defined(__riscv)
-	if (strcmp(bus, "fdt") == 0) {
-		const char* compatible;
-		if (gDeviceManager->get_attr_string(parent, "fdt/compatible", &compatible, false) < B_OK)
-			return -1.0f;
-
-		if (strcmp(compatible, "pci-host-ecam-generic") == 0
-			|| strcmp(compatible, "sifive,fu740-pcie") == 0) {
-			return 1.0f;
-		}
-	}
-#elif defined(__arm__) || defined(__aarch64__)
-	if (strcmp(bus, "fdt") == 0) {
-		const char* compatible;
-		if (gDeviceManager->get_attr_string(parent, "fdt/compatible", &compatible, false) < B_OK)
-			return -1.0f;
-
-		if (strcmp(compatible, "pci-host-ecam-generic") == 0)
-			return 1.0f;
-	}
-
-	if (strcmp(bus, "acpi") == 0) {
-		const char* hid;
-		if (gDeviceManager->get_attr_string(parent, ACPI_DEVICE_HID_ITEM, &hid, false) < B_OK)
-			return -1.0f;
-
-		if (strcmp(hid, "PNP0A03") == 0 || strcmp(hid, "PNP0A08") == 0)
-			return 1.0f;
-	}
-#else
-	if (strcmp(bus, "root") == 0)
-		return 1.0f;
-#endif
-
-	return 0.0;
-}
-
-
 static status_t
 pci_root_register_device(device_node* parent)
 {
+	dprintf("pci_root_register_device\n");
 // XXX how do we handle this for PPC?
 // I/O port for PCI config space address
 #define PCI_CONFIG_ADDRESS 0xcf8
@@ -94,6 +54,7 @@ pci_root_register_device(device_node* parent)
 static status_t
 pci_root_register_child_devices(void* cookie)
 {
+	dprintf("pci_root_register_child_devices\n");
 	device_node* node = (device_node*)cookie;
 
 	pci_info info;
@@ -138,7 +99,14 @@ pci_root_register_child_devices(void* cookie)
 static status_t
 pci_root_init(device_node* node, void** _cookie)
 {
+	dprintf("+pci_root_init\n");
 	*_cookie = node;
+
+	DeviceNodePutter<&gDeviceManager> pciHostNode(gDeviceManager->get_parent_node(node));
+
+	pci_controller_module_info* pciHostModule;
+	void* pciHostDev;
+	CHECK_RET(gDeviceManager->get_driver(pciHostNode.Get(), (driver_module_info**)&pciHostModule, &pciHostDev));
 
 	gPCIRootNode = node;
 
@@ -147,7 +115,13 @@ pci_root_init(device_node* node, void** _cookie)
 	if (res < B_OK)
 		return res;
 
-	return pci_init_deferred();
+	CHECK_RET(gPCI->AddController(pciHostModule, pciHostDev));
+	dprintf("  (1)\n");
+	CHECK_RET(pci_init_deferred());
+	dprintf("  (2)\n");
+	dprintf("-pci_root_init\n");
+
+	return B_OK;
 }
 
 
@@ -174,7 +148,7 @@ struct pci_root_module_info gPCIRootModule = {
 			pci_root_std_ops
 		},
 
-		pci_root_supports_device,
+		NULL,
 		pci_root_register_device,
 		pci_root_init,
 		NULL,	// uninit

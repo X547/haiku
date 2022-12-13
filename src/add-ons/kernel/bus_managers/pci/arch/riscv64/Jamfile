@@ -9,12 +9,12 @@ SEARCH_SOURCE += [ FDirName $(SUBDIR) fu740 ] ;
 SEARCH_SOURCE += [ FDirName $(SUBDIR) ecam ] ;
 
 KernelStaticLibrary pci_arch_bus_manager :
-	arch_pci_controller.cpp
+#	arch_pci_controller.cpp
 	pci_io.cpp
 
 	# SiFive fu740
-	pci_fu740.cpp
+#	pci_fu740.cpp
 
 	# ECAM
-	pci_ecam.cpp
+#	pci_ecam.cpp
 ;
