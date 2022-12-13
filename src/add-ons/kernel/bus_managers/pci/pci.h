@@ -57,7 +57,7 @@ struct PCIDev {
 
 struct domain_data {
 	// These two are set in PCI::AddController:
-	pci_controller *	controller;
+	pci_controller_module_info *controller;
 	void *				controller_cookie;
 
 	// All the rest is set in PCI::InitDomainData
@@ -73,7 +73,7 @@ public:
 			void			InitDomainData();
 			void			InitBus();
 
-			status_t		AddController(pci_controller *controller,
+			status_t		AddController(pci_controller_module_info *controller,
 								void *controller_cookie);
 
 			status_t		GetNthInfo(long index, pci_info *outInfo);
@@ -129,6 +129,15 @@ public:
 								uint8 device, uint8 function,
 								uint8 newInterruptLineValue);
 
+			uint8			GetMsiCount(PCIDev *device);
+			status_t		ConfigureMsi(PCIDev *device, uint8 count, uint8 *startVector);
+			status_t		UnconfigureMsi(PCIDev *device);
+			status_t		EnableMsi(PCIDev *device);
+			status_t		DisableMsi(PCIDev *device);
+			uint8			GetMsixCount(PCIDev *device);
+			status_t		ConfigureMsix(PCIDev *device, uint8 count, uint8 *startVector);
+			status_t		EnableMsix(PCIDev *device);
+
 private:
 			void			_EnumerateBus(uint8 domain, uint8 bus,
 								uint8 *subordinateBus = NULL);
@@ -172,6 +181,13 @@ private:
 								uint8 device);
 			PCIDev *		_FindDevice(PCIBus *current, uint8 domain,
 								uint8 bus, uint8 device, uint8 function);
+
+			void			_HtMsiMap(PCIDev *device, uint64 address);
+			void			_ReadMsiInfo(PCIDev *device);
+			void			_ReadMsixInfo(PCIDev *device);
+			void			_ReadHtMappingInfo(PCIDev *device);
+			status_t		_UnconfigureMsix(PCIDev *device);
+			status_t		_DisableMsix(PCIDev *device);
 
 private:
 	PCIBus *				fRootBus;
