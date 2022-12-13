@@ -1768,7 +1768,7 @@ device_node::_GetNextDriverPath(void*& cookie, KPath& _path)
 					_AddPath(*stack, "busses/scsi");
 					_AddPath(*stack, "busses", "virtio");
 					_AddPath(*stack, "busses/random");
-					_AddPath(*stack, "bus_managers/pci");
+					_AddPath(*stack, "busses/pci");
 					_AddPath(*stack, "interrupt_controllers");
 					_AddPath(*stack, "rtc");
 					_AddPath(*stack, "power");

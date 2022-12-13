@@ -1,0 +1,5 @@
+SubDir HAIKU_TOP src add-ons kernel busses pci ;
+
+SubInclude HAIKU_TOP src add-ons kernel busses pci ecam ;
+SubInclude HAIKU_TOP src add-ons kernel busses pci fu740 ;
+SubInclude HAIKU_TOP src add-ons kernel busses pci x86 ;
