@@ -4,7 +4,7 @@
  */
 
 
-#include "ecam.h"
+#include "PciControllerEcam.h"
 #include <bus/FDT.h>
 
 #include <AutoDeleterDrivers.h>
@@ -71,7 +71,7 @@ WriteReg16(addr_t adr, uint32 value)
 
 
 float
-EcamPciController::SupportsDevice(device_node* parent)
+PciControllerEcam::SupportsDevice(device_node* parent)
 {
 	const char* bus;
 	status_t status = gDeviceManager->get_attr_string(parent, B_DEVICE_BUS, &bus, false);
@@ -94,7 +94,7 @@ EcamPciController::SupportsDevice(device_node* parent)
 
 
 status_t
-EcamPciController::RegisterDevice(device_node* parent)
+PciControllerEcam::RegisterDevice(device_node* parent)
 {
 	device_attr attrs[] = {
 		{ B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "ECAM PCI Host Controller"} },
@@ -107,9 +107,9 @@ EcamPciController::RegisterDevice(device_node* parent)
 
 
 status_t
-EcamPciController::InitDriver(device_node* node, EcamPciController*& outDriver)
+PciControllerEcam::InitDriver(device_node* node, PciControllerEcam*& outDriver)
 {
-	ObjectDeleter<EcamPciController> driver(new(std::nothrow) EcamPciController());
+	ObjectDeleter<PciControllerEcam> driver(new(std::nothrow) PciControllerEcam());
 	if (!driver.IsSet())
 		return B_NO_MEMORY;
 
@@ -120,10 +120,10 @@ EcamPciController::InitDriver(device_node* node, EcamPciController*& outDriver)
 
 
 status_t
-EcamPciController::InitDriverInt(device_node* node)
+PciControllerEcam::InitDriverInt(device_node* node)
 {
 	fNode = node;
-	dprintf("+EcamPciController::InitDriver()\n");
+	dprintf("+PciControllerEcam::InitDriver()\n");
 
 	DeviceNodePutter<&gDeviceManager> parent(gDeviceManager->get_parent_node(node));
 
@@ -233,20 +233,20 @@ EcamPciController::InitDriverInt(device_node* node)
 	if (!fRegsArea.IsSet())
 		return fRegsArea.Get();
 
-	dprintf("-EcamPciController::InitDriver()\n");
+	dprintf("-PciControllerEcam::InitDriver()\n");
 	return B_OK;
 }
 
 
 void
-EcamPciController::UninitDriver()
+PciControllerEcam::UninitDriver()
 {
 	delete this;
 }
 
 
 void
-EcamPciController::SetRegisterRange(int kind, phys_addr_t parentBase, phys_addr_t childBase,
+PciControllerEcam::SetRegisterRange(int kind, phys_addr_t parentBase, phys_addr_t childBase,
 	size_t size)
 {
 	RegisterRange& range = fRegisterRanges[kind];
@@ -260,7 +260,7 @@ EcamPciController::SetRegisterRange(int kind, phys_addr_t parentBase, phys_addr_
 
 
 addr_t
-EcamPciController::ConfigAddress(uint8 bus, uint8 device, uint8 function, uint16 offset)
+PciControllerEcam::ConfigAddress(uint8 bus, uint8 device, uint8 function, uint16 offset)
 {
 	PciAddressEcam address {
 		.offset = offset,
@@ -282,7 +282,7 @@ EcamPciController::ConfigAddress(uint8 bus, uint8 device, uint8 function, uint16
 
 
 status_t
-EcamPciController::ReadConfig(uint8 bus, uint8 device, uint8 function,
+PciControllerEcam::ReadConfig(uint8 bus, uint8 device, uint8 function,
 	uint16 offset, uint8 size, uint32& value)
 {
 	addr_t address = ConfigAddress(bus, device, function, offset);
@@ -302,7 +302,7 @@ EcamPciController::ReadConfig(uint8 bus, uint8 device, uint8 function,
 
 
 status_t
-EcamPciController::WriteConfig(uint8 bus, uint8 device, uint8 function,
+PciControllerEcam::WriteConfig(uint8 bus, uint8 device, uint8 function,
 	uint16 offset, uint8 size, uint32 value)
 {
 	addr_t address = ConfigAddress(bus, device, function, offset);
@@ -322,7 +322,7 @@ EcamPciController::WriteConfig(uint8 bus, uint8 device, uint8 function,
 
 
 status_t
-EcamPciController::GetMaxBusDevices(int32& count)
+PciControllerEcam::GetMaxBusDevices(int32& count)
 {
 	count = fBusCount;
 	return B_OK;
@@ -330,7 +330,7 @@ EcamPciController::GetMaxBusDevices(int32& count)
 
 
 status_t
-EcamPciController::ReadIrq(uint8 bus, uint8 device, uint8 function,
+PciControllerEcam::ReadIrq(uint8 bus, uint8 device, uint8 function,
 	uint8 pin, uint8& irq)
 {
 	return B_UNSUPPORTED;
@@ -338,7 +338,7 @@ EcamPciController::ReadIrq(uint8 bus, uint8 device, uint8 function,
 
 
 status_t
-EcamPciController::WriteIrq(uint8 bus, uint8 device, uint8 function,
+PciControllerEcam::WriteIrq(uint8 bus, uint8 device, uint8 function,
 	uint8 pin, uint8 irq)
 {
 	return B_UNSUPPORTED;
