@@ -1,0 +1,465 @@
+/*
+ * Copyright 2022, Haiku, Inc.
+ * Distributed under the terms of the MIT License.
+ */
+
+
+#include "PciControllerX86.h"
+#include "pci_acpi.h"
+
+#include <bus/FDT.h>
+
+#include <AutoDeleterDrivers.h>
+#include <util/AutoLock.h>
+#include "acpi.h"
+
+#include <string.h>
+#include <new>
+
+
+#define PCI_MECH1_REQ_PORT				0xCF8
+#define PCI_MECH1_DATA_PORT 			0xCFC
+#define PCI_MECH1_REQ_DATA(bus, device, func, offset) \
+	(0x80000000 | (bus << 16) | (device << 11) | (func << 8) | (offset & ~3))
+
+#define PCI_MECH2_ENABLE_PORT			0x0cf8
+#define PCI_MECH2_FORWARD_PORT			0x0cfa
+#define PCI_MECH2_CONFIG_PORT(dev, offset) \
+	(uint16)(0xC00 | (dev << 8) | offset)
+
+
+//#pragma mark - driver
+
+
+float
+PciControllerX86::SupportsDevice(device_node* parent)
+{
+	const char* bus;
+	if (gDeviceManager->get_attr_string(parent, B_DEVICE_BUS, &bus, false) < B_OK)
+		return -1.0f;
+
+	if (strcmp(bus, "root") == 0)
+		return 1.0f;
+
+	return 0.0;
+}
+
+
+status_t
+PciControllerX86::RegisterDevice(device_node* parent)
+{
+	device_attr attrs[] = {
+		{ B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "X86 PCI Host Controller"} },
+		{ B_DEVICE_FIXED_CHILD, B_STRING_TYPE, {.string = "bus_managers/pci/root/driver_v1"} },
+		{}
+	};
+
+	return gDeviceManager->register_node(parent, ECAM_PCI_DRIVER_MODULE_NAME, attrs, NULL, NULL);
+}
+
+
+status_t
+PciControllerX86::InitDriver(device_node* node, PciControllerX86*& outDriver)
+{
+	bool search_mech1 = true;
+	bool search_mech2 = true;
+	bool search_mechpcie = true;
+	bool search_bios = true;
+	void *config = NULL;
+
+	config = load_driver_settings("pci");
+	if (config) {
+		const char *mech = get_driver_parameter(config, "mechanism",
+			NULL, NULL);
+		if (mech) {
+			search_mech1 = search_mech2 = search_mechpcie = search_bios = false;
+			if (strcmp(mech, "1") == 0)
+				search_mech1 = true;
+			else if (strcmp(mech, "2") == 0)
+				search_mech2 = true;
+			else if (strcmp(mech, "pcie") == 0)
+				search_mechpcie = true;
+			else if (strcmp(mech, "bios") == 0)
+				search_bios = true;
+			else
+				panic("Unknown pci config mechanism setting %s\n", mech);
+		}
+		unload_driver_settings(config);
+	}
+
+	// TODO: check safemode "don't call the BIOS" setting and unset search_bios!
+
+	// PCI configuration mechanism PCIe is the preferred one.
+	// If it doesn't work, try mechanism 1.
+	// If it doesn't work, try mechanism 2.
+	// Finally, try to fallback to PCI BIOS
+
+	if (search_mechpcie) {
+		if (CreateDriver(node, new(std::nothrow) PciControllerX86MethPcie(), outDriver) >= B_OK)
+			return B_OK;
+	}
+
+	if (search_mech1) {
+		// check for mechanism 1
+		out32(0x80000000, PCI_MECH1_REQ_PORT);
+		if (0x80000000 == in32(PCI_MECH1_REQ_PORT)) {
+			dprintf("PCI: mechanism 1 controller found\n");
+			return CreateDriver(node, new(std::nothrow) PciControllerX86Meth1(), outDriver);
+		}
+	}
+
+	if (search_mech2) {
+		// check for mechanism 2
+		out8(0x00, 0xCFB);
+		out8(0x00, 0xCF8);
+		out8(0x00, 0xCFA);
+		if (in8(0xCF8) == 0x00 && in8(0xCFA) == 0x00) {
+			dprintf("PCI: mechanism 2 controller found\n");
+			return CreateDriver(node, new(std::nothrow) PciControllerX86Meth2(), outDriver);
+		}
+	}
+
+	dprintf("PCI: no configuration mechanism found\n");
+	return B_ERROR;
+}
+
+
+status_t
+PciControllerX86::CreateDriver(device_node* node, PciControllerX86* driverIn, PciControllerX86*& driverOut)
+{
+	ObjectDeleter<PciControllerX86> driver(driverIn);
+	if (!driver.IsSet())
+		return B_NO_MEMORY;
+
+	CHECK_RET(driver->InitDriverInt(node));
+	driverOut = driver.Detach();
+	return B_OK;
+}
+
+
+status_t
+PciControllerX86::InitDriverInt(device_node* node)
+{
+	fNode = node;
+	return B_OK;
+}
+
+
+void
+PciControllerX86::UninitDriver()
+{
+	delete this;
+}
+
+
+//#pragma mark - PCI controller
+
+
+status_t
+PciControllerX86::ReadIrq(uint8 bus, uint8 device, uint8 function,
+	uint8 pin, uint8& irq)
+{
+	return B_UNSUPPORTED;
+}
+
+
+status_t
+PciControllerX86::WriteIrq(uint8 bus, uint8 device, uint8 function,
+	uint8 pin, uint8 irq)
+{
+	return B_UNSUPPORTED;
+}
+
+
+//#pragma mark - PciControllerX86Meth1
+
+
+status_t
+PciControllerX86Meth1::InitDriverInt(device_node* node)
+{
+	return B_OK;
+}
+
+
+status_t
+PciControllerX86Meth1::ReadConfig(
+	uint8 bus, uint8 device, uint8 function,
+	uint16 offset, uint8 size, uint32 &value)
+{
+	if (offset > 0xff)
+		return B_BAD_VALUE;
+
+	InterruptsSpinLocker lock(fLock);
+	out32(PCI_MECH1_REQ_DATA(bus, device, function, offset), PCI_MECH1_REQ_PORT);
+	switch (size) {
+		case 1:
+			value = in8(PCI_MECH1_DATA_PORT + (offset & 3));
+			break;
+		case 2:
+			value = in16(PCI_MECH1_DATA_PORT + (offset & 3));
+			break;
+		case 4:
+			value = in32(PCI_MECH1_DATA_PORT);
+			break;
+		default:
+			return B_ERROR;
+	}
+
+	return B_OK;
+}
+
+
+status_t
+PciControllerX86Meth1::WriteConfig(
+	uint8 bus, uint8 device, uint8 function,
+	uint16 offset, uint8 size, uint32 value)
+{
+	if (offset > 0xff)
+		return B_BAD_VALUE;
+
+	InterruptsSpinLocker lock(fLock);
+	out32(PCI_MECH1_REQ_DATA(bus, device, function, offset), PCI_MECH1_REQ_PORT);
+	switch (size) {
+		case 1:
+			out8(value, PCI_MECH1_DATA_PORT + (offset & 3));
+			break;
+		case 2:
+			out16(value, PCI_MECH1_DATA_PORT + (offset & 3));
+			break;
+		case 4:
+			out32(value, PCI_MECH1_DATA_PORT);
+			break;
+		default:
+			return B_ERROR;
+	}
+
+	return B_OK;
+}
+
+
+status_t PciControllerX86Meth1::GetMaxBusDevices(int32& count)
+{
+	count = 32;
+	return B_OK;
+}
+
+
+//#pragma mark - PciControllerX86Meth2
+
+
+status_t
+PciControllerX86Meth2::InitDriverInt(device_node* node)
+{
+	return B_OK;
+}
+
+
+status_t
+PciControllerX86Meth2::ReadConfig(
+	uint8 bus, uint8 device, uint8 function,
+	uint16 offset, uint8 size, uint32 &value)
+{
+	if (offset > 0xff)
+		return B_BAD_VALUE;
+
+	InterruptsSpinLocker lock(fLock);
+	out8((uint8)(0xf0 | (function << 1)), PCI_MECH2_ENABLE_PORT);
+	out8(bus, PCI_MECH2_FORWARD_PORT);
+	switch (size) {
+		case 1:
+			value = in8(PCI_MECH2_CONFIG_PORT(device, offset));
+			break;
+		case 2:
+			value = in16(PCI_MECH2_CONFIG_PORT(device, offset));
+			break;
+		case 4:
+			value = in32(PCI_MECH2_CONFIG_PORT(device, offset));
+			break;
+		default:
+			return B_ERROR;
+	}
+	out8(0, PCI_MECH2_ENABLE_PORT);
+
+	return B_OK;
+}
+
+
+status_t
+PciControllerX86Meth2::WriteConfig(
+	uint8 bus, uint8 device, uint8 function,
+	uint16 offset, uint8 size, uint32 value)
+{
+	if (offset > 0xff)
+		return B_BAD_VALUE;
+
+	InterruptsSpinLocker lock(fLock);
+	out8((uint8)(0xf0 | (function << 1)), PCI_MECH2_ENABLE_PORT);
+	out8(bus, PCI_MECH2_FORWARD_PORT);
+	switch (size) {
+		case 1:
+			out8(value, PCI_MECH2_CONFIG_PORT(device, offset));
+			break;
+		case 2:
+			out16(value, PCI_MECH2_CONFIG_PORT(device, offset));
+			break;
+		case 4:
+			out32(value, PCI_MECH2_CONFIG_PORT(device, offset));
+			break;
+		default:
+			return B_ERROR;
+	}
+	out8(0, PCI_MECH2_ENABLE_PORT);
+
+	return B_OK;
+}
+
+
+status_t PciControllerX86Meth2::GetMaxBusDevices(int32& count)
+{
+	count = 16;
+	return B_OK;
+}
+
+
+//#pragma mark - PciControllerX86MethPcie
+
+
+#define PCIE_VADDR(base, bus, slot, func, reg)  ((base) + \
+	((((bus) & 0xff) << 20) | (((slot) & 0x1f) << 15) |   \
+    (((func) & 0x7) << 12) | ((reg) & 0xfff)))
+
+
+status_t
+PciControllerX86MethPcie::InitDriverInt(device_node* node)
+{
+	CHECK_RET(PciControllerX86::InitDriverInt(node));
+
+	acpi_init();
+	struct acpi_table_mcfg* mcfg =
+		(struct acpi_table_mcfg*)acpi_find_table("MCFG");
+	if (mcfg != NULL) {
+		struct acpi_mcfg_allocation* end = (struct acpi_mcfg_allocation*)
+			((char*)mcfg + mcfg->Header.Length);
+		struct acpi_mcfg_allocation* alloc = (struct acpi_mcfg_allocation*)
+			(mcfg + 1);
+		for (; alloc < end; alloc++) {
+			dprintf("PCI: mechanism addr: %" B_PRIx64 ", seg: %x, start: "
+				"%x, end: %x\n", alloc->Address, alloc->PciSegment,
+				alloc->StartBusNumber, alloc->EndBusNumber);
+			if (alloc->PciSegment == 0) {
+				area_id mcfgArea = map_physical_memory("acpi mcfg",
+					alloc->Address, (alloc->EndBusNumber + 1) << 20,
+					B_ANY_KERNEL_ADDRESS, B_KERNEL_READ_AREA
+						| B_KERNEL_WRITE_AREA, (void **)&fPCIeBase);
+				if (mcfgArea < 0)
+					break;
+				fStartBusNumber = alloc->StartBusNumber;
+				fEndBusNumber = alloc->EndBusNumber;
+				dprintf("PCI: mechanism pcie controller found\n");
+				return B_OK;
+			}
+		}
+	}
+	return B_ERROR;
+}
+
+
+status_t
+PciControllerX86MethPcie::ReadConfig(
+	uint8 bus, uint8 device, uint8 function,
+	uint16 offset, uint8 size, uint32 &value)
+{
+	// fallback to mechanism 1 for out of range busses
+	if (bus < fStartBusNumber || bus > fEndBusNumber) {
+		return PciControllerX86Meth1::ReadConfig(bus, device, function, offset,
+			size, value);
+	}
+
+	addr_t address = PCIE_VADDR(fPCIeBase, bus, device, function, offset);
+
+	switch (size) {
+		case 1:
+			value = *(uint8*)address;
+			break;
+		case 2:
+			value = *(uint16*)address;
+			break;
+		case 4:
+			value = *(uint32*)address;
+			break;
+		default:
+			return B_ERROR;
+	}
+	return B_OK;
+}
+
+
+status_t
+PciControllerX86MethPcie::WriteConfig(
+	uint8 bus, uint8 device, uint8 function,
+	uint16 offset, uint8 size, uint32 value)
+{
+	// fallback to mechanism 1 for out of range busses
+	if (bus < fStartBusNumber || bus > fEndBusNumber) {
+		return PciControllerX86Meth1::WriteConfig(bus, device, function, offset,
+			size, value);
+	}
+
+	addr_t address = PCIE_VADDR(fPCIeBase, bus, device, function, offset);
+	switch (size) {
+		case 1:
+			*(uint8*)address = value;
+			break;
+		case 2:
+			*(uint16*)address = value;
+			break;
+		case 4:
+			*(uint32*)address = value;
+			break;
+		default:
+			return B_ERROR;
+	}
+
+	return B_OK;
+}
+
+
+status_t PciControllerX86MethPcie::GetMaxBusDevices(int32& count)
+{
+	count = 32;
+	return B_OK;
+}
+
+
+//#pragma mark - PciControllerX86MethBios
+
+
+status_t
+PciControllerX86MethBios::InitDriverInt(device_node* node)
+{
+	return B_OK;
+}
+
+
+status_t
+PciControllerX86MethBios::ReadConfig(
+	uint8 bus, uint8 device, uint8 function,
+	uint16 offset, uint8 size, uint32 &value)
+{
+	return ENOSYS;
+}
+
+
+status_t
+PciControllerX86MethBios::WriteConfig(
+	uint8 bus, uint8 device, uint8 function,
+	uint16 offset, uint8 size, uint32 value)
+{
+	return ENOSYS;
+}
+
+
+status_t PciControllerX86MethBios::GetMaxBusDevices(int32& count)
+{
+	return ENOSYS;
+}
