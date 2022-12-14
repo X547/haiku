@@ -5,6 +5,6 @@ SubDirC++Flags -fno-rtti ;
 UsePrivateKernelHeaders ;
 
 KernelAddon ecam_pci :
-	ecam.cpp
+	PciControllerEcam.cpp
 	kernel_interface.cpp
 ;

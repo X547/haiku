@@ -69,11 +69,11 @@ struct InterruptMap {
 };
 
 
-class EcamPciController {
+class PciControllerEcam {
 public:
 	static float SupportsDevice(device_node* parent);
 	static status_t RegisterDevice(device_node* parent);
-	static status_t InitDriver(device_node* node, EcamPciController*& outDriver);
+	static status_t InitDriver(device_node* node, PciControllerEcam*& outDriver);
 	void UninitDriver();
 
 	status_t ReadConfig(
