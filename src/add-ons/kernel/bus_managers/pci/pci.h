@@ -16,10 +16,6 @@
 #include "pci_controller.h"
 #include "pci_msi.h"
 
-#if defined(__i386__) || defined(__x86_64__)
-#include "pci_arch_info.h"
-#endif
-
 #define TRACE_PCI
 #ifndef TRACE_PCI
 #	define TRACE(x)
