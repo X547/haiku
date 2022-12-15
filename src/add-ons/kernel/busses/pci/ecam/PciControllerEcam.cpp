@@ -193,31 +193,42 @@ PciControllerEcam::InitDriverInt(device_node* node)
 		dprintf("  ranges:\n");
 		for (uint32_t *it = (uint32_t*)prop; (uint8_t*)it - (uint8_t*)prop < propLen; it += 7) {
 			dprintf("    ");
-			uint32_t kind = B_BENDIAN_TO_HOST_INT32(*(it + 0));
-			uint64_t childAdr = B_BENDIAN_TO_HOST_INT64(*(uint64_t*)(it + 1));
+			uint32_t type      = B_BENDIAN_TO_HOST_INT32(*(it + 0));
+			uint64_t childAdr  = B_BENDIAN_TO_HOST_INT64(*(uint64_t*)(it + 1));
 			uint64_t parentAdr = B_BENDIAN_TO_HOST_INT64(*(uint64_t*)(it + 3));
-			uint64_t len = B_BENDIAN_TO_HOST_INT64(*(uint64_t*)(it + 5));
+			uint64_t len       = B_BENDIAN_TO_HOST_INT64(*(uint64_t*)(it + 5));
 
-			switch (kind & 0x03000000) {
-			case 0x01000000:
-				SetRegisterRange(kRegIo, parentAdr, childAdr, len);
+			uint32 outType = kPciRangeInvalid;
+			switch (type & fdtPciRangeTypeMask) {
+			case fdtPciRangeIoPort:
+				outType = kPciRangeIoPort;
 				break;
-			case 0x02000000:
-				SetRegisterRange(kRegMmio32, parentAdr, childAdr, len);
+			case fdtPciRangeMmio32Bit:
+				outType = kPciRangeMmio;
 				break;
-			case 0x03000000:
-				SetRegisterRange(kRegMmio64, parentAdr, childAdr, len);
+			case fdtPciRangeMmio64Bit:
+				outType = kPciRangeMmio + kPciRangeMmio64Bit;
 				break;
 			}
+			if (outType >= kPciRangeMmio && outType < kPciRangeMmioEnd
+				&& (fdtPciRangePrefechable & type) != 0)
+				outType += kPciRangeMmioPrefetch;
 
-			switch (kind & 0x03000000) {
-			case 0x00000000: dprintf("CONFIG"); break;
-			case 0x01000000: dprintf("IOPORT"); break;
-			case 0x02000000: dprintf("MMIO32"); break;
-			case 0x03000000: dprintf("MMIO64"); break;
+			if (outType != kPciRangeInvalid) {
+				fResourceRanges[outType].type = outType;
+				fResourceRanges[outType].host_addr = parentAdr;
+				fResourceRanges[outType].pci_addr = childAdr;
+				fResourceRanges[outType].size = len;
 			}
 
-			dprintf(" (0x%08" B_PRIx32 "): ", kind);
+			switch (type & fdtPciRangeTypeMask) {
+			case fdtPciRangeConfig:    dprintf("CONFIG"); break;
+			case fdtPciRangeIoPort:    dprintf("IOPORT"); break;
+			case fdtPciRangeMmio32Bit: dprintf("MMIO32"); break;
+			case fdtPciRangeMmio64Bit: dprintf("MMIO64"); break;
+			}
+
+			dprintf(" (0x%08" B_PRIx32 "): ", type);
 			dprintf("child: %08" B_PRIx64, childAdr);
 			dprintf(", parent: %08" B_PRIx64, parentAdr);
 			dprintf(", len: %" B_PRIx64 "\n", len);
@@ -242,20 +253,6 @@ void
 PciControllerEcam::UninitDriver()
 {
 	delete this;
-}
-
-
-void
-PciControllerEcam::SetRegisterRange(int kind, phys_addr_t parentBase, phys_addr_t childBase,
-	size_t size)
-{
-	RegisterRange& range = fRegisterRanges[kind];
-
-	range.parentBase = parentBase;
-	range.childBase = childBase;
-	range.size = size;
-	// Avoid allocating zero address.
-	range.free = (childBase != 0) ? childBase : 1;
 }
 
 
@@ -342,4 +339,24 @@ PciControllerEcam::WriteIrq(uint8 bus, uint8 device, uint8 function,
 	uint8 pin, uint8 irq)
 {
 	return B_UNSUPPORTED;
+}
+
+
+status_t
+PciControllerEcam::GetRange(uint32 index, pci_resource_range* range)
+{
+	uint32 type = kPciRangeInvalid;
+	for (;;) {
+		while (fResourceRanges[type].size == 0) {
+			type++;
+			if (type == kPciRangeEnd)
+				return B_BAD_INDEX;
+		}
+		if (index == 0)
+			break;
+
+		index--;
+	}
+	*range = fResourceRanges[type];
+	return B_OK;
 }
