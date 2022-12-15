@@ -52,6 +52,9 @@ pci_controller_module_info gPciControllerDriver = {
 		uint8 bus, uint8 device, uint8 function,
 		uint8 pin, uint8 irq) {
 		return static_cast<PciControllerEcam*>(cookie)->WriteIrq(bus, device, function, pin, irq);
+	},
+	.get_range = [](void *cookie, uint32 index, pci_resource_range* range) {
+		return static_cast<PciControllerEcam*>(cookie)->GetRange(index, range);
 	}
 };
 

@@ -18,6 +18,18 @@
 #define ECAM_PCI_DRIVER_MODULE_NAME "busses/pci/ecam/driver_v1"
 
 
+enum {
+	fdtPciRangeConfig      = 0x00000000,
+	fdtPciRangeIoPort      = 0x01000000,
+	fdtPciRangeMmio32Bit   = 0x02000000,
+	fdtPciRangeMmio64Bit   = 0x03000000,
+	fdtPciRangeTypeMask    = 0x03000000,
+	fdtPciRangeAliased     = 0x20000000,
+	fdtPciRangePrefechable = 0x40000000,
+	fdtPciRangeRelocatable = 0x80000000,
+};
+
+
 enum PciBarKind {
 	kRegIo,
 	kRegMmio32,
@@ -52,8 +64,7 @@ union PciAddressEcam {
 struct RegisterRange {
 	phys_addr_t parentBase;
 	phys_addr_t childBase;
-	size_t size;
-	phys_addr_t free;
+	uint64 size;
 };
 
 struct InterruptMapMask {
@@ -94,10 +105,11 @@ public:
 				uint8 bus, uint8 device, uint8 function,
 				uint8 pin, uint8 irq);
 
+	status_t GetRange(uint32 index, pci_resource_range* range);
+
 private:
 	inline status_t InitDriverInt(device_node* node);
 
-	void SetRegisterRange(int kind, phys_addr_t parentBase, phys_addr_t childBase, size_t size);
 	inline addr_t ConfigAddress(uint8 bus, uint8 device, uint8 function, uint16 offset);
 
 private:
@@ -111,7 +123,7 @@ private:
 	uint8 volatile* fRegs{};
 	uint64 fRegsLen{};
 
-	RegisterRange fRegisterRanges[3] {};
+	pci_resource_range fResourceRanges[kPciRangeEnd] {};
 	InterruptMapMask fInterruptMapMask{};
 	uint32 fInterruptMapLen{};
 	ArrayDeleter<InterruptMap> fInterruptMap;
