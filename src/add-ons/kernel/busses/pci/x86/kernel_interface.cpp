@@ -13,7 +13,7 @@ device_manager_info* gDeviceManager;
 pci_controller_module_info gPciControllerDriver = {
 	.info = {
 		.info = {
-			.name = ECAM_PCI_DRIVER_MODULE_NAME,
+			.name = PCI_X86_DRIVER_MODULE_NAME,
 		},
 		.supports_device = [](device_node* parent) {
 			return PciControllerX86::SupportsDevice(parent);
@@ -52,6 +52,9 @@ pci_controller_module_info gPciControllerDriver = {
 		uint8 bus, uint8 device, uint8 function,
 		uint8 pin, uint8 irq) {
 		return static_cast<PciControllerX86*>(cookie)->WriteIrq(bus, device, function, pin, irq);
+	},
+	.get_range = [](void *cookie, uint32 index, pci_resource_range* range) {
+		return static_cast<PciControllerX86*>(cookie)->GetRange(index, range);
 	}
 };
 

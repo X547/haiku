@@ -7,8 +7,6 @@
 #include "PciControllerX86.h"
 #include "pci_acpi.h"
 
-#include <bus/FDT.h>
-
 #include <AutoDeleterDrivers.h>
 #include <util/AutoLock.h>
 #include "acpi.h"
@@ -54,7 +52,7 @@ PciControllerX86::RegisterDevice(device_node* parent)
 		{}
 	};
 
-	return gDeviceManager->register_node(parent, ECAM_PCI_DRIVER_MODULE_NAME, attrs, NULL, NULL);
+	return gDeviceManager->register_node(parent, PCI_X86_DRIVER_MODULE_NAME, attrs, NULL, NULL);
 }
 
 
@@ -64,59 +62,40 @@ PciControllerX86::InitDriver(device_node* node, PciControllerX86*& outDriver)
 	bool search_mech1 = true;
 	bool search_mech2 = true;
 	bool search_mechpcie = true;
-	bool search_bios = true;
 	void *config = NULL;
 
 	config = load_driver_settings("pci");
 	if (config) {
-		const char *mech = get_driver_parameter(config, "mechanism",
-			NULL, NULL);
+		const char *mech = get_driver_parameter(config, "mechanism", NULL, NULL);
 		if (mech) {
-			search_mech1 = search_mech2 = search_mechpcie = search_bios = false;
+			search_mech1 = search_mech2 = search_mechpcie = false;
 			if (strcmp(mech, "1") == 0)
 				search_mech1 = true;
 			else if (strcmp(mech, "2") == 0)
 				search_mech2 = true;
 			else if (strcmp(mech, "pcie") == 0)
 				search_mechpcie = true;
-			else if (strcmp(mech, "bios") == 0)
-				search_bios = true;
 			else
 				panic("Unknown pci config mechanism setting %s\n", mech);
 		}
 		unload_driver_settings(config);
 	}
 
-	// TODO: check safemode "don't call the BIOS" setting and unset search_bios!
-
 	// PCI configuration mechanism PCIe is the preferred one.
 	// If it doesn't work, try mechanism 1.
 	// If it doesn't work, try mechanism 2.
-	// Finally, try to fallback to PCI BIOS
 
 	if (search_mechpcie) {
 		if (CreateDriver(node, new(std::nothrow) PciControllerX86MethPcie(), outDriver) >= B_OK)
 			return B_OK;
 	}
-
 	if (search_mech1) {
-		// check for mechanism 1
-		out32(0x80000000, PCI_MECH1_REQ_PORT);
-		if (0x80000000 == in32(PCI_MECH1_REQ_PORT)) {
-			dprintf("PCI: mechanism 1 controller found\n");
-			return CreateDriver(node, new(std::nothrow) PciControllerX86Meth1(), outDriver);
-		}
+		if (CreateDriver(node, new(std::nothrow) PciControllerX86Meth1(), outDriver) >= B_OK)
+			return B_OK;
 	}
-
 	if (search_mech2) {
-		// check for mechanism 2
-		out8(0x00, 0xCFB);
-		out8(0x00, 0xCF8);
-		out8(0x00, 0xCFA);
-		if (in8(0xCF8) == 0x00 && in8(0xCFA) == 0x00) {
-			dprintf("PCI: mechanism 2 controller found\n");
-			return CreateDriver(node, new(std::nothrow) PciControllerX86Meth2(), outDriver);
-		}
+		if (CreateDriver(node, new(std::nothrow) PciControllerX86Meth2(), outDriver) >= B_OK)
+			return B_OK;
 	}
 
 	dprintf("PCI: no configuration mechanism found\n");
@@ -171,13 +150,29 @@ PciControllerX86::WriteIrq(uint8 bus, uint8 device, uint8 function,
 }
 
 
+status_t
+PciControllerX86::GetRange(uint32 index, pci_resource_range* range)
+{
+
+	return B_BAD_INDEX;
+}
+
+
 //#pragma mark - PciControllerX86Meth1
 
 
 status_t
 PciControllerX86Meth1::InitDriverInt(device_node* node)
 {
-	return B_OK;
+	CHECK_RET(PciControllerX86::InitDriverInt(node));
+
+	// check for mechanism 1
+	out32(0x80000000, PCI_MECH1_REQ_PORT);
+	if (0x80000000 == in32(PCI_MECH1_REQ_PORT)) {
+		dprintf("PCI: mechanism 1 controller found\n");
+		return B_OK;
+	}
+	return B_ERROR;
 }
 
 
@@ -250,7 +245,17 @@ status_t PciControllerX86Meth1::GetMaxBusDevices(int32& count)
 status_t
 PciControllerX86Meth2::InitDriverInt(device_node* node)
 {
-	return B_OK;
+	CHECK_RET(PciControllerX86::InitDriverInt(node));
+
+	// check for mechanism 2
+	out8(0x00, 0xCFB);
+	out8(0x00, 0xCF8);
+	out8(0x00, 0xCFA);
+	if (in8(0xCF8) == 0x00 && in8(0xCFA) == 0x00) {
+		dprintf("PCI: mechanism 2 controller found\n");
+		return B_OK;
+	}
+	return B_ERROR;
 }
 
 
@@ -428,38 +433,4 @@ status_t PciControllerX86MethPcie::GetMaxBusDevices(int32& count)
 {
 	count = 32;
 	return B_OK;
-}
-
-
-//#pragma mark - PciControllerX86MethBios
-
-
-status_t
-PciControllerX86MethBios::InitDriverInt(device_node* node)
-{
-	return B_OK;
-}
-
-
-status_t
-PciControllerX86MethBios::ReadConfig(
-	uint8 bus, uint8 device, uint8 function,
-	uint16 offset, uint8 size, uint32 &value)
-{
-	return ENOSYS;
-}
-
-
-status_t
-PciControllerX86MethBios::WriteConfig(
-	uint8 bus, uint8 device, uint8 function,
-	uint16 offset, uint8 size, uint32 value)
-{
-	return ENOSYS;
-}
-
-
-status_t PciControllerX86MethBios::GetMaxBusDevices(int32& count)
-{
-	return ENOSYS;
 }

@@ -4,8 +4,8 @@
  */
 
 
-#ifndef _ECAM_PCI_H_
-#define _ECAM_PCI_H_
+#ifndef _PCICONTROLLERX86_H_
+#define _PCICONTROLLERX86_H_
 
 #include <bus/PCI.h>
 
@@ -15,58 +15,7 @@
 
 #define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
-#define ECAM_PCI_DRIVER_MODULE_NAME "busses/pci/ecam/driver_v1"
-
-
-enum PciBarKind {
-	kRegIo,
-	kRegMmio32,
-	kRegMmio64,
-	kRegMmio1MB,
-	kRegUnknown,
-};
-
-
-union PciAddress {
-	struct {
-		uint32 offset: 8;
-		uint32 function: 3;
-		uint32 device: 5;
-		uint32 bus: 8;
-		uint32 unused: 8;
-	};
-	uint32 val;
-};
-
-union PciAddressEcam {
-	struct {
-		uint32 offset: 12;
-		uint32 function: 3;
-		uint32 device: 5;
-		uint32 bus: 8;
-		uint32 unused: 4;
-	};
-	uint32 val;
-};
-
-struct RegisterRange {
-	phys_addr_t parentBase;
-	phys_addr_t childBase;
-	size_t size;
-	phys_addr_t free;
-};
-
-struct InterruptMapMask {
-	uint32_t childAdr;
-	uint32_t childIrq;
-};
-
-struct InterruptMap {
-	uint32_t childAdr;
-	uint32_t childIrq;
-	uint32_t parentIrqCtrl;
-	uint32_t parentIrq;
-};
+#define PCI_X86_DRIVER_MODULE_NAME "busses/pci/x86/driver_v1"
 
 
 class PciControllerX86 {
@@ -95,6 +44,8 @@ public:
 	status_t WriteIrq(
 		uint8 bus, uint8 device, uint8 function,
 		uint8 pin, uint8 irq);
+
+	status_t GetRange(uint32 index, pci_resource_range* range);
 
 protected:
 	static status_t CreateDriver(device_node* node, PciControllerX86* driver, PciControllerX86*& driverOut);
@@ -128,6 +79,7 @@ public:
 	status_t GetMaxBusDevices(int32& count) override;
 };
 
+
 class PciControllerX86Meth2: public PciControllerX86 {
 public:
 	virtual ~PciControllerX86Meth2() = default;
@@ -144,6 +96,7 @@ public:
 
 	status_t GetMaxBusDevices(int32& count) final;
 };
+
 
 class PciControllerX86MethPcie: public PciControllerX86Meth1 {
 public:
@@ -162,24 +115,7 @@ public:
 	status_t GetMaxBusDevices(int32& count) final;
 };
 
-class PciControllerX86MethBios: public PciControllerX86 {
-public:
-	virtual ~PciControllerX86MethBios() = default;
-
-	status_t InitDriverInt(device_node* node) final;
-
-	status_t ReadConfig(
-		uint8 bus, uint8 device, uint8 function,
-		uint16 offset, uint8 size, uint32 &value) final;
-
-	status_t WriteConfig(
-		uint8 bus, uint8 device, uint8 function,
-		uint16 offset, uint8 size, uint32 value) final;
-
-	status_t GetMaxBusDevices(int32& count) final;
-};
-
 
 extern device_manager_info* gDeviceManager;
 
-#endif	// _ECAM_PCI_H_
+#endif	// _PCICONTROLLERX86_H_
