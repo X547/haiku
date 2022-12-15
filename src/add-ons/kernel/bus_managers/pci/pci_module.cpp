@@ -20,13 +20,6 @@
 device_manager_info *gDeviceManager;
 
 
-phys_addr_t
-pci_ram_address(phys_addr_t childAdr)
-{
-	return childAdr;
-}
-
-
 static int32
 pci_old_module_std_ops(int32 op, ...)
 {

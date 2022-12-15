@@ -72,6 +72,23 @@ pci_write_config(uint8 virtualBus, uint8 device, uint8 function, uint16 offset,
 }
 
 
+phys_addr_t
+pci_ram_address(phys_addr_t childAdr)
+{
+#if defined(__i386__) || defined(__x86_64__)
+	return childAdr;
+#else
+	uint8 domain;
+	pci_resource_range range;
+
+	if (gPCI->LookupRange(kPciRangeMmio, childAdr, domain, range) < B_OK)
+		return 0;
+
+	return childAdr - range.pci_addr + range.host_addr;
+#endif
+}
+
+
 status_t
 pci_find_capability(uint8 virtualBus, uint8 device, uint8 function,
 	uint8 capID, uint8 *offset)
@@ -149,11 +166,10 @@ pci_reserve_device(uchar virtualBus, uchar device, uchar function,
 	device_node *node, *legacy;
 
 	status = B_DEVICE_NOT_FOUND;
-	if (gPCIRootNode == NULL)
-		goto err1;
+	device_node *root_pci_node = gPCI->_GetDomainData(domain)->root_node;
 
 	node = NULL;
-	if (gDeviceManager->get_next_child_node(gPCIRootNode,
+	if (gDeviceManager->get_next_child_node(root_pci_node,
 		matchThis, &node) < B_OK) {
 		goto err1;
 	}
@@ -202,10 +218,6 @@ pci_unreserve_device(uchar virtualBus, uchar device, uchar function,
 	//TRACE(("%s(%d [%d:%d], %d, %d, %s, %p)\n", __FUNCTION__, virtualBus,
 	//	domain, bus, device, function, driverName, nodeCookie));
 
-	device_attr matchPCIRoot[] = {
-		{B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "PCI"}},
-		{NULL}
-	};
 	device_attr matchThis[] = {
 		// info about device
 		{B_DEVICE_BUS, B_STRING_TYPE, {.string = "pci"}},
@@ -230,16 +242,11 @@ pci_unreserve_device(uchar virtualBus, uchar device, uchar function,
 		{"legacy_driver_cookie", B_UINT64_TYPE, {.ui64 = (uint64)nodeCookie}},
 		{NULL}
 	};
-	device_node *root, *pci, *node, *legacy, *drv;
+	device_node *pci, *node, *legacy, *drv;
 
 	status = B_DEVICE_NOT_FOUND;
-	root = gDeviceManager->get_root_node();
-	if (!root)
-		return status;
 
-	pci = NULL;
-	if (gDeviceManager->get_next_child_node(root, matchPCIRoot, &pci) < B_OK)
-		goto err0;
+	pci = gPCI->_GetDomainData(domain)->root_node;
 
 	node = NULL;
 	if (gDeviceManager->get_next_child_node(pci, matchThis, &node) < B_OK)
@@ -266,8 +273,6 @@ pci_unreserve_device(uchar virtualBus, uchar device, uchar function,
 	// we'll get EBUSY here anyway...
 
 	gDeviceManager->put_node(node);
-	gDeviceManager->put_node(pci);
-	gDeviceManager->put_node(root);
 	return B_OK;
 
 err3:
@@ -275,9 +280,6 @@ err3:
 err2:
 	gDeviceManager->put_node(node);
 err1:
-	gDeviceManager->put_node(pci);
-err0:
-	gDeviceManager->put_node(root);
 	TRACE(("pci_unreserve_device for driver %s failed: %s\n", driverName,
 		strerror(status)));
 	return status;
@@ -485,11 +487,6 @@ pci_init_deferred(void)
 	if (sInitDone)
 		return B_OK;
 
-	if (pci_io_init() != B_OK) {
-		TRACE(("PCI: pci_io_init failed\n"));
-		return B_ERROR;
-	}
-
 	add_debugger_command("inw", &display_io, "dump io words (32-bit)");
 	add_debugger_command("in32", &display_io, "dump io words (32-bit)");
 	add_debugger_command("ins", &display_io, "dump io shorts (16-bit)");
@@ -526,14 +523,7 @@ status_t
 pci_init(void)
 {
 	gPCI = new PCI;
-
-	status_t ret = B_DEV_NOT_READY/*pci_init_deferred()*/;
-	if (ret == B_DEV_NOT_READY) {
-		TRACE(("PCI: init deferred\n"));
-		return B_OK;
-	}
-
-	return ret;
+	return B_OK;
 }
 
 
@@ -688,13 +678,15 @@ PCI::ResolveVirtualBus(uint8 virtualBus, uint8 *domain, uint8 *bus)
 
 
 status_t
-PCI::AddController(pci_controller_module_info *controller, void *controller_cookie)
+PCI::AddController(pci_controller_module_info *controller, void *controller_cookie,
+	device_node *root_node)
 {
 	if (fDomainCount == MAX_PCI_DOMAINS)
 		return B_ERROR;
 
 	fDomainData[fDomainCount].controller = controller;
 	fDomainData[fDomainCount].controller_cookie = controller_cookie;
+	fDomainData[fDomainCount].root_node = root_node;
 
 	// initialized later to avoid call back into controller at this point
 	fDomainData[fDomainCount].max_bus_devices = -1;
@@ -703,6 +695,42 @@ PCI::AddController(pci_controller_module_info *controller, void *controller_cook
 	return B_OK;
 }
 
+
+status_t
+PCI::LookupRange(uint32 type, phys_addr_t pciAddr,
+	uint8 &domain, pci_resource_range &range, uint8 **mappedAdr)
+{
+	if (type >= kPciRangeEnd)
+		return B_BAD_VALUE;
+
+	for (uint8 curDomain = 0; curDomain < fDomainCount; domain++) {
+		pci_resource_range const *const &ranges = fDomainData[curDomain].ranges;
+
+		uint32 typeBeg, typeEnd;
+		if (type == kPciRangeMmio) {
+			typeBeg = kPciRangeMmio;
+			typeEnd = kPciRangeMmioEnd;
+		} else {
+			typeBeg = type;
+			typeEnd = type + 1;
+		}
+		for (uint32 curType = typeBeg; curType < typeEnd; curType++) {
+			const pci_resource_range curRange = ranges[curType];
+			if (pciAddr >= curRange.pci_addr && pciAddr < curRange.pci_addr + curRange.size) {
+				domain = curDomain;
+				range = curRange;
+#if !(defined(__i386__) || defined(__x86_64__))
+				if (type == kPciRangeIoPort && mappedAdr != NULL)
+					*mappedAdr = fDomainData[curDomain].io_port_adr;
+#endif
+				return B_OK;
+			}
+		}
+	}
+	return B_ENTRY_NOT_FOUND;
+}
+
+
 void
 PCI::InitDomainData()
 {
@@ -710,9 +738,31 @@ PCI::InitDomainData()
 		int32 count;
 		status_t status;
 
-		status = (*fDomainData[i].controller->get_max_bus_devices)(
-			fDomainData[i].controller_cookie, &count);
+		pci_controller_module_info *ctrlModule = fDomainData[i].controller;
+		void *ctrl = fDomainData[i].controller_cookie;
+
+		status = ctrlModule->get_max_bus_devices(ctrl, &count);
 		fDomainData[i].max_bus_devices = (status == B_OK) ? count : 0;
+
+		memset(fDomainData[i].ranges, 0, sizeof(fDomainData[i].ranges));
+		pci_resource_range range;
+		for (uint32 i = 0; ctrlModule->get_range(ctrl, i, &range) >= B_OK; i++) {
+			if (range.type < kPciRangeEnd && range.size > 0)
+				fDomainData[i].ranges[range.type] = range;
+		}
+
+#if !(defined(__i386__) || defined(__x86_64__))
+		// TODO: free resources when domain is detached
+		pci_resource_range &ioPortRange = fDomainData[i].ranges[kPciRangeIoPort];
+		if (ioPortRange.size > 0) {
+			fDomainData[i].io_port_area = map_physical_memory("PCI IO Ports",
+				ioPortRange.host_addr, ioPortRange.size, B_ANY_KERNEL_ADDRESS,
+				B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA, (void **)&fDomainData[i].io_port_adr);
+
+			if (fDomainData[i].io_port_area < B_OK)
+				fDomainData[i].io_port_adr = NULL;
+		}
+#endif
 	}
 }
 
