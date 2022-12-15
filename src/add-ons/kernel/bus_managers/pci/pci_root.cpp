@@ -25,9 +25,6 @@
 #define PCI_ROOT_MODULE_NAME "bus_managers/pci/root/driver_v1"
 
 
-device_node* gPCIRootNode = NULL;
-
-
 static status_t
 pci_root_register_device(device_node* parent)
 {
@@ -108,17 +105,13 @@ pci_root_init(device_node* node, void** _cookie)
 	void* pciHostDev;
 	CHECK_RET(gDeviceManager->get_driver(pciHostNode.Get(), (driver_module_info**)&pciHostModule, &pciHostDev));
 
-	gPCIRootNode = node;
-
 	module_info *module;
 	status_t res = get_module(B_PCI_MODULE_NAME, &module);
 	if (res < B_OK)
 		return res;
 
-	CHECK_RET(gPCI->AddController(pciHostModule, pciHostDev));
-	dprintf("  (1)\n");
+	CHECK_RET(gPCI->AddController(pciHostModule, pciHostDev, node));
 	CHECK_RET(pci_init_deferred());
-	dprintf("  (2)\n");
 	dprintf("-pci_root_init\n");
 
 	return B_OK;
