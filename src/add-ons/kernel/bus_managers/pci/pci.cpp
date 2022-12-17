@@ -75,17 +75,17 @@ pci_write_config(uint8 virtualBus, uint8 device, uint8 function, uint16 offset,
 phys_addr_t
 pci_ram_address(phys_addr_t childAdr)
 {
+	phys_addr_t hostAdr = 0;
 #if defined(__i386__) || defined(__x86_64__)
-	return childAdr;
+	hostAdr = childAdr;
 #else
 	uint8 domain;
 	pci_resource_range range;
-
-	if (gPCI->LookupRange(kPciRangeMmio, childAdr, domain, range) < B_OK)
-		return 0;
-
-	return childAdr - range.pci_addr + range.host_addr;
+	if (gPCI->LookupRange(kPciRangeMmio, childAdr, domain, range) >= B_OK)
+		hostAdr = childAdr - range.pci_addr + range.host_addr;
 #endif
+	//dprintf("pci_ram_address(%#" B_PRIx64 ") -> %#" B_PRIx64 "\n", childAdr, hostAdr);
+	return hostAdr;
 }
 
 
@@ -703,7 +703,7 @@ PCI::LookupRange(uint32 type, phys_addr_t pciAddr,
 	if (type >= kPciRangeEnd)
 		return B_BAD_VALUE;
 
-	for (uint8 curDomain = 0; curDomain < fDomainCount; domain++) {
+	for (uint8 curDomain = 0; curDomain < fDomainCount; curDomain++) {
 		pci_resource_range const *const &ranges = fDomainData[curDomain].ranges;
 
 		uint32 typeBeg, typeEnd;
@@ -746,7 +746,7 @@ PCI::InitDomainData()
 
 		memset(fDomainData[i].ranges, 0, sizeof(fDomainData[i].ranges));
 		pci_resource_range range;
-		for (uint32 i = 0; ctrlModule->get_range(ctrl, i, &range) >= B_OK; i++) {
+		for (uint32 j = 0; ctrlModule->get_range(ctrl, j, &range) >= B_OK; j++) {
 			if (range.type < kPciRangeEnd && range.size > 0)
 				fDomainData[i].ranges[range.type] = range;
 		}
