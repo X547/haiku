@@ -26,8 +26,8 @@ struct NvmeRegs {
 	uint32 unknown2;
 	union AdminQueueAttrs {
 		struct {
-			uint16 submQueueLen;
-			uint16 complQueueLen;
+			uint32 submQueueLen: 16;
+			uint32 complQueueLen: 16;
 		};
 		uint32 val;
 	} adminQueueAttrs;
