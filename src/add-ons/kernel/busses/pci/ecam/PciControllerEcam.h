@@ -108,6 +108,7 @@ public:
 	status_t GetRange(uint32 index, pci_resource_range* range);
 
 private:
+	status_t ReadResourceInfo();
 	inline status_t InitDriverInt(device_node* node);
 
 	inline addr_t ConfigAddress(uint8 bus, uint8 device, uint8 function, uint16 offset);
@@ -116,8 +117,6 @@ private:
 	struct mutex fLock = MUTEX_INITIALIZER("ECAM PCI");
 
 	device_node* fNode{};
-
-	uint32 fBusCount = 32;
 
 	AreaDeleter fRegsArea;
 	uint8 volatile* fRegs{};
