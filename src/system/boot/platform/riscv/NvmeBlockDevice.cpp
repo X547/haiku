@@ -100,6 +100,8 @@ status_t
 NvmeBlockDevice::Init()
 {
 	dprintf("NvmeBlockDevice::Init()\n");
+	dprintf("  fRegs: %p\n", fRegs);
+
 	CHECK_RET(fQueues[0].Init());
 	CHECK_RET(fQueues[1].Init());
 	fRegs->adminQueueAttrs.val = NvmeRegs::AdminQueueAttrs{
@@ -114,7 +116,7 @@ NvmeBlockDevice::Init()
 	dprintf("  fRegs->version: %#" B_PRIx32 "\n", fRegs->version);
 	dprintf("  fRegs->adminSubmQueue: %#" B_PRIx64 "\n", GetLoHi(fRegs->adminSubmQueueAdrLo, fRegs->adminSubmQueueAdrHi));
 	dprintf("  fRegs->adminComplQueue: %#" B_PRIx64 "\n", GetLoHi(fRegs->adminComplQueueAdrLo, fRegs->adminComplQueueAdrHi));
-	dprintf("  fRegs->adminQueueAttrs: %" B_PRIu16 ", %" B_PRIu16 "\n", fRegs->adminQueueAttrs.submQueueLen, fRegs->adminQueueAttrs.complQueueLen);
+	dprintf("  fRegs->adminQueueAttrs: %" B_PRIu16 ", %" B_PRIu16 "\n", NvmeRegs::AdminQueueAttrs{.val = fRegs->adminQueueAttrs.val}.submQueueLen, NvmeRegs::AdminQueueAttrs{.val = fRegs->adminQueueAttrs.val}.complQueueLen);
 
 	NvmeSubmissionPacket* packet = BeginSubmission(0);
 	packet->opcode = nvmeAdminOpCreateSubmQueue;

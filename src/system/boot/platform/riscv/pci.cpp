@@ -274,7 +274,7 @@ GetBarVal(uint8 bus, uint8 device, uint8 function, uint16 offset)
 	PciBarKind barKind = GetPciBarKind(oldValLo);
 	uint64 val = oldValLo;
 	if (barKind == kRegMmio64) {
-		read_pci_config(NULL, bus, device, function, offset + 5, 4, &oldValHi);
+		read_pci_config(NULL, bus, device, function, offset + 4, 4, &oldValHi);
 		val += ((uint64)oldValHi) << 32;
 	}
 	if (barKind == kRegIo)
@@ -332,10 +332,15 @@ AllocRegsForDevice(uint8 bus, uint8 device, uint8 function)
 	dprintf("AllocRegsForDevice(bus: %d, device: %d, function: %d)\n", bus, device, function);
 
 	uint32 vendorID = 0, deviceID = 0;
+	uint32 baseClass = 0, subClass = 0;
 	read_pci_config(NULL, bus, device, function, PCI_vendor_id, 2, &vendorID);
 	read_pci_config(NULL, bus, device, function, PCI_device_id, 2, &deviceID);
+	read_pci_config(NULL, bus, device, function, PCI_class_base, 1, &baseClass);
+	read_pci_config(NULL, bus, device, function, PCI_class_sub, 1, &subClass);
 	dprintf("  vendorID: %#04" B_PRIx32 "\n", vendorID);
 	dprintf("  deviceID: %#04" B_PRIx32 "\n", deviceID);
+	dprintf("  baseClass: %#04" B_PRIx32 "\n", baseClass);
+	dprintf("  subClass: %#04" B_PRIx32 "\n", subClass);
 
 	uint32 headerType = 0;
 	read_pci_config(NULL, bus, device, function, PCI_header_type, 1, &headerType);
@@ -442,6 +447,11 @@ PciLookupDrivers()
 		read_pci_config(NULL, bus, device, function, PCI_class_base, 1, &baseClass);
 		read_pci_config(NULL, bus, device, function, PCI_class_sub, 1, &subClass);
 		if (baseClass == PCI_mass_storage && subClass == PCI_nvm) {
+			uint32 command;
+			read_pci_config(NULL, bus, device, function, PCI_command, 2, &command);
+			command |= PCI_command_master | PCI_command_memory;
+			write_pci_config(NULL, bus, device, function, PCI_command, 2, command);
+
 			void* regs = (void*)(addr_t)GetBarVal(bus, device, function, PCI_base_registers);
 			ObjectDeleter<NvmeBlockDevice> device(CreateNvmeBlockDev(regs));
 			if (!device.IsSet())
