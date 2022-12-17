@@ -87,6 +87,8 @@ PciControllerDW::SupportsDevice(device_node* parent)
 	if (status < B_OK)
 		return -1.0f;
 
+	// Support only a variant used in HiFive Unmatched board.
+	// TODO: Support more Synapsis Designware IP core based PCIe host controllers.
 	if (strcmp(compatible, "sifive,fu740-pcie") != 0)
 		return 0.0f;
 
@@ -98,12 +100,12 @@ status_t
 PciControllerDW::RegisterDevice(device_node* parent)
 {
 	device_attr attrs[] = {
-		{ B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "ECAM PCI Host Controller"} },
+		{ B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "Designware PCI Host Controller"} },
 		{ B_DEVICE_FIXED_CHILD, B_STRING_TYPE, {.string = "bus_managers/pci/root/driver_v1"} },
 		{}
 	};
 
-	return gDeviceManager->register_node(parent, ECAM_PCI_DRIVER_MODULE_NAME, attrs, NULL, NULL);
+	return gDeviceManager->register_node(parent, DESIGNWARE_PCI_DRIVER_MODULE_NAME, attrs, NULL, NULL);
 }
 
 
@@ -121,25 +123,29 @@ PciControllerDW::InitDriver(device_node* node, PciControllerDW*& outDriver)
 
 
 status_t
-PciControllerDW::InitDriverInt(device_node* node)
+PciControllerDW::ReadResourceInfo()
 {
-	fNode = node;
-	dprintf("+PciControllerDW::InitDriver()\n");
-
-	DeviceNodePutter<&gDeviceManager> parent(gDeviceManager->get_parent_node(node));
+	DeviceNodePutter<&gDeviceManager> fdtNode(gDeviceManager->get_parent_node(fNode));
 
 	const char* bus;
-	CHECK_RET(gDeviceManager->get_attr_string(parent.Get(), B_DEVICE_BUS, &bus, false));
+	CHECK_RET(gDeviceManager->get_attr_string(fdtNode.Get(), B_DEVICE_BUS, &bus, false));
 	if (strcmp(bus, "fdt") != 0)
 		return B_ERROR;
 
 	fdt_device_module_info *fdtModule;
 	fdt_device* fdtDev;
-	CHECK_RET(gDeviceManager->get_driver(parent.Get(),
+	CHECK_RET(gDeviceManager->get_driver(fdtNode.Get(),
 		(driver_module_info**)&fdtModule, (void**)&fdtDev));
 
 	const void* prop;
 	int propLen;
+
+	prop = fdtModule->get_prop(fdtDev, "bus-range", &propLen);
+	if (prop != NULL && propLen == 8) {
+		uint32 busBeg = B_BENDIAN_TO_HOST_INT32(*((uint32*)prop + 0));
+		uint32 busEnd = B_BENDIAN_TO_HOST_INT32(*((uint32*)prop + 1));
+		dprintf("  bus-range: %" B_PRIu32 " - %" B_PRIu32 "\n", busBeg, busEnd);
+	}
 
 	prop = fdtModule->get_prop(fdtDev, "interrupt-map-mask", &propLen);
 	if (prop == NULL || propLen != 4 * 4) {
@@ -184,69 +190,92 @@ PciControllerDW::InitDriverInt(device_node* node)
 	prop = fdtModule->get_prop(fdtDev, "ranges", &propLen);
 	if (prop == NULL) {
 		dprintf("  \"ranges\" property not found");
-	} else {
-		dprintf("  ranges:\n");
-		for (uint32_t *it = (uint32_t*)prop; (uint8_t*)it - (uint8_t*)prop < propLen; it += 7) {
-			dprintf("    ");
-			uint32_t type      = B_BENDIAN_TO_HOST_INT32(*(it + 0));
-			uint64_t childAdr  = B_BENDIAN_TO_HOST_INT64(*(uint64_t*)(it + 1));
-			uint64_t parentAdr = B_BENDIAN_TO_HOST_INT64(*(uint64_t*)(it + 3));
-			uint64_t len       = B_BENDIAN_TO_HOST_INT64(*(uint64_t*)(it + 5));
-
-			uint32 outType = kPciRangeInvalid;
-			switch (type & fdtPciRangeTypeMask) {
-			case fdtPciRangeIoPort:
-				outType = kPciRangeIoPort;
-				break;
-			case fdtPciRangeMmio32Bit:
-				outType = kPciRangeMmio;
-				break;
-			case fdtPciRangeMmio64Bit:
-				outType = kPciRangeMmio + kPciRangeMmio64Bit;
-				break;
-			}
-			if (outType >= kPciRangeMmio && outType < kPciRangeMmioEnd
-				&& (fdtPciRangePrefechable & type) != 0)
-				outType += kPciRangeMmioPrefetch;
-
-			if (outType != kPciRangeInvalid) {
-				fResourceRanges[outType].type = outType;
-				fResourceRanges[outType].host_addr = parentAdr;
-				fResourceRanges[outType].pci_addr = childAdr;
-				fResourceRanges[outType].size = len;
-			}
-
-			switch (type & fdtPciRangeTypeMask) {
-			case fdtPciRangeConfig:    dprintf("CONFIG"); break;
-			case fdtPciRangeIoPort:    dprintf("IOPORT"); break;
-			case fdtPciRangeMmio32Bit: dprintf("MMIO32"); break;
-			case fdtPciRangeMmio64Bit: dprintf("MMIO64"); break;
-			}
-
-			dprintf(" (0x%08" B_PRIx32 "): ", type);
-			dprintf("child: %08" B_PRIx64, childAdr);
-			dprintf(", parent: %08" B_PRIx64, parentAdr);
-			dprintf(", len: %" B_PRIx64 "\n", len);
-		}
+		return B_ERROR;
 	}
+	dprintf("  ranges:\n");
+	for (uint32_t *it = (uint32_t*)prop; (uint8_t*)it - (uint8_t*)prop < propLen; it += 7) {
+		dprintf("    ");
+		uint32_t type      = B_BENDIAN_TO_HOST_INT32(*(it + 0));
+		uint64_t childAdr  = B_BENDIAN_TO_HOST_INT64(*(uint64_t*)(it + 1));
+		uint64_t parentAdr = B_BENDIAN_TO_HOST_INT64(*(uint64_t*)(it + 3));
+		uint64_t len       = B_BENDIAN_TO_HOST_INT64(*(uint64_t*)(it + 5));
 
-	if (!fdtModule->get_reg(fdtDev, 0, &fConfigPhysBase, &fConfigSize))
-		return B_ERROR;
-	if (!fdtModule->get_reg(fdtDev, 1, &fDbiPhysBase, &fDbiSize))
-		return B_ERROR;
+		uint32 outType = kPciRangeInvalid;
+		switch (type & fdtPciRangeTypeMask) {
+		case fdtPciRangeIoPort:
+			outType = kPciRangeIoPort;
+			break;
+		case fdtPciRangeMmio32Bit:
+			outType = kPciRangeMmio;
+			break;
+		case fdtPciRangeMmio64Bit:
+			outType = kPciRangeMmio + kPciRangeMmio64Bit;
+			break;
+		}
+		if (outType >= kPciRangeMmio && outType < kPciRangeMmioEnd
+			&& (fdtPciRangePrefechable & type) != 0)
+			outType += kPciRangeMmioPrefetch;
 
-	fConfigArea.SetTo(map_physical_memory("PCI Config MMIO", fConfigPhysBase, fConfigSize, B_ANY_KERNEL_ADDRESS,
-		B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA, (void**)&fConfigBase));
-	if (!fConfigArea.IsSet())
-		return fConfigArea.Get();
+		if (outType != kPciRangeInvalid) {
+			fResourceRanges[outType].type = outType;
+			fResourceRanges[outType].host_addr = parentAdr;
+			fResourceRanges[outType].pci_addr = childAdr;
+			fResourceRanges[outType].size = len;
+		}
+
+		switch (type & fdtPciRangeTypeMask) {
+		case fdtPciRangeConfig:    dprintf("CONFIG"); break;
+		case fdtPciRangeIoPort:    dprintf("IOPORT"); break;
+		case fdtPciRangeMmio32Bit: dprintf("MMIO32"); break;
+		case fdtPciRangeMmio64Bit: dprintf("MMIO64"); break;
+		}
+
+		dprintf(" (0x%08" B_PRIx32 "): ", type);
+		dprintf("child: %08" B_PRIx64, childAdr);
+		dprintf(", parent: %08" B_PRIx64, parentAdr);
+		dprintf(", len: %" B_PRIx64 "\n", len);
+	}
+	return B_OK;
+}
+
+
+status_t
+PciControllerDW::InitDriverInt(device_node* node)
+{
+	fNode = node;
+	dprintf("+PciControllerDW::InitDriver()\n");
+
+	CHECK_RET(ReadResourceInfo());
+
+	DeviceNodePutter<&gDeviceManager> fdtNode(gDeviceManager->get_parent_node(node));
+
+	fdt_device_module_info *fdtModule;
+	fdt_device* fdtDev;
+	CHECK_RET(gDeviceManager->get_driver(fdtNode.Get(),
+		(driver_module_info**)&fdtModule, (void**)&fdtDev));
+
+	if (!fdtModule->get_reg(fdtDev, 0, &fDbiPhysBase, &fDbiSize))
+		return B_ERROR;
+	dprintf("  DBI: %08" B_PRIx64 ", %08" B_PRIx64 "\n", fDbiPhysBase, fDbiSize);
+
+	if (!fdtModule->get_reg(fdtDev, 1, &fConfigPhysBase, &fConfigSize))
+		return B_ERROR;
+	dprintf("  config: %08" B_PRIx64 ", %08" B_PRIx64 "\n", fConfigPhysBase, fConfigSize);
+
+	uint64 msiIrq;
+	if (!fdtModule->get_interrupt(fdtDev, 0, NULL, &msiIrq))
+		return B_ERROR;
 
 	fDbiArea.SetTo(map_physical_memory("PCI DBI MMIO", fDbiPhysBase, fDbiSize, B_ANY_KERNEL_ADDRESS,
 		B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA, (void**)&fDbiBase));
 	if (!fDbiArea.IsSet())
 		return fDbiArea.Get();
 
-	// TODO: Get from FDT!
-	int32 msiIrq = 0x38;
+	fConfigArea.SetTo(map_physical_memory("PCI Config MMIO", fConfigPhysBase, fConfigSize, B_ANY_KERNEL_ADDRESS,
+		B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA, (void**)&fConfigBase));
+	if (!fConfigArea.IsSet())
+		return fConfigArea.Get();
+
 	CHECK_RET(fIrqCtrl.Init(GetDbuRegs(), msiIrq));
 
 	AtuDump();
@@ -266,12 +295,6 @@ PciControllerDW::UninitDriver()
 addr_t
 PciControllerDW::ConfigAddress(uint8 bus, uint8 device, uint8 function, uint16 offset)
 {
-	PciAddress address {
-		.function = function,
-		.device = device,
-		.bus = bus
-	};
-
 	uint32 atuType;
 	if (bus == 0) {
 		if (device != 0 || function != 0)
@@ -282,7 +305,13 @@ PciControllerDW::ConfigAddress(uint8 bus, uint8 device, uint8 function, uint16 o
 	else
 		atuType = kPciAtuTypeCfg1;
 
-	status_t res = AtuMap(1, kPciAtuOutbound, atuType, fConfigPhysBase, address.val, fConfigSize);
+	uint64 address = (uint64)(PciAddress {
+		.function = function,
+		.device = device,
+		.bus = bus
+	}.val) << 8;
+
+	status_t res = AtuMap(1, kPciAtuOutbound, atuType, fConfigPhysBase, address, fConfigSize);
 	if (res < B_OK)
 		return 0;
 
@@ -364,19 +393,10 @@ PciControllerDW::WriteIrq(uint8 bus, uint8 device, uint8 function,
 status_t
 PciControllerDW::GetRange(uint32 index, pci_resource_range* range)
 {
-	uint32 type = kPciRangeInvalid;
-	for (;;) {
-		while (fResourceRanges[type].size == 0) {
-			type++;
-			if (type == kPciRangeEnd)
-				return B_BAD_INDEX;
-		}
-		if (index == 0)
-			break;
+	if (index >= kPciRangeEnd)
+		return B_BAD_INDEX;
 
-		index--;
-	}
-	*range = fResourceRanges[type];
+	*range = fResourceRanges[index];
 	return B_OK;
 }
 

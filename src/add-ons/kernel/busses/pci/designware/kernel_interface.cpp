@@ -13,7 +13,7 @@ device_manager_info* gDeviceManager;
 pci_controller_module_info gPciControllerDriver = {
 	.info = {
 		.info = {
-			.name = ECAM_PCI_DRIVER_MODULE_NAME,
+			.name = DESIGNWARE_PCI_DRIVER_MODULE_NAME,
 		},
 		.supports_device = [](device_node* parent) {
 			return PciControllerDW::SupportsDevice(parent);
