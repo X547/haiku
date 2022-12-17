@@ -16,7 +16,7 @@
 
 #define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
-#define ECAM_PCI_DRIVER_MODULE_NAME "busses/pci/designware/driver_v1"
+#define DESIGNWARE_PCI_DRIVER_MODULE_NAME "busses/pci/designware/driver_v1"
 
 
 enum {
@@ -215,6 +215,7 @@ public:
 	status_t GetRange(uint32 index, pci_resource_range* range);
 
 private:
+	status_t ReadResourceInfo();
 	inline status_t InitDriverInt(device_node* node);
 
 	inline addr_t ConfigAddress(uint8 bus, uint8 device, uint8 function, uint16 offset);
