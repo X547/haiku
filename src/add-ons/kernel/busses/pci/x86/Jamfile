@@ -8,7 +8,7 @@ SubDirHdrs $(HAIKU_TOP) src add-ons kernel bus_managers acpi acpica include ;
 SubDirHdrs $(HAIKU_TOP) src add-ons kernel bus_managers acpi acpica include
 	platform ;
 
-KernelAddon x86_pci :
+KernelAddon <pci>x86 :
 	pci_acpi.cpp
 	PciControllerX86.cpp
 	kernel_interface.cpp
