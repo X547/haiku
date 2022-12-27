@@ -227,6 +227,9 @@ VMAddressSpace::Create(team_id teamID, addr_t base, size_t size, bool kernel,
 VMAddressSpace::GetKernel()
 {
 	// we can treat this one a little differently since it can't be deleted
+	if (sKernelAddressSpace == NULL)
+		return NULL;
+
 	sKernelAddressSpace->Get();
 	return sKernelAddressSpace;
 }

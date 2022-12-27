@@ -10,9 +10,9 @@
 void
 DebugUART::Out8(int reg, uint8 value)
 {
-#if defined(__ARM__) || defined(__aarch64__)
+#if 1
 	// 32-bit aligned
-	*((uint8 *)Base() + reg * sizeof(uint32)) = value;
+	*((uint32 *)Base() + reg) = value;
 #else
 	*((uint8 *)Base() + reg) = value;
 #endif
@@ -22,9 +22,9 @@ DebugUART::Out8(int reg, uint8 value)
 uint8
 DebugUART::In8(int reg)
 {
-#if defined(__ARM__) || defined(__aarch64__)
+#if 1
 	// 32-bit aligned
-	return *((uint8 *)Base() + reg * sizeof(uint32));
+	return *((uint32 *)Base() + reg);
 #else
 	return *((uint8 *)Base() + reg);
 #endif

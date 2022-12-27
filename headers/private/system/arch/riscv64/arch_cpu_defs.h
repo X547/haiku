@@ -135,6 +135,13 @@ enum {
 	pteDirty    = 7,
 };
 
+enum {
+	pteTHeadMask = 0b1111LL << 60,
+	pteTHeadNC   = 0b0000LL << 60, // B_MTR_WC
+	pteTHeadPMA  = 0b0111LL << 60, // B_MTR_WB
+	pteTHeadIO   = 0b1000LL << 60, // B_MTR_UC
+};
+
 union Pte {
 	struct {
 		uint64 flags:     8;

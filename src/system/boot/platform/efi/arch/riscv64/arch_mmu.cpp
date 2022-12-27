@@ -19,7 +19,7 @@
 #include "mmu.h"
 
 
-//#define TRACE_MMU
+#define TRACE_MMU
 #ifdef TRACE_MMU
 #	define TRACE(x...) dprintf(x)
 #else
@@ -27,13 +27,20 @@
 #endif
 
 
-//#define TRACE_MEMORY_MAP
+#define TRACE_MEMORY_MAP
+
+enum {
+	T_HEAD_MMU_MASK = 0b1111LL << 60,
+	T_HEAD_MMU_NC   = 0b0000LL << 60,
+	T_HEAD_MMU_PMA  = 0b0111LL << 60,
+	T_HEAD_MMU_IO   = 0b1000LL << 60,
+};
 
 // Ignore memory above 512GB
 #define PHYSICAL_MEMORY_LOW		0x00000000
 #define PHYSICAL_MEMORY_HIGH	0x8000000000ull
 
-#define RESERVED_MEMORY_BASE	0x80000000
+#define RESERVED_MEMORY_BASE	0x40000000
 
 phys_addr_t sPageTable = 0;
 
@@ -176,6 +183,7 @@ Map(addr_t virtAdr, phys_addr_t physAdr, uint64 flags)
 
 	pte->ppn = physAdr / B_PAGE_SIZE;
 	pte->flags = (1 << pteValid) | (1 << pteAccessed) | (1 << pteDirty) | flags;
+	pte->val = (pte->val & ~T_HEAD_MMU_MASK) | flags;
 }
 
 
@@ -364,7 +372,7 @@ arch_mmu_generate_post_efi_page_tables(size_t memoryMapSize, efi_memory_descript
 	gKernelArgs.arch_args.physMap.start = KERNEL_TOP + 1 - physMemRange.size;
 	gKernelArgs.arch_args.physMap.size = physMemRange.size;
 	MapRange(gKernelArgs.arch_args.physMap.start, physMemRange.start, physMemRange.size,
-		(1 << pteRead) | (1 << pteWrite));
+		(1 << pteRead) | (1 << pteWrite) | T_HEAD_MMU_PMA);
 
 	// Boot loader
 	TRACE("Boot loader:\n");
@@ -374,7 +382,7 @@ arch_mmu_generate_post_efi_page_tables(size_t memoryMapSize, efi_memory_descript
 		case EfiLoaderCode:
 		case EfiLoaderData:
 			MapRange(entry->VirtualStart, entry->PhysicalStart, entry->NumberOfPages * B_PAGE_SIZE,
-				(1 << pteRead) | (1 << pteWrite) | (1 << pteExec));
+				(1 << pteRead) | (1 << pteWrite) | (1 << pteExec) | T_HEAD_MMU_PMA);
 			break;
 		default:
 			;
@@ -391,7 +399,7 @@ arch_mmu_generate_post_efi_page_tables(size_t memoryMapSize, efi_memory_descript
 		efi_memory_descriptor* entry = &memoryMap[i];
 		if ((entry->Attribute & EFI_MEMORY_RUNTIME) != 0)
 			MapRange(entry->VirtualStart, entry->PhysicalStart, entry->NumberOfPages * B_PAGE_SIZE,
-				(1 << pteRead) | (1 << pteWrite) | (1 << pteExec));
+				(1 << pteRead) | (1 << pteWrite) | (1 << pteExec) | T_HEAD_MMU_PMA);
 	}
 
 	// Memory regions
@@ -401,22 +409,22 @@ arch_mmu_generate_post_efi_page_tables(size_t memoryMapSize, efi_memory_descript
 	phys_addr_t physAdr;
 	size_t size;
 	while (mmu_next_region(&cookie, &virtAdr, &physAdr, &size)) {
-		MapRange(virtAdr, physAdr, size, (1 << pteRead) | (1 << pteWrite) | (1 << pteExec));
+		MapRange(virtAdr, physAdr, size, (1 << pteRead) | (1 << pteWrite) | (1 << pteExec) | T_HEAD_MMU_PMA);
 	}
 
 	// Devices
 	TRACE("Devices:\n");
-	MapAddrRange(gKernelArgs.arch_args.clint, (1 << pteRead) | (1 << pteWrite));
-	MapAddrRange(gKernelArgs.arch_args.htif, (1 << pteRead) | (1 << pteWrite));
-	MapAddrRange(gKernelArgs.arch_args.plic, (1 << pteRead) | (1 << pteWrite));
+	MapAddrRange(gKernelArgs.arch_args.clint, (1 << pteRead) | (1 << pteWrite) | T_HEAD_MMU_IO);
+	MapAddrRange(gKernelArgs.arch_args.htif, (1 << pteRead) | (1 << pteWrite) | T_HEAD_MMU_IO);
+	MapAddrRange(gKernelArgs.arch_args.plic, (1 << pteRead) | (1 << pteWrite) | T_HEAD_MMU_IO);
 
 	if (strcmp(gKernelArgs.arch_args.uart.kind, "") != 0) {
 		MapRange(gKernelArgs.arch_args.uart.regs.start,
 			gKernelArgs.arch_args.uart.regs.start,
 			gKernelArgs.arch_args.uart.regs.size,
-			(1 << pteRead) | (1 << pteWrite));
+			(1 << pteRead) | (1 << pteWrite) | T_HEAD_MMU_IO);
 		MapAddrRange(gKernelArgs.arch_args.uart.regs,
-			(1 << pteRead) | (1 << pteWrite));
+			(1 << pteRead) | (1 << pteWrite) | T_HEAD_MMU_IO);
 	}
 
 	sort_address_ranges(gKernelArgs.virtual_allocated_range,

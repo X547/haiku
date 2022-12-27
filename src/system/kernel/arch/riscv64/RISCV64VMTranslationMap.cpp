@@ -317,9 +317,10 @@ RISCV64VMTranslationMap::Map(addr_t virtualAddress, phys_addr_t physicalAddress,
 	if (pte == NULL)
 		panic("can't allocate page table");
 
-	Pte newPte;
-	newPte.ppn = physicalAddress / B_PAGE_SIZE;
-	newPte.flags = (1 << pteValid);
+	Pte newPte {
+		.flags = (1 << pteValid),
+		.ppn = physicalAddress / B_PAGE_SIZE
+	};
 
 	if ((attributes & B_USER_PROTECTION) != 0) {
 		newPte.flags |= (1 << pteUser);
@@ -338,6 +339,13 @@ RISCV64VMTranslationMap::Map(addr_t virtualAddress, phys_addr_t physicalAddress,
 			newPte.flags |= (1 << pteExec);
 			fInvalidCode = true;
 		}
+	}
+	switch (memoryType) {
+		case B_MTR_UC:
+			newPte.val |= pteTHeadIO;
+			break;
+		default:
+			newPte.val |= pteTHeadPMA;
 	}
 
 	*pte = newPte;

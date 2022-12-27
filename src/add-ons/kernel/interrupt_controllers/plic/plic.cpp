@@ -68,7 +68,9 @@ PlicInterruptController::SupportsDevice(device_node* parent)
 
 	if (strcmp(compatible, "riscv,plic0") != 0
 		&& strcmp(compatible, "sifive,fu540-c000-plic") != 0
-		&& strcmp(compatible, "sifive,plic-1.0.0") != 0)
+		&& strcmp(compatible, "sifive,plic-1.0.0") != 0
+		&& strcmp(compatible, "allwinner,sun20i-d1-plic") != 0
+		&& strcmp(compatible, "thead,c900-plic") != 0)
 		return 0.0f;
 
 	return 1.0f;
@@ -160,19 +162,31 @@ PlicInterruptController::InitDriverInt(device_node* node)
 	if (!fdtModule->get_reg(fdtDev, 0, &regs, &regsLen))
 		return B_ERROR;
 
+	dprintf("  regs: %#" B_PRIx64 "\n", regs);
+	dprintf("  regsLen: %#" B_PRIx64 "\n", regsLen);
+
 	fRegsArea.SetTo(map_physical_memory("PLIC MMIO", regs, regsLen, B_ANY_KERNEL_ADDRESS, B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA, (void**)&fRegs));
+	dprintf("  fRegsArea: %#" B_PRId32 "\n", fRegsArea.Get());
 	if (!fRegsArea.IsSet())
 		return fRegsArea.Get();
+
+	dprintf("  fRegs: %p\n", (const void*)fRegs);
 
 	reserve_io_interrupt_vectors_ex(fIrqCount + 1, 0, INTERRUPT_TYPE_IRQ, this);
 	install_io_interrupt_handler(0, HandleInterrupt, this, B_NO_LOCK_VECTOR);
 
+	dprintf("  (1)\n");
+
 	for (int32 cpu = 0; cpu < cpuCount; cpu++)
 		fRegs->contexts[fPlicContexts[cpu]].priorityThreshold = 0;
+
+	dprintf("  (2)\n");
 
 	// unmask interrupts
 	for (uint32 irq = 1; irq < fIrqCount + 1; irq++)
 		fRegs->priority[irq] = 1;
+
+	dprintf("  (3)\n");
 
 	return B_OK;
 }
@@ -227,6 +241,9 @@ PlicInterruptController::HandleInterruptInt()
 void
 PlicInterruptController::EnableIoInterrupt(int irq)
 {
+	if (irq == 0)
+		return;
+
 	fRegs->enable[fPlicContexts[0]][irq / 32] |= 1 << (irq % 32);
 }
 
@@ -234,6 +251,9 @@ PlicInterruptController::EnableIoInterrupt(int irq)
 void
 PlicInterruptController::DisableIoInterrupt(int irq)
 {
+	if (irq == 0)
+		return;
+
 	fRegs->enable[fPlicContexts[0]][irq / 32] &= ~(1 << (irq % 32));
 }
 

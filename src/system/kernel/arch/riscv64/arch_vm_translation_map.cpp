@@ -74,6 +74,7 @@ Map(addr_t virtAdr, phys_addr_t physAdr, uint64 flags, kernel_args* args,
 
 	pte->ppn = physAdr / B_PAGE_SIZE;
 	pte->flags = (1 << pteValid) | (1 << pteAccessed) | (1 << pteDirty) | flags;
+	pte->val = (pte->val & ~pteTHeadMask) | flags;
 
 	FlushTlbPage(virtAdr);
 }
@@ -160,6 +161,10 @@ arch_vm_translation_map_early_map(kernel_args *args,
 		flags |= (1 << pteWrite);
 	if ((attributes & B_KERNEL_EXECUTE_AREA) != 0)
 		flags |= (1 << pteExec);
+	if ((attributes & B_MTR_UC) != 0)
+		flags |= pteTHeadIO;
+	else
+		flags |= pteTHeadPMA;
 	Map(virtAdr, physAdr, flags, args, get_free_page);
 	return B_OK;
 }

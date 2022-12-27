@@ -202,7 +202,7 @@ ThreadData::_IncreasePenalty()
 	if (IsIdle() || IsRealTime())
 		return;
 
-	TRACE("increasing thread %ld penalty\n", fThread->id);
+	TRACE("increasing thread %" B_PRId32 " penalty\n", fThread->id);
 
 	int32 oldPenalty = fPriorityPenalty++;
 	const int kMinimalPriority = _GetMinimalPriority();
@@ -251,7 +251,7 @@ ThreadData::CancelPenalty()
 	fPriorityPenalty = 0;
 
 	if (oldPenalty != 0) {
-		TRACE("cancelling thread %ld penalty\n", fThread->id);
+		TRACE("cancelling thread %" B_PRId32 " penalty\n", fThread->id);
 		_ComputeEffectivePriority();
 	}
 }

@@ -22,43 +22,42 @@
 
 extern uint32 gPlatform;
 
+static uint64 sTimerConversionFactor;
+
 
 void
 arch_timer_set_hardware_timer(bigtime_t timeout)
 {
 	// dprintf("arch_timer_set_hardware_timer(%" B_PRIu64 "), cpu: %" B_PRId32 "\n", timeout, smp_get_current_cpu());
 
-	// TODO: Read timer frequency from FDT
+	uint64 scaledTimeout = (static_cast<__uint128_t>(timeout) * sTimerConversionFactor) >> 32;
+	// dprintf("  scaledTimeout: %" B_PRIu64 "\n", scaledTimeout);
+
+	SetBitsSie(1 << sTimerInt);
+
 	switch (gPlatform) {
 		case kPlatformMNative:
-			MSyscall(kMSyscallSetTimer, true,
-				gClintRegs->mtime + timeout * 10);
+			MSyscall(kMSyscallSetTimer, true, gClintRegs->mtime + scaledTimeout);
 			break;
 		case kPlatformSbi: {
-			sbi_set_timer(CpuTime() + timeout);
+			sbi_set_timer(CpuTime() + scaledTimeout);
 			break;
 		}
 		default:
 			;
 	}
-
-	// SetSie(Sie() | (1 << sTimerInt));
 }
 
 
 void
 arch_timer_clear_hardware_timer()
 {
-	// SetSie(Sie() & ~(1 << sTimerInt));
+	ClearBitsSie(1 << sTimerInt);
 
 	switch (gPlatform) {
 		case kPlatformMNative:
 			MSyscall(kMSyscallSetTimer, false);
 			break;
-		case kPlatformSbi: {
-			sbi_set_timer(CpuTime() + (uint64)10000000 * 3600);
-			break;
-		}
 		default:
 			;
 	}
@@ -68,5 +67,10 @@ arch_timer_clear_hardware_timer()
 int
 arch_init_timer(kernel_args *args)
 {
+	dprintf("arch_init_timer\n");
+
+	sTimerConversionFactor = (1LL << 32) * args->arch_args.timerFrequency / 1000000LL;
+	dprintf("  sTimerConversionFactor: %" B_PRIu64 "\n", sTimerConversionFactor);
+
 	return B_OK;
 }

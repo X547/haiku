@@ -23,6 +23,7 @@
 #include <AutoDeleterDrivers.h>
 #include <ScopeExit.h>
 #include "RISCV64VMTranslationMap.h"
+#include <platform/sbi/sbi_syscalls.h>
 
 #include <algorithm>
 
@@ -355,8 +356,6 @@ SetAccessedFlags(addr_t addr, bool isWrite)
 extern "C" void
 STrap(iframe* frame)
 {
-	// dprintf("STrap("); WriteCause(Scause()); dprintf(")\n");
-
 	switch (frame->cause) {
 		case causeExecPageFault:
 		case causeLoadPageFault:
@@ -365,6 +364,19 @@ STrap(iframe* frame)
 				return;
 		}
 	}
+
+#if 0
+	switch (frame->cause) {
+		case causeExecPageFault:
+		case causeLoadPageFault:
+		case causeStorePageFault: {
+			break;
+		}
+		default:
+			dprintf("STrap("); WriteCause(Scause()); dprintf(")\n");
+			break;
+	}
+#endif
 
 	if (SstatusReg{.val = frame->status}.spp == modeU) {
 		thread_get_current_thread()->arch_info.userFrame = frame;
@@ -487,7 +499,7 @@ STrap(iframe* frame)
 			return;
 		}
 		case causeInterrupt + sTimerInt: {
-			// SetSie(Sie() & ~(1 << sTimerInt));
+			ClearBitsSie(1 << sTimerInt);
 			// dprintf("sTimerInt(%" B_PRId32 ")\n", smp_get_current_cpu());
 			timer_interrupt();
 			AfterInterrupt();
@@ -531,9 +543,43 @@ STrap(iframe* frame)
 
 //#pragma mark -
 
+inline uint64
+RTime()
+{
+	uint64 val;
+	asm volatile("rdtime %0" : "=r"(val));
+	return val;
+}
+
 status_t
 arch_int_init(kernel_args* args)
 {
+#if 0
+	dprintf("Timer test\n");
+
+	enable_interrupts();
+	SetBitsSstatus(SstatusReg{.pie = 1 << modeS}.val);
+
+	dprintf("  sstatus: "); WriteSstatus(Sstatus()); dprintf("\n");
+	dprintf("  sie: "); WriteInterruptSet(Sie()); dprintf("\n");
+	dprintf("  sip: "); WriteInterruptSet(Sip()); dprintf("\n");
+	dprintf("  time: %" B_PRIu64 "\n", RTime());
+
+	bigtime_t t0 = system_time();
+
+	sbi_set_timer(10);
+	// sbi_set_timer(RTime() + 1000000 * 24);
+
+	while (system_time() - t0 < 2000000) {}
+
+	dprintf("  sstatus: "); WriteSstatus(Sstatus()); dprintf("\n");
+	dprintf("  sie: "); WriteInterruptSet(Sie()); dprintf("\n");
+	dprintf("  sip: "); WriteInterruptSet(Sip()); dprintf("\n");
+	dprintf("  time: %" B_PRIu64 "\n", RTime());
+
+	while (true) {Wfi();}
+#endif
+
 	return B_OK;
 }
 

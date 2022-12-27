@@ -73,6 +73,7 @@ const struct supported_uarts {
 } kSupportedUarts[] = {
 	{ "ns16550a", UART_KIND_8250, &get_uart<DebugUART8250> },
 	{ "ns16550", UART_KIND_8250, &get_uart<DebugUART8250> },
+	{ "snps,dw-apb-uart", UART_KIND_8250, &get_uart<DebugUART8250> },
 #if defined(__riscv)
 	{ "sifive,uart0", UART_KIND_SIFIVE, &get_uart<ArchUARTSifive> },
 #elif defined(__ARM__)
@@ -626,7 +627,7 @@ dtb_init()
 
 		sDtbTable = dtbPtr;
 		sDtbSize = fdt_totalsize(dtbPtr);
-	
+
 		INFO("Valid FDT from UEFI table %d, size: %" B_PRIu32 "\n", i, sDtbSize);
 
 #ifdef TRACE_DUMP_FDT
@@ -669,6 +670,15 @@ dtb_set_kernel_args()
 		dprintf("  irq: %" B_PRIu32 "\n", uart.irq);
 		dprintf("  clock: %" B_PRIu64 "\n", uart.clock);
 	}
+
+	dprintf("+UART test\n");
+	gUART->PutChar('T');
+	gUART->PutChar('e');
+	gUART->PutChar('s');
+	gUART->PutChar('t');
+	gUART->PutChar('\r');
+	gUART->PutChar('\n');
+	dprintf("-UART test\n");
 
 	arch_dtb_set_kernel_args();
 }
