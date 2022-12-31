@@ -21,11 +21,12 @@
 
 #undef assert
 
-#ifndef NDEBUG
-	/* defining NDEBUG disables assert() functionality */
-
 #ifndef _ASSERT_H_
 #define _ASSERT_H_
+
+#if __ISO_C_VISIBLE >= 2011 && !defined(__cplusplus)
+#define static_assert _Static_assert
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -44,6 +45,9 @@ extern void __assert_perror_fail(int error, const char *file,
 #endif
 
 #endif /* !_ASSERT_H_ */
+
+#ifndef NDEBUG
+	/* defining NDEBUG disables assert() functionality */
 
 #define assert(assertion) \
 	((assertion) ? (void)0 : __assert_fail(#assertion, __FILE__, __LINE__, __PRETTY_FUNCTION__))
