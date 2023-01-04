@@ -85,6 +85,18 @@ shm_name_to_path(const char* name, char* path, size_t pathSize)
 }
 
 
+static void shm_gen_random_name(char* buf)
+{
+	struct timespec ts;
+	clock_gettime(CLOCK_REALTIME, &ts);
+	long r = ts.tv_nsec;
+	for (int i = 0; i < 6; ++i) {
+		buf[i] = 'A' + (r&15) + (r&16)*2;
+		r >>= 5;
+	}
+}
+
+
 // #pragma mark -
 
 
@@ -211,6 +223,27 @@ munlock(const void* address, size_t length)
 int
 shm_open(const char* name, int openMode, mode_t permissions)
 {
+	// TODO: implement direct anonymous memory file support on kernel side
+	if (name == SHM_ANON) {
+		if ((openMode & (O_RDWR | O_CREAT)) != (O_RDWR | O_CREAT))
+			RETURN_AND_SET_ERRNO(EINVAL);
+
+		char newName[] = "/shm-XXXXXX";
+		int retries = 100;
+
+		do {
+			shm_gen_random_name(newName + strlen(newName) - 6);
+			--retries;
+			int fd = shm_open(newName, openMode, permissions);
+			if (fd >= 0) {
+				shm_unlink(newName);
+				return fd;
+			}
+		} while (retries > 0 && errno == EEXIST);
+
+		return -1;
+	}
+
 	char path[PATH_MAX];
 	status_t error = shm_name_to_path(name, path, sizeof(path));
 	if (error != B_OK)

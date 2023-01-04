@@ -48,6 +48,8 @@
 #define POSIX_MADV_WILLNEED		MADV_WILLNEED
 #define POSIX_MADV_DONTNEED		MADV_DONTNEED
 
+/* shm_open() name values */
+#define SHM_ANON ((char*)1)
 
 __BEGIN_DECLS
 
