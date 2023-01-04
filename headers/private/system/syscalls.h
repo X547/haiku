@@ -350,6 +350,7 @@ extern status_t		_kern_write_stat(int fd, const char *path,
 extern status_t		_kern_close(int fd);
 extern int			_kern_dup(int fd);
 extern int			_kern_dup2(int ofd, int nfd);
+extern int			_kern_dup_foreign(team_id fromTeam, team_id toTeam, int fd, int openMode);
 extern status_t		_kern_lock_node(int fd);
 extern status_t		_kern_unlock_node(int fd);
 extern status_t		_kern_get_next_fd_info(team_id team, uint32 *_cookie,

@@ -432,23 +432,31 @@ dup2_fd(int oldfd, int newfd, bool kernel)
 }
 
 
-/*!	Duplicates an FD from another team to this/the kernel team.
+/*!	Duplicates an FD from one team to another.
 	\param fromTeam The team which owns the FD.
+	\param toTeam Destination team where new duplicated FD will be created.
 	\param fd The FD to duplicate.
-	\param kernel If \c true, the new FD will be created in the kernel team,
-			the current userland team otherwise.
+	\param openMode \c O_CLOEXEC flag is supported and have the same semantics as in \c open call.
+	\param kernel \c false if called by syscall, \c true if called from kernel code.
 	\return The newly created FD or an error code, if something went wrong.
 */
 int
-dup_foreign_fd(team_id fromTeam, int fd, bool kernel)
+dup_foreign_fd(team_id fromTeam, team_id toTeam, int fd, int openMode, bool kernel)
 {
-	// get the I/O context for the team in question
-	Team* team = Team::Get(fromTeam);
-	if (team == NULL)
-		return B_BAD_TEAM_ID;
-	BReference<Team> teamReference(team, true);
+	if (!kernel && (fromTeam == B_SYSTEM_TEAM || toTeam == B_SYSTEM_TEAM))
+		return B_NOT_ALLOWED;
 
-	io_context* fromContext = team->io_context;
+	// get the I/O context for the team in question
+	BReference<Team> fromTeamRef(Team::Get(fromTeam), true);
+	if (!fromTeamRef.IsSet())
+		return B_BAD_TEAM_ID;
+
+	BReference<Team> toTeamRef(Team::Get(toTeam), true);
+	if (!toTeamRef.IsSet())
+		return B_BAD_TEAM_ID;
+
+	io_context* fromContext = fromTeamRef->io_context;
+	io_context* toContext = toTeamRef->io_context;
 
 	// get the file descriptor
 	file_descriptor* descriptor = get_fd(fromContext, fd);
@@ -457,11 +465,14 @@ dup_foreign_fd(team_id fromTeam, int fd, bool kernel)
 	FileDescriptorPutter descriptorPutter(descriptor);
 
 	// create a new FD in the target I/O context
-	int result = new_fd(get_current_io_context(kernel), descriptor);
+	int result = new_fd(toContext, descriptor);
 	if (result >= 0) {
 		// the descriptor reference belongs to the slot, now
 		descriptorPutter.Detach();
 	}
+	mutex_lock(&toContext->io_mutex);
+	fd_set_close_on_exec(toContext, result, (openMode & O_CLOEXEC) != 0);
+	mutex_unlock(&toContext->io_mutex);
 
 	return result;
 }
@@ -1020,6 +1031,13 @@ _user_dup2(int ofd, int nfd)
 }
 
 
+int
+_user_dup_foreign(team_id fromTeam, team_id toTeam, int fd, int openMode)
+{
+	return dup_foreign_fd(fromTeam, toTeam, fd, openMode, false);
+}
+
+
 //	#pragma mark - Kernel calls
 
 
@@ -1211,3 +1229,9 @@ _kern_dup2(int ofd, int nfd)
 	return dup2_fd(ofd, nfd, true);
 }
 
+
+int
+_kern_dup_foreign(team_id fromTeam, team_id toTeam, int fd, int openMode)
+{
+	return dup_foreign_fd(fromTeam, toTeam, fd, openMode, true);
+}
