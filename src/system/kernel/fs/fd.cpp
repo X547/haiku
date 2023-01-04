@@ -443,8 +443,15 @@ dup2_fd(int oldfd, int newfd, bool kernel)
 int
 dup_foreign_fd(team_id fromTeam, team_id toTeam, int fd, int openMode, bool kernel)
 {
-	if (!kernel && (fromTeam == B_SYSTEM_TEAM || toTeam == B_SYSTEM_TEAM))
-		return B_NOT_ALLOWED;
+	if (!kernel) {
+		if (fromTeam == B_SYSTEM_TEAM || toTeam == B_SYSTEM_TEAM)
+			return B_PERMISSION_DENIED;
+
+		// only root user can access other team FDs
+		if (geteuid() != 0 && fromTeam != B_CURRENT_TEAM
+			&& fromTeam != team_get_current_team_id())
+			return B_PERMISSION_DENIED;
+	}
 
 	// get the I/O context for the team in question
 	BReference<Team> fromTeamRef(Team::Get(fromTeam), true);
