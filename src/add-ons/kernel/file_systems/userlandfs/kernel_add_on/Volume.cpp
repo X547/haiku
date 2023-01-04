@@ -730,7 +730,7 @@ Volume::DoIterativeFDIO(int fd, int32 requestID, void* clientCookie,
 		RETURN_ERROR(error);
 
 	// copy the FD into the kernel
-	fd = dup_foreign_fd(fFileSystem->GetTeam(), fd, true);
+	fd = dup_foreign_fd(fFileSystem->GetTeam(), B_SYSTEM_TEAM, fd, 0, true);
 	if (fd < 0)
 		RETURN_ERROR(fd);
 

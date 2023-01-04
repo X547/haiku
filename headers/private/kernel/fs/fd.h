@@ -85,7 +85,7 @@ extern void put_fd(struct file_descriptor *descriptor);
 extern void disconnect_fd(struct file_descriptor *descriptor);
 extern void inc_fd_ref_count(struct file_descriptor *descriptor);
 extern void inc_fd_open_count(struct file_descriptor *descriptor);
-extern int dup_foreign_fd(team_id fromTeam, int fd, bool kernel);
+extern int dup_foreign_fd(team_id fromTeam, team_id toTeam, int fd, int openMode, bool kernel);
 extern status_t select_fd(int32 fd, struct select_info *info, bool kernel);
 extern status_t deselect_fd(int32 fd, struct select_info *info, bool kernel);
 extern bool fd_is_valid(int fd, bool kernel);
