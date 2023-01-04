@@ -604,18 +604,16 @@ BMenu::KeyDown(const char* bytes, int32 numBytes)
 
 		default:
 		{
-			if (AreTriggersEnabled()) {
-				uint32 trigger = BUnicodeChar::FromUTF8(&bytes);
+			uint32 trigger = BUnicodeChar::FromUTF8(&bytes);
 
-				for (uint32 i = CountItems(); i-- > 0;) {
-					BMenuItem* item = ItemAt(i);
-					if (item->fTriggerIndex < 0 || item->fTrigger != trigger)
-						continue;
+			for (uint32 i = CountItems(); i-- > 0;) {
+				BMenuItem* item = ItemAt(i);
+				if (item->fTriggerIndex < 0 || item->fTrigger != trigger)
+					continue;
 
-					_InvokeItem(item);
-					_QuitTracking(false);
-					break;
-				}
+				_InvokeItem(item);
+				_QuitTracking(false);
+				break;
 			}
 			break;
 		}
