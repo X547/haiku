@@ -132,6 +132,7 @@ SharedLibrary libtestappserver.so :
 	DesktopListener.cpp
 	DirectWindowInfo.cpp
 	DrawingEngine.cpp
+	DrawingEngineBase.cpp
 	DrawState.cpp
 	$(font_src)
 	GlobalSubpixelSettings.cpp

@@ -976,6 +976,13 @@ RemoteDrawingEngine::StringWidth(const char* string, int32 length,
 }
 
 
+float
+RemoteDrawingEngine::StringWidth(const char* string, int32 length, const ServerFont& font,
+	escapement_delta* delta)
+{
+	return DrawingEngine::StringWidth(string, length, font, delta);
+}
+
 // #pragma mark -
 
 
