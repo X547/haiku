@@ -64,7 +64,7 @@ status_t VideoNodeProxy::SwapChainChangedInt(bool isValid, ObjectDeleter<SwapCha
 	BMessage msg(videoNodeSwapChainChangedMsg);
 	msg.AddBool("isValid", isValid);
 	if (isValid) {
-		CheckRet(swapChain->ToMessage(msg, "swapChain"));
+		CheckRet(swapChain->ToMessage(msg, "swapChain", Link().Team()));
 	}
 
 	BMessage reply;
@@ -269,37 +269,4 @@ void _EXPORT WriteMessenger(const BMessenger& obj)
 		BMessenger::Private((BMessenger*)&obj).Port(),
 		BMessenger::Private((BMessenger*)&obj).Token()
 	);
-}
-
-void _EXPORT DumpSwapChain(const SwapChain &swapChain)
-{
-	printf("swapChain: \n");
-	printf("  size: %" B_PRIuSIZE "\n", swapChain.size);
-	printf("  bufferCnt: %" B_PRIu32 "\n", swapChain.bufferCnt);
-	printf("  buffers:\n");
-	for (uint32 i = 0; i < swapChain.bufferCnt; i++) {
-		const VideoBuffer &buffer = swapChain.buffers[i];
-		printf("    %" B_PRIu32 "\n", i);
-		switch (buffer.ref.kind) {
-			case bufferRefArea: {
-				printf("      ref.kind: area\n");
-				printf("      ref.area.id: %" B_PRId32 "\n", buffer.ref.area.id);
-				break;
-			}
-			case bufferRefGpu: {
-				printf("      ref.kind: gpu\n");
-				printf("      ref.area.id: %" B_PRId32 "\n",   buffer.ref.gpu.id);
-				printf("      ref.area.team: %" B_PRId32 "\n", buffer.ref.gpu.team);
-				break;
-			}
-			default:
-				printf("      ref.kind: ?(%d)\n", buffer.ref.kind);
-		}
-		printf("      ref.offset: %" B_PRIuSIZE "\n",       buffer.ref.offset);
-		printf("      ref.length: %" B_PRIu64 "\n",         buffer.ref.size);
-		printf("      format.bytesPerRow: %" B_PRIu32 "\n", buffer.format.bytesPerRow);
-		printf("      format.width: %" B_PRIu32 "\n",       buffer.format.width);
-		printf("      format.height: %" B_PRIu32 "\n",      buffer.format.height);
-		printf("      format.colorSpace: %d\n",             buffer.format.colorSpace);
-	}
 }
