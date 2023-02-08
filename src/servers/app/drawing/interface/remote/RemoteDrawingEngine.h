@@ -146,6 +146,10 @@ public:
 	virtual	float				StringWidth(const char* string, int32 length,
 									escapement_delta* delta = NULL);
 
+	virtual	float				StringWidth(const char* string,
+									int32 length, const ServerFont& font,
+									escapement_delta* delta = NULL);
+
 	// software rendering backend invoked by CopyRegion() for the sorted
 	// individual rects
 	virtual	BRect				CopyRect(BRect rect, int32 xOffset,

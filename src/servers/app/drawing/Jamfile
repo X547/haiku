@@ -24,6 +24,7 @@ StaticLibrary libasdrawing.a :
 	BitmapDrawingEngine.cpp
 	drawing_support.cpp
 	DrawingEngine.cpp
+	DrawingEngineBase.cpp
 	MallocBuffer.cpp
 	UpdateQueue.cpp
 	PatternHandler.cpp

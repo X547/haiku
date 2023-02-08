@@ -12,54 +12,19 @@
 #define DRAWING_ENGINE_H_
 
 
-#include <AutoDeleter.h>
-#include <Accelerant.h>
-#include <Font.h>
-#include <Locker.h>
-#include <Point.h>
-#include <Gradient.h>
-#include <ServerProtocolStructs.h>
-
-#include "HWInterface.h"
+#include "DrawingEngineBase.h"
 
 
-class BPoint;
-class BRect;
-class BRegion;
-
-class DrawState;
 class Painter;
-class ServerBitmap;
-class ServerCursor;
-class ServerFont;
 
 
-class DrawingEngine : public HWInterfaceListener {
+class DrawingEngine : public DrawingEngineBase {
 public:
 							DrawingEngine(HWInterface* interface = NULL);
 	virtual					~DrawingEngine();
 
 	// HWInterfaceListener interface
 	virtual	void			FrameBufferChanged();
-
-	// for "changing" hardware
-			void			SetHWInterface(HWInterface* interface);
-
-	virtual	void			SetCopyToFrontEnabled(bool enable);
-			bool			CopyToFrontEnabled() const
-								{ return fCopyToFront; }
-	virtual	void			CopyToFront(/*const*/ BRegion& region);
-
-	// locking
-			bool			LockParallelAccess();
-#if DEBUG
-	virtual	bool			IsParallelAccessLocked() const;
-#endif
-			void			UnlockParallelAccess();
-
-			bool			LockExclusiveAccess();
-	virtual	bool			IsExclusiveAccessLocked() const;
-			void			UnlockExclusiveAccess();
 
 	// for screen shots
 			ServerBitmap*	DumpToBitmap();
@@ -89,9 +54,6 @@ public:
 	virtual	void			SetFont(const DrawState* state);
 	virtual	void			SetTransform(const BAffineTransform& transform,
 								int32 xOffset, int32 yOffset);
-
-			void			SuspendAutoSync();
-			void			Sync();
 
 	// drawing functions
 	virtual	void			CopyRegion(/*const*/ BRegion* region,
@@ -177,19 +139,19 @@ public:
 	virtual	BPoint			DrawString(const char* string, int32 length,
 								const BPoint* offsets);
 
-			float			StringWidth(const char* string, int32 length,
+	virtual	float			StringWidth(const char* string, int32 length,
 								escapement_delta* delta = NULL);
 
 	// convenience function which is independent of graphics
 	// state (to be used by Decorator or ServerApp etc)
-			float			StringWidth(const char* string,
+	virtual	float			StringWidth(const char* string,
 								int32 length, const ServerFont& font,
 								escapement_delta* delta = NULL);
 
-			BPoint			DrawStringDry(const char* string, int32 length,
+	virtual	BPoint			DrawStringDry(const char* string, int32 length,
 								const BPoint& pt,
 								escapement_delta* delta = NULL);
-			BPoint			DrawStringDry(const char* string, int32 length,
+	virtual	BPoint			DrawStringDry(const char* string, int32 length,
 								const BPoint* offsets);
 
 
@@ -198,7 +160,7 @@ public:
 	virtual	BRect			CopyRect(BRect rect, int32 xOffset,
 								int32 yOffset) const;
 
-			void			SetRendererOffset(int32 offsetX, int32 offsetY);
+	virtual	void			SetRendererOffset(int32 offsetX, int32 offsetY);
 
 private:
 	friend class DrawTransaction;
@@ -209,10 +171,6 @@ private:
 
 			ObjectDeleter<Painter>
 							fPainter;
-			HWInterface*	fGraphicsCard;
-			uint32			fAvailableHWAccleration;
-			int32			fSuspendSyncLevel;
-			bool			fCopyToFront;
 };
 
 #endif // DRAWING_ENGINE_H_
