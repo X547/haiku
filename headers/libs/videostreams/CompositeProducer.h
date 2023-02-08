@@ -48,34 +48,28 @@ struct Surface: public DoublyLinkedListLinkImpl<Surface>
 };
 
 
-class _EXPORT CompositeProducer final: public VideoProducer
-{
-private:
+class _EXPORT CompositeProducer: public VideoProducer {
+protected:
 	enum {
 		stepMsg = videoNodeLastMsg + 1,
 	};
 
 	DoublyLinkedList<Surface> fSurfaces;
-	SwapChainBindSW fSwapChainBind;
-	uint32 fValidPrevBufCnt;
+	uint32 fValidPrevBufCnt = 0;
 	BRegion fDirty, fPrevDirty;
-	bool fUpdateRequested;
+	bool fUpdateRequested = false;
 	bool fSwapChainChanging = false;
 	int32 fPending = 0;
 
-	void UpdateSwapChain(int32 width, int32 height);
 	void Restore(int32 bufferId, const BRegion& dirty);
 
 public:
 	CompositeProducer(const char* name);
 	virtual ~CompositeProducer();
 
-	void Connected(bool isActive) final;
-	void SwapChainChanged(bool isValid) final;
-	void Presented(const PresentedInfo &presentedInfo) final;
 	void MessageReceived(BMessage* msg) final;
-	
-	inline RasBuf32 GetRasBuf(int32 bufferId);
+
+	virtual void Clear(int32 bufferId, const BRegion& dirty) = 0;
 	void Produce();
 
 	CompositeConsumer* NewSurface(const char* name, const SurfaceUpdate& update);
@@ -87,24 +81,6 @@ public:
 	void Invalidate(const BRect rect);
 	void Invalidate(const BRegion& region);
 };
-
-
-RasBuf32 CompositeProducer::GetRasBuf(int32 bufferId)
-{
-	if (bufferId < 0) {
-		RasBuf32 rb {};
-		return rb;
-	}
-	const VideoBuffer &buf = GetSwapChain().buffers[bufferId];
-	const auto &mappedBuffer = fSwapChainBind.Buffers()[bufferId];
-	RasBuf32 rb = {
-		.colors = (uint32*)mappedBuffer.bits,
-		.stride = buf.format.bytesPerRow / 4,
-		.width  = buf.format.width,
-		.height = buf.format.height,		
-	};
-	return rb;
-}
 
 
 status_t GetRegion(BMessage& msg, const char* name, BRegion*& region);
