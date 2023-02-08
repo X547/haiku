@@ -1,7 +1,6 @@
 liblocale_kit = static_library(
 	'locale_kit',
 	[
-		'cat.cpp',
 		'Catalog.cpp',
 		'CatalogData.cpp',
 		'CatalogStub.cpp',
