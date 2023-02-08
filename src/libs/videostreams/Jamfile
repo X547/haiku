@@ -3,20 +3,24 @@ SubDir HAIKU_TOP src libs videostreams ;
 AddSubDirSupportedPlatforms libbe_test ;
 
 UseHeaders [ FDirName $(HAIKU_TOP) headers libs videostreams ] : true ;
-UseHeaders [ FDirName $(HAIKU_TOP) headers private app ] : true ;
-UseHeaders [ FDirName $(HAIKU_TOP) headers private shared ] : true ;
+UsePrivateHeaders shared app system ;
 
 local architectureObject ;
 for architectureObject in [ MultiArchSubDirSetup ] {
 	on $(architectureObject) {
 
+		UsePrivateSystemHeaders ;
+
 		SharedLibrary [ MultiArchDefaultGristFiles libvideostreams.so ] :
 			AreaCloner.cpp
 			BufferQueue.cpp
 			CompositeConsumer.cpp
+			CompositeConsumerSoftware.cpp
 			CompositeProducer.cpp
+			CompositeProducerSoftware.cpp
 			CompositeProxy.cpp
 			RasBuf.cpp
+			VideoBufferBind.cpp
 			VideoBufferBindBitmap.cpp
 			VideoBufferBindSW.cpp
 			VideoBufferUtils.cpp
