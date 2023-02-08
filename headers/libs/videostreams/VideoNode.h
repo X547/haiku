@@ -106,7 +106,7 @@ public:
 
 
 void WriteMessenger(const BMessenger& obj);
-void DumpSwapChain(const SwapChain &swapChain);
+void _EXPORT DumpSwapChain(const SwapChain &swapChain);
 
 
 #endif	// _VIDEONODE_H_
