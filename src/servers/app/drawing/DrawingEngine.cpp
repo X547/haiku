@@ -11,7 +11,9 @@
 #include "DrawingEngine.h"
 
 #include <Bitmap.h>
+#include <Font.h>
 #include <StackOrHeapArray.h>
+#include <ServerProtocolStructs.h>
 
 #include <stdio.h>
 
@@ -178,9 +180,7 @@ private:
 
 DrawingEngine::DrawingEngine(HWInterface* interface)
 	:
-	fPainter(new Painter()),
-	fGraphicsCard(NULL),
-	fCopyToFront(true)
+	fPainter(new Painter())
 {
 	SetHWInterface(interface);
 }
@@ -188,54 +188,6 @@ DrawingEngine::DrawingEngine(HWInterface* interface)
 
 DrawingEngine::~DrawingEngine()
 {
-	SetHWInterface(NULL);
-}
-
-
-// #pragma mark - locking
-
-
-bool
-DrawingEngine::LockParallelAccess()
-{
-	return fGraphicsCard->LockParallelAccess();
-}
-
-
-#if DEBUG
-bool
-DrawingEngine::IsParallelAccessLocked() const
-{
-	return fGraphicsCard->IsParallelAccessLocked();
-}
-#endif
-
-
-void
-DrawingEngine::UnlockParallelAccess()
-{
-	fGraphicsCard->UnlockParallelAccess();
-}
-
-
-bool
-DrawingEngine::LockExclusiveAccess()
-{
-	return fGraphicsCard->LockExclusiveAccess();
-}
-
-
-bool
-DrawingEngine::IsExclusiveAccessLocked() const
-{
-	return fGraphicsCard->IsExclusiveAccessLocked();
-}
-
-
-void
-DrawingEngine::UnlockExclusiveAccess()
-{
-	fGraphicsCard->UnlockExclusiveAccess();
 }
 
 
@@ -245,49 +197,14 @@ DrawingEngine::UnlockExclusiveAccess()
 void
 DrawingEngine::FrameBufferChanged()
 {
+	DrawingEngineBase::FrameBufferChanged();
+
 	if (!fGraphicsCard) {
 		fPainter->DetachFromBuffer();
 		return;
 	}
 
-	// NOTE: locking is probably bogus, since we are called
-	// in the thread that changed the frame buffer...
-	if (LockExclusiveAccess()) {
-		fPainter->AttachToBuffer(fGraphicsCard->DrawingBuffer());
-		UnlockExclusiveAccess();
-	}
-}
-
-
-void
-DrawingEngine::SetHWInterface(HWInterface* interface)
-{
-	if (fGraphicsCard == interface)
-		return;
-
-	if (fGraphicsCard)
-		fGraphicsCard->RemoveListener(this);
-
-	fGraphicsCard = interface;
-
-	if (fGraphicsCard)
-		fGraphicsCard->AddListener(this);
-
-	FrameBufferChanged();
-}
-
-
-void
-DrawingEngine::SetCopyToFrontEnabled(bool enable)
-{
-	fCopyToFront = enable;
-}
-
-
-void
-DrawingEngine::CopyToFront(/*const*/ BRegion& region)
-{
-	fGraphicsCard->InvalidateRegion(region);
+	fPainter->AttachToBuffer(fGraphicsCard->DrawingBuffer());
 }
 
 
