@@ -81,11 +81,6 @@ class WorkspacesView;
 // TODO: move this into a proper place
 #define AS_REDRAW 'rdrw'
 
-enum {
-	UPDATE_REQUEST		= 0x01,
-	UPDATE_EXPOSE		= 0x02,
-};
-
 
 class Window {
 public:
@@ -149,15 +144,19 @@ public:
 			bool				DrawingRegionChanged(View* view) const;
 
 			// generic version, used by the Desktop
-			void				ProcessDirtyRegion(BRegion& regionOnScreen);
+			void				ProcessDirtyRegion(const BRegion& dirtyRegion,
+									const BRegion& exposeRegion);
+			void				ProcessDirtyRegion(const BRegion& exposeRegion)
+									{ ProcessDirtyRegion(exposeRegion, exposeRegion); }
 			void				RedrawDirtyRegion();
 
 			// can be used from inside classes that don't
 			// need to know about Desktop (first version uses Desktop)
 			void				MarkDirty(BRegion& regionOnScreen);
 			// these versions do not use the Desktop
-			void				MarkContentDirty(BRegion& regionOnScreen);
-			void				MarkContentDirtyAsync(BRegion& regionOnScreen);
+			void				MarkContentDirty(BRegion& dirtyRegion,
+									BRegion& exposeRegion);
+			void				MarkContentDirtyAsync(BRegion& dirtyRegion);
 			// shortcut for invalidating just one view
 			void				InvalidateView(View* view, BRegion& viewRegion);
 
@@ -322,7 +321,8 @@ protected:
 									int32 yOffset);
 
 			// different types of drawing
-			void				_TriggerContentRedraw(BRegion& dirty);
+			void				_TriggerContentRedraw(BRegion& dirty,
+									const BRegion& expose = BRegion());
 			void				_DrawBorder();
 
 			// handling update sessions
@@ -354,7 +354,7 @@ protected:
 			// the clipping, since it is local and the desktop
 			// thread is blocked
 			BRegion				fDirtyRegion;
-			uint32				fDirtyCause;
+			BRegion				fExposeRegion;
 
 			// caching local regions
 			BRegion				fContentRegion;
@@ -386,7 +386,6 @@ protected:
 	class UpdateSession {
 	public:
 									UpdateSession();
-		virtual						~UpdateSession();
 
 				void				Include(BRegion* additionalDirty);
 				void				Exclude(BRegion* dirtyInNextSession);
@@ -400,16 +399,9 @@ protected:
 		inline	bool				IsUsed() const
 										{ return fInUse; }
 
-				void				AddCause(uint8 cause);
-		inline	bool				IsExpose() const
-										{ return fCause & UPDATE_EXPOSE; }
-		inline	bool				IsRequest() const
-										{ return fCause & UPDATE_REQUEST; }
-
 	private:
 				BRegion				fDirtyRegion;
 				bool				fInUse;
-				uint8				fCause;
 	};
 
 			UpdateSession		fUpdateSessions[2];
