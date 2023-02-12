@@ -3,6 +3,8 @@
 #include <PortLink.h>
 #include <AutoDeleterOS.h>
 #include <Messenger.h>
+#include <pthread.h>
+#include <util/DoublyLinkedList.h>
 
 
 enum {
@@ -13,19 +15,53 @@ enum {
 };
 
 
+class ClientThreadLinkConnection;
+
 class ClientThreadLink {
 private:
-	BPrivate::PortLink fLink;
+	friend class ThreadLinkHolder;
+
+	ClientThreadLinkConnection *fConn;
+	BPrivate::LinkSender fSender;
+	BPrivate::LinkReceiver fReceiver;
 	PortDeleter fPort;
+	DoublyLinkedListLink<ClientThreadLink> fListLink;
 
 public:
-	ClientThreadLink(port_id serverPort);
-	ClientThreadLink(const BMessenger &serverMsgr);
-	~ClientThreadLink();
+	typedef DoublyLinkedList<
+		ClientThreadLink,
+		DoublyLinkedListMemberGetLink<ClientThreadLink, &ClientThreadLink::fListLink>
+	> List;
 
-	inline BPrivate::PortLink &Link() {return fLink;}
+public:
+	ClientThreadLink(ClientThreadLinkConnection *conn, const BMessenger &serverMsgr);
+	~ClientThreadLink();
 };
 
 
-ClientThreadLink *GetClientThreadLink(port_id serverPort);
-ClientThreadLink *GetClientThreadLink(const BMessenger &serverMsgr);
+class ClientThreadLinkConnection {
+private:
+	friend class ClientThreadLink;
+	friend class ThreadLinkHolder;
+
+	pthread_mutex_t fLock = PTHREAD_MUTEX_INITIALIZER;
+	BMessenger fServerMsgr;
+	pthread_key_t fLinkTls;
+	ClientThreadLink::List fLinks;
+
+public:
+	ClientThreadLinkConnection();
+	~ClientThreadLinkConnection();
+	const BMessenger &Messenger() const {return fServerMsgr;}
+	void SetMessenger(const BMessenger &serverMsgr);
+};
+
+
+class ThreadLinkHolder: public BPrivate::ServerLink {
+private:
+	ClientThreadLink *fLink;
+
+public:
+	ThreadLinkHolder(ClientThreadLinkConnection &conn);
+	~ThreadLinkHolder();
+};
