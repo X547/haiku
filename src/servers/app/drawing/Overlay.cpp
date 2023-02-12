@@ -191,7 +191,7 @@ Overlay::TakeOverToken(Overlay* other)
 		return;
 
 	fOverlayToken = token;
-	//other->fOverlayToken = NULL;
+	other->fOverlayToken = NULL;
 }
 
 
