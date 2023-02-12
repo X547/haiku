@@ -7,14 +7,15 @@ class ServerThreadLink {
 private:
 	BPrivate::PortLink fLink;
 	PortDeleter fPort;
-	team_id fClientTeam;
-	thread_id fThread;
-	
+	team_id fClientTeam = -1;
+	thread_id fThread = -1;
+
 	status_t ThreadEntry();
 
 public:
 	ServerThreadLink(port_id clientPort);
 	virtual ~ServerThreadLink();
+	void Start();
 
 	inline BPrivate::PortLink &Link() {return fLink;}
 	inline team_id ClientTeam() {return fClientTeam;}
@@ -22,16 +23,3 @@ public:
 
 	virtual void MessageReceived(int32 what);
 };
-
-class ServerLinkWatcher {
-private:
-	BPrivate::PortLink fLink;
-	ServerThreadLink *(*fFactory)(port_id clientPort);
-
-public:
-	ServerLinkWatcher(port_id serverPort, ServerThreadLink *(*Factory)(port_id clientPort));
-	void Quit();
-	void Run();
-};
-
-ServerThreadLink *GetServerThreadLink();
