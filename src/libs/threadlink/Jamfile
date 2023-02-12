@@ -5,6 +5,7 @@ AddSubDirSupportedPlatforms libbe_test ;
 UseHeaders [ FDirName $(HAIKU_TOP) headers libs threadlink ] : true ;
 UseHeaders [ FDirName $(HAIKU_TOP) headers private app ] : true ;
 UseHeaders [ FDirName $(HAIKU_TOP) headers private shared ] : true ;
+UseHeaders [ FDirName $(HAIKU_TOP) headers private kernel ] : true ;
 
 local architectureObject ;
 for architectureObject in [ MultiArchSubDirSetup ] {
