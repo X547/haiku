@@ -133,6 +133,7 @@ struct Port : public KernelReferenceable {
 	int32				total_count;
 		// messages read from port since creation
 	select_info*		select_infos;
+	select_sync*		selectsync_group;
 	MessageList			messages;
 	PortReadCallback::List read_callbacks;
 	PortWriteCallback::List write_callbacks;
@@ -146,7 +147,8 @@ struct Port : public KernelReferenceable {
 		read_count(0),
 		write_count(queueLength),
 		total_count(0),
-		select_infos(NULL)
+		select_infos(NULL),
+		selectsync_group(NULL)
 	{
 		// id is initialized when the caller adds the port to the hash table
 
@@ -806,6 +808,11 @@ uninit_port(Port* port)
 {
 	MutexLocker locker(port->lock);
 
+	if (port->selectsync_group != NULL) {
+		port->selectsync_group->put(port->selectsync_group);
+		port->selectsync_group = NULL;
+	}
+
 	notify_port_select_events(port, B_EVENT_INVALID);
 	port->select_infos = NULL;
 
@@ -1087,6 +1094,11 @@ close_port(port_id id)
 	// wake up waiting read/writes
 	portRef->capacity = 0;
 
+	if (portRef->selectsync_group != NULL) {
+		portRef->selectsync_group->put(portRef->selectsync_group);
+		portRef->selectsync_group = NULL;
+	}
+
 	notify_port_select_events(portRef, B_EVENT_INVALID);
 	portRef->select_infos = NULL;
 
@@ -1312,6 +1324,36 @@ add_port_write_callback(port_id id, PortWriteCallback *callback)
 		return B_BAD_PORT_ID;
 
 	return add_port_write_callback_locked(portRef, callback);
+}
+
+
+status_t
+port_get_selectsync_group(port_id id, struct select_sync **sync, struct select_sync *(*alloc)())
+{
+	if (!sPortsActive || id < 0)
+		return B_BAD_PORT_ID;
+
+	BReference<Port> portRef = get_locked_port(id);
+	if (portRef == NULL)
+		return B_BAD_PORT_ID;
+
+	MutexLocker locker(portRef->lock, true);
+
+	if (is_port_closed(portRef))
+		return B_BAD_PORT_ID;
+
+	if (portRef->selectsync_group != NULL) {
+		*sync = portRef->selectsync_group;
+		return B_OK;
+	}
+
+	select_sync* newGroup = alloc();
+	if (newGroup == NULL)
+		return B_NO_MEMORY;
+
+	portRef->selectsync_group = newGroup;
+	*sync = newGroup;
+	return B_OK;
 }
 
 

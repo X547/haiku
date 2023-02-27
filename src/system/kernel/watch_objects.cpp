@@ -10,11 +10,14 @@
 #include "wait_for_objects.h"
 
 #include <AutoDeleter.h>
+#include <util/AutoLock.h>
 #include <util/AVLTree.h>
 #include <util/DoublyLinkedList.h>
 #include <util/KMessage.h>
 
 #include <port.h>
+
+#define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
 
 //namespace {
@@ -78,9 +81,7 @@ struct selectsync_impl : public select_info {
 		bool Do(BReferenceable *port) final;
 	} fWriteCallback;
 
-
 	AVLTreeNode			link;
-	DoublyLinkedListLink<selectsync_impl> pending_link;
 	int32				object;
 	uint16				type;
 	uint16				enqueued_events = 0;
@@ -94,7 +95,6 @@ struct selectsync_group_impl : public select_sync {
 	bool				is_message;
 
 	AVLTree<selectsync_impl::NodeDef> set;
-	DoublyLinkedList<selectsync_impl, DoublyLinkedListMemberGetLink<selectsync_impl, &selectsync_impl::pending_link>> pending_set;
 
 	selectsync_group_impl();
 };
@@ -151,6 +151,13 @@ bool selectsync_impl::WriteCallback::Do(BReferenceable *port)
 }
 
 
+static select_sync*
+new_selectsync_group_impl()
+{
+	return new(std::nothrow) selectsync_group_impl();
+}
+
+
 static void
 put_selectsync_group_impl(select_sync* _group)
 {
@@ -191,6 +198,8 @@ notify_select_events_impl(select_info* _sync, uint16 events)
 selectsync_group_impl::selectsync_group_impl()
 {
 	put = put_selectsync_group_impl;
+	ref_count = 1;
+	port = -1;
 }
 
 
@@ -204,17 +213,14 @@ selectsync_impl::selectsync_impl()
 
 
 status_t
-watch_objects_int(selectsync_group_impl *&group, int32 token, object_wait_info* infos, int numInfos, uint32 flags, bool kernel)
+watch_objects_int(selectsync_group_impl *group, object_wait_info* infos, int numInfos, uint32 flags, bool kernel)
 {
+	MutexLocker lock(&group->lock);
 	object_wait_info* infosEnd = infos + numInfos;
 	for (object_wait_info *info = infos; infos != infosEnd; info++) {
 		selectsync_impl *sync = group == NULL ? NULL : group->set.Find((uint32)info->object + (static_cast<uint64>(info->type) << 32));
 		if (sync == NULL) {
 			if (info->events != 0) {
-				if (group == NULL) {
-					group = new(std::nothrow) selectsync_group_impl();
-					group->token = token;
-				}
 				sync = new(std::nothrow) selectsync_impl();
 				sync->sync = group;
 				sync->object = info->object;
@@ -239,5 +245,13 @@ watch_objects_int(selectsync_group_impl *&group, int32 token, object_wait_info* 
 status_t
 watch_objects(port_id port, int32 token, object_wait_info* infos, int numInfos, uint32 flags)
 {
+	selectsync_group_impl *group;
+	CHECK_RET(port_get_selectsync_group(port, (select_sync**)&group, new_selectsync_group_impl));
+	if (group->port < 0) {
+		group->port = port;
+		group->token = token;
+		group->is_message = false;
+	}
+	CHECK_RET(watch_objects_int(group, infos, numInfos, flags, true));
 	return B_OK;
 }

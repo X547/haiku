@@ -62,6 +62,7 @@ status_t select_port(int32 object, struct select_info *info, bool kernel);
 status_t deselect_port(int32 object, struct select_info *info, bool kernel);
 
 status_t add_port_write_callback(port_id id, PortWriteCallback *callback);
+status_t port_get_selectsync_group(port_id id, struct select_sync **sync, struct select_sync *(*alloc)());
 
 // currently private API
 status_t writev_port_etc(port_id id, int32 msgCode, const iovec *msgVecs,
