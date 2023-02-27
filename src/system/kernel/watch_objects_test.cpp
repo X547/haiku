@@ -161,9 +161,7 @@ static void test_async_io()
 void
 do_watch_objects_test()
 {
-	return;
-
-	switch (2) {
+	switch (1) {
 		case 1:
 			test_port();
 			break;
