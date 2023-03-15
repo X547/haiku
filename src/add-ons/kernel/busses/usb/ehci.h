@@ -51,8 +51,7 @@ typedef struct isochronous_transfer_data {
 
 class EHCI : public BusManager {
 public:
-									EHCI(pci_info *info, pci_device_module_info* pci,
-										pci_device* device, Stack *stack, device_node *node);
+									EHCI(phys_addr_t physicalAddress, uint8 *registers, long irq, Stack *stack, device_node* node);
 									~EHCI();
 
 		status_t					Start();
@@ -202,10 +201,6 @@ inline	uint32						ReadCapReg32(uint32 reg);
 
 		uint8 *						fCapabilityRegisters;
 		uint8 *						fOperationalRegisters;
-		area_id						fRegisterArea;
-		pci_info *					fPCIInfo;
-		pci_device_module_info*		fPci;
-		pci_device*					fDevice;
 		Stack *						fStack;
 		uint32						fEnabledInterrupts;
 		uint32						fThreshold;
@@ -257,7 +252,6 @@ inline	uint32						ReadCapReg32(uint32 reg);
 		// Interrupt polling
 		thread_id					fInterruptPollThread;
 		uint8						fIRQ;
-		bool						fUseMSI;
 };
 
 

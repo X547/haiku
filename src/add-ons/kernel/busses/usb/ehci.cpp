@@ -12,8 +12,11 @@
 
 #include <driver_settings.h>
 #include <bus/PCI.h>
+#include <bus/FDT.h>
 #include <USB3.h>
 #include <KernelExport.h>
+
+#include <AutoDeleterOS.h>
 
 #include "ehci.h"
 
@@ -27,19 +30,23 @@ device_manager_info* gDeviceManager;
 static usb_for_controller_interface* gUSB;
 
 
-#define EHCI_PCI_DEVICE_MODULE_NAME "busses/usb/ehci/pci/driver_v1"
+#define EHCI_PCI_DEVICE_MODULE_NAME "busses/usb/ehci/fdt/driver_v1"
 #define EHCI_PCI_USB_BUS_MODULE_NAME "busses/usb/ehci/device_v1"
 
 
 typedef struct {
-	EHCI* ehci;
-	pci_device_module_info* pci;
-	pci_device* device;
+	EHCI* ehci = NULL;
+	fdt_device_module_info* fdt = NULL;
+	fdt_device* device = NULL;
 
-	pci_info pciinfo;
+	device_node* node = NULL;
+	device_node* driver_node = NULL;
 
-	device_node* node;
-	device_node* driver_node;
+	AreaDeleter registers_area;
+	phys_addr_t registers_phys_adr = 0;
+	uint8 *registers_adr = NULL;
+
+	long irq = 0;
 } ehci_pci_sim_info;
 
 
@@ -61,7 +68,7 @@ init_bus(device_node* node, void** bus_cookie)
 	if (gUSB->get_stack((void**)&stack) != B_OK)
 		return B_ERROR;
 
-	EHCI *ehci = new(std::nothrow) EHCI(&bus->pciinfo, bus->pci, bus->device, stack, node);
+	EHCI *ehci = new(std::nothrow) EHCI(bus->registers_phys_adr, bus->registers_adr, bus->irq, stack, node);
 	if (ehci == NULL) {
 		return B_NO_MEMORY;
 	}
@@ -122,26 +129,46 @@ static status_t
 init_device(device_node* node, void** device_cookie)
 {
 	CALLED();
-	ehci_pci_sim_info* bus = (ehci_pci_sim_info*)calloc(1,
-		sizeof(ehci_pci_sim_info));
+	ehci_pci_sim_info* bus = new (std::nothrow)ehci_pci_sim_info();
 	if (bus == NULL)
 		return B_NO_MEMORY;
 
-	pci_device_module_info* pci;
-	pci_device* device;
+	fdt_device_module_info* fdt;
+	fdt_device* device;
 	{
-		device_node* pciParent = gDeviceManager->get_parent_node(node);
-		gDeviceManager->get_driver(pciParent, (driver_module_info**)&pci,
+		device_node* fdtParent = gDeviceManager->get_parent_node(node);
+		gDeviceManager->get_driver(fdtParent, (driver_module_info**)&fdt,
 			(void**)&device);
-		gDeviceManager->put_node(pciParent);
+		gDeviceManager->put_node(fdtParent);
 	}
 
-	bus->pci = pci;
+	bus->fdt = fdt;
 	bus->device = device;
 	bus->driver_node = node;
 
-	pci_info *pciInfo = &bus->pciinfo;
-	pci->get_pci_info(device, pciInfo);
+	uint64 regs = 0;
+	uint64 regsLen = 0;
+	if (!fdt->get_reg(device, 0, &regs, &regsLen))
+		return B_ERROR;
+
+	dprintf("  regs: %#" B_PRIx64 "\n", regs);
+	dprintf("  regsLen: %#" B_PRIx64 "\n", regsLen);
+
+	bus->registers_phys_adr = regs;
+
+	bus->registers_area.SetTo(map_physical_memory("EHCI MMIO", regs, regsLen, B_ANY_KERNEL_ADDRESS, B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA, (void**)&bus->registers_adr));
+	dprintf("  fRegsArea: %" B_PRId32 "\n", bus->registers_area.Get());
+	if (!bus->registers_area.IsSet())
+		return bus->registers_area.Get();
+
+	dprintf("  bus->registers_adr: %p\n", (const void*)bus->registers_adr);
+
+	uint64 irq;
+	if (!fdt->get_interrupt(device, 0, NULL, &irq))
+		return B_ERROR;
+
+	dprintf("  irq: %#" B_PRIx64 "\n", irq);
+	bus->irq = irq;
 
 	*device_cookie = bus;
 	return B_OK;
@@ -153,8 +180,7 @@ uninit_device(void* device_cookie)
 {
 	CALLED();
 	ehci_pci_sim_info* bus = (ehci_pci_sim_info*)device_cookie;
-	free(bus);
-
+	delete(bus);
 }
 
 
@@ -177,38 +203,26 @@ supports_device(device_node* parent)
 {
 	CALLED();
 	const char* bus;
-	uint16 type, subType, api;
 
-	// make sure parent is a EHCI PCI device node
+	// make sure parent is a EHCI FDT device node
 	if (gDeviceManager->get_attr_string(parent, B_DEVICE_BUS, &bus, false)
 		< B_OK) {
 		return -1;
 	}
 
-	if (strcmp(bus, "pci") != 0)
+	if (strcmp(bus, "fdt") != 0)
 		return 0.0f;
 
-	if (gDeviceManager->get_attr_uint16(parent, B_DEVICE_SUB_TYPE, &subType,
-			false) < B_OK
-		|| gDeviceManager->get_attr_uint16(parent, B_DEVICE_TYPE, &type,
-			false) < B_OK
-		|| gDeviceManager->get_attr_uint16(parent, B_DEVICE_INTERFACE, &api,
-			false) < B_OK) {
-		TRACE_MODULE("Could not find type/subtype/interface attributes\n");
-		return -1;
-	}
+	const char* compatible;
+	status_t status = gDeviceManager->get_attr_string(parent, "fdt/compatible", &compatible, false);
+	if (status < B_OK)
+		return -1.0f;
 
-	if (type == PCI_serial_bus && subType == PCI_usb && api == PCI_usb_ehci) {
-		pci_device_module_info* pci;
-		pci_device* device;
-		gDeviceManager->get_driver(parent, (driver_module_info**)&pci,
-			(void**)&device);
-		TRACE_MODULE("EHCI Device found!\n");
+	if (strcmp(compatible, "generic-ehci") != 0
+		&& strcmp(compatible, "allwinner,sun20i-d1-ehci") != 0)
+		return 0.0f;
 
-		return 0.8f;
-	}
-
-	return 0.0f;
+	return 1.0f;
 }
 
 
@@ -328,15 +342,10 @@ print_queue(ehci_qh *queueHead)
 //
 
 
-EHCI::EHCI(pci_info *info, pci_device_module_info* pci, pci_device* device, Stack *stack,
-	device_node* node)
+EHCI::EHCI(phys_addr_t physicalAddress, uint8 *registers, long irq, Stack *stack, device_node* node)
 	:	BusManager(stack, node),
-		fCapabilityRegisters(NULL),
+		fCapabilityRegisters(registers),
 		fOperationalRegisters(NULL),
-		fRegisterArea(-1),
-		fPCIInfo(info),
-		fPci(pci),
-		fDevice(device),
 		fStack(stack),
 		fEnabledInterrupts(0),
 		fThreshold(0),
@@ -368,8 +377,7 @@ EHCI::EHCI(pci_info *info, pci_device_module_info* pci, pci_device* device, Stac
 		fPortResetChange(0),
 		fPortSuspendChange(0),
 		fInterruptPollThread(-1),
-		fIRQ(0),
-		fUseMSI(false)
+		fIRQ(irq)
 {
 	// Create a lock for the isochronous transfer list
 	mutex_init(&fIsochronousLock, "EHCI isochronous lock");
@@ -382,83 +390,6 @@ EHCI::EHCI(pci_info *info, pci_device_module_info* pci, pci_device* device, Stac
 	TRACE("constructing new EHCI host controller driver\n");
 	fInitOK = false;
 
-	// ATI/AMD SB600/SB700 periodic list cache workaround
-	// Logic kindly borrowed from NetBSD PR 40056
-	if (fPCIInfo->vendor_id == AMD_SBX00_VENDOR) {
-		bool applyWorkaround = false;
-
-		if (fPCIInfo->device_id == AMD_SB600_EHCI_CONTROLLER) {
-			// always apply on SB600
-			applyWorkaround = true;
-		} else if (fPCIInfo->device_id == AMD_SB700_SB800_EHCI_CONTROLLER) {
-			// only apply on certain chipsets, determined by SMBus revision
-			device_node *pciNode = NULL;
-			device_node* deviceRoot = gDeviceManager->get_root_node();
-			device_attr acpiAttrs[] = {
-				{ B_DEVICE_BUS, B_STRING_TYPE, { .string = "pci" }},
-				{ B_DEVICE_VENDOR_ID, B_UINT16_TYPE, { .ui16 = AMD_SBX00_VENDOR }},
-				{ B_DEVICE_ID, B_UINT16_TYPE, { .ui16 = AMD_SBX00_SMBUS_CONTROLLER }},
-				{ NULL }
-			};
-			if (gDeviceManager->find_child_node(deviceRoot, acpiAttrs,
-					&pciNode) == B_OK) {
-				pci_device_module_info *pci;
-				pci_device *pciDevice;
-				if (gDeviceManager->get_driver(pciNode, (driver_module_info **)&pci,
-					(void **)&pciDevice) == B_OK) {
-
-					pci_info smbus;
-					pci->get_pci_info(pciDevice, &smbus);
-					// Only applies to chipsets < SB710 (rev A14)
-					if (smbus.revision == 0x3a || smbus.revision == 0x3b)
-						applyWorkaround = true;
-				}
-			}
-		}
-
-		if (applyWorkaround) {
-			// According to AMD errata of SB700 and SB600 register documentation
-			// this disables the Periodic List Cache on SB600 and the Advanced
-			// Periodic List Cache on early SB700. Both the BSDs and Linux use
-			// this workaround.
-
-			TRACE_ALWAYS("disabling SB600/SB700 periodic list cache\n");
-			uint32 workaround = fPci->read_pci_config(fDevice,
-				AMD_SBX00_EHCI_MISC_REGISTER, 4);
-
-			fPci->write_pci_config(fDevice, AMD_SBX00_EHCI_MISC_REGISTER, 4,
-				workaround | AMD_SBX00_EHCI_MISC_DISABLE_PERIODIC_LIST_CACHE);
-		}
-	}
-
-	// enable busmaster and memory mapped access
-	uint16 command = fPci->read_pci_config(fDevice, PCI_command, 2);
-	command &= ~PCI_command_io;
-	command |= PCI_command_master | PCI_command_memory;
-
-	fPci->write_pci_config(fDevice, PCI_command, 2, command);
-
-	// map the registers
-	uint32 offset = fPCIInfo->u.h0.base_registers[0] & (B_PAGE_SIZE - 1);
-	phys_addr_t physicalAddress = fPCIInfo->u.h0.base_registers[0] - offset;
-	size_t mapSize = (fPCIInfo->u.h0.base_register_sizes[0] + offset
-		+ B_PAGE_SIZE - 1) & ~(B_PAGE_SIZE - 1);
-
-	TRACE("map physical memory 0x%08" B_PRIx32 " (base: 0x%08" B_PRIxPHYSADDR
-		"; offset: %" B_PRIx32 "); size: %" B_PRIu32 "\n",
-		fPCIInfo->u.h0.base_registers[0], physicalAddress, offset,
-		fPCIInfo->u.h0.base_register_sizes[0]);
-
-	fRegisterArea = map_physical_memory("EHCI memory mapped registers",
-		physicalAddress, mapSize, B_ANY_KERNEL_BLOCK_ADDRESS,
-		B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA,
-		(void **)&fCapabilityRegisters);
-	if (fRegisterArea < 0) {
-		TRACE_ERROR("failed to map register memory\n");
-		return;
-	}
-
-	fCapabilityRegisters += offset;
 	fOperationalRegisters = fCapabilityRegisters + ReadCapReg8(EHCI_CAPLENGTH);
 	TRACE("mapped capability registers: 0x%p\n", fCapabilityRegisters);
 	TRACE("mapped operational registers: 0x%p\n", fOperationalRegisters);
@@ -475,53 +406,6 @@ EHCI::EHCI(pci_info *info, pci_device_module_info* pci, pci_device* device, Stac
 
 	// read port count from capability register
 	fPortCount = ReadCapReg32(EHCI_HCSPARAMS) & 0x0f;
-
-	uint32 extendedCapPointer = ReadCapReg32(EHCI_HCCPARAMS) >> EHCI_ECP_SHIFT;
-	extendedCapPointer &= EHCI_ECP_MASK;
-	if (extendedCapPointer > 0) {
-		TRACE("extended capabilities register at %" B_PRIu32 "\n",
-			extendedCapPointer);
-
-		uint32 legacySupport = fPci->read_pci_config(fDevice, extendedCapPointer, 4);
-		if ((legacySupport & EHCI_LEGSUP_CAPID_MASK) == EHCI_LEGSUP_CAPID) {
-			if ((legacySupport & EHCI_LEGSUP_BIOSOWNED) != 0) {
-				TRACE_ALWAYS("the host controller is bios owned, claiming"
-					" ownership\n");
-
-				fPci->write_pci_config(fDevice, extendedCapPointer + 3, 1, 1);
-
-				for (int32 i = 0; i < 20; i++) {
-					legacySupport = fPci->read_pci_config(fDevice,
-						extendedCapPointer, 4);
-
-					if ((legacySupport & EHCI_LEGSUP_BIOSOWNED) == 0)
-						break;
-
-					TRACE_ALWAYS("controller is still bios owned, waiting\n");
-					snooze(50000);
-				}
-			}
-
-			if (legacySupport & EHCI_LEGSUP_BIOSOWNED) {
-				TRACE_ERROR("bios won't give up control over the host "
-					"controller (ignoring)\n");
-			} else if (legacySupport & EHCI_LEGSUP_OSOWNED) {
-				TRACE_ALWAYS(
-					"successfully took ownership of the host controller\n");
-			}
-
-			// Force off the BIOS owned flag, and clear all SMIs. Some BIOSes
-			// do indicate a successful handover but do not remove their SMIs
-			// and then freeze the system when interrupts are generated.
-			fPci->write_pci_config(fDevice, extendedCapPointer + 2, 1, 0);
-			fPci->write_pci_config(fDevice, extendedCapPointer + 4, 4, 0);
-		} else {
-			TRACE_ALWAYS(
-				"extended capability is not a legacy support register\n");
-		}
-	} else {
-		TRACE_ALWAYS("no extended capabilities register\n");
-	}
 
 	// disable interrupts
 	WriteOpReg(EHCI_USBINTR, 0);
@@ -584,38 +468,9 @@ EHCI::EHCI(pci_info *info, pci_device_module_info* pci, pci_device* device, Stac
 			"ehci interrupt poll thread", B_NORMAL_PRIORITY, (void *)this);
 		resume_thread(fInterruptPollThread);
 	} else {
-		// Find the right interrupt vector, using MSIs if available.
-		fIRQ = fPCIInfo->u.h0.interrupt_line;
-		if (fPci->get_msi_count(fDevice) >= 1) {
-			uint8 msiVector = 0;
-			if (fPci->configure_msi(fDevice, 1, &msiVector) == B_OK
-				&& fPci->enable_msi(fDevice) == B_OK) {
-				TRACE_ALWAYS("using message signaled interrupts\n");
-				fIRQ = msiVector;
-				fUseMSI = true;
-			}
-		}
-
-		if (fIRQ == 0 || fIRQ == 0xFF) {
-			TRACE_MODULE_ERROR("device PCI:%d:%d:%d was assigned an invalid IRQ\n",
-				fPCIInfo->bus, fPCIInfo->device, fPCIInfo->function);
-			return;
-		}
-
 		// install the interrupt handler and enable interrupts
 		install_io_interrupt_handler(fIRQ, InterruptHandler,
 			(void *)this, 0);
-	}
-
-	// ensure that interrupts are en-/disabled on the PCI device
-	command = fPci->read_pci_config(fDevice, PCI_command, 2);
-	if ((polling || fUseMSI) == ((command & PCI_command_int_disable) == 0)) {
-		if (polling || fUseMSI)
-			command &= ~PCI_command_int_disable;
-		else
-			command |= PCI_command_int_disable;
-
-		fPci->write_pci_config(fDevice, PCI_command, 2, command);
 	}
 
 	fEnabledInterrupts = EHCI_USBINTR_HOSTSYSERR | EHCI_USBINTR_USBERRINT
@@ -819,13 +674,6 @@ EHCI::~EHCI()
 	delete [] fItdEntries;
 	delete [] fSitdEntries;
 	delete_area(fPeriodicFrameListArea);
-	delete_area(fRegisterArea);
-
-	if (fUseMSI) {
-		fPci->disable_msi(fDevice);
-		fPci->unconfigure_msi(fDevice);
-	}
-
 }
 
 
