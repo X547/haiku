@@ -40,32 +40,6 @@
 struct iframe_stack gBootFrameStack;
 
 
-void
-arch_int_enable_io_interrupt(int irq)
-{
-	InterruptController *ic = InterruptController::Get();
-	if (ic != NULL)
-		ic->EnableInterrupt(irq);
-}
-
-
-void
-arch_int_disable_io_interrupt(int irq)
-{
-	InterruptController *ic = InterruptController::Get();
-	if (ic != NULL)
-		ic->DisableInterrupt(irq);
-}
-
-
-int32
-arch_int_assign_to_cpu(int32 irq, int32 cpu)
-{
-	// Not yet supported.
-	return 0;
-}
-
-
 static void
 print_iframe(const char *event, struct iframe *frame)
 {

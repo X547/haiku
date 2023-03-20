@@ -9,7 +9,7 @@
 #define PXA_ICMR2	0x28
 
 void
-PXAInterruptController::EnableInterrupt(int irq)
+PXAInterruptController::EnableIoInterrupt(int irq)
 {
 	if (irq <= 31) {
 		fRegBase[PXA_ICMR] |= 1 << irq;
@@ -21,7 +21,7 @@ PXAInterruptController::EnableInterrupt(int irq)
 
 
 void
-PXAInterruptController::DisableInterrupt(int irq)
+PXAInterruptController::DisableIoInterrupt(int irq)
 {
 	if (irq <= 31) {
 		fRegBase[PXA_ICMR] &= ~(1 << irq);
@@ -42,6 +42,19 @@ PXAInterruptController::HandleInterrupt()
 }
 
 
+void
+PXAInterruptController::ConfigureIoInterrupt(int irq, uint32 config)
+{
+}
+
+
+int32
+PXAInterruptController::AssignToCpu(int32 irq, int32 cpu)
+{
+	return 0;
+}
+
+
 PXAInterruptController::PXAInterruptController(uint32_t reg_base)
 {
 	fRegArea = vm_map_physical_memory(B_SYSTEM_TEAM, "intc-pxa", (void**)&fRegBase,
@@ -49,6 +62,9 @@ PXAInterruptController::PXAInterruptController(uint32_t reg_base)
 		reg_base, false);
 	if (fRegArea < 0)
 		panic("PXAInterruptController: cannot map registers!");
+
+	// TODO: Is interrupt count correct?
+	reserve_io_interrupt_vectors_ex(1020, 0, INTERRUPT_TYPE_IRQ, this);
 
 	fRegBase[PXA_ICMR] = 0;
 	fRegBase[PXA_ICMR2] = 0;

@@ -12,9 +12,8 @@
 
 
 GICv2InterruptController::GICv2InterruptController(uint32_t gicd_addr, uint32_t gicc_addr)
-: InterruptController()
 {
-	reserve_io_interrupt_vectors(1020, 0, INTERRUPT_TYPE_IRQ);
+	reserve_io_interrupt_vectors_ex(1020, 0, INTERRUPT_TYPE_IRQ, this);
 
 	area_id gicd_area = vm_map_physical_memory(B_SYSTEM_TEAM, "intc-gicv2-gicd",
 		(void**)&fGicdRegs, B_ANY_KERNEL_ADDRESS, GICD_REG_SIZE,
@@ -54,7 +53,7 @@ GICv2InterruptController::GICv2InterruptController(uint32_t gicd_addr, uint32_t 
 }
 
 
-void GICv2InterruptController::EnableInterrupt(int irq)
+void GICv2InterruptController::EnableIoInterrupt(int irq)
 {
 	uint32_t ena_reg = GICD_REG_ISENABLER + irq / 32;
 	uint32_t ena_val = 1 << (irq % 32);
@@ -67,7 +66,7 @@ void GICv2InterruptController::EnableInterrupt(int irq)
 }
 
 
-void GICv2InterruptController::DisableInterrupt(int irq)
+void GICv2InterruptController::DisableIoInterrupt(int irq)
 {
 	fGicdRegs[GICD_REG_ICENABLER + irq / 32] = 1 << (irq % 32);
 }
@@ -84,4 +83,15 @@ void GICv2InterruptController::HandleInterrupt()
 	}
 
 	fGiccRegs[GICC_REG_EOIR] = iar;
+}
+
+
+void GICv2InterruptController::ConfigureIoInterrupt(int irq, uint32 config)
+{
+}
+
+
+int32 GICv2InterruptController::AssignToCpu(int32 irq, int32 cpu)
+{
+	return 0;
 }

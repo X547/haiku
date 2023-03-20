@@ -11,9 +11,12 @@ class PXAInterruptController;
 class PXAInterruptController : public InterruptController {
 public:
 	PXAInterruptController(uint32_t reg_base);
-	void EnableInterrupt(int irq);
-	void DisableInterrupt(int irq);
-	void HandleInterrupt();
+
+	void EnableIoInterrupt(int irq) final;
+	void DisableIoInterrupt(int irq) final;
+	void ConfigureIoInterrupt(int irq, uint32 config) final;
+	int32 AssignToCpu(int32 irq, int32 cpu) final;
+	void HandleInterrupt() final;
 
 protected:
 	area_id fRegArea;
