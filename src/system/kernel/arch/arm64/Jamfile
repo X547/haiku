@@ -10,6 +10,7 @@ SEARCH_SOURCE += [ FDirName $(SUBDIR) $(DOTDOT) arm ] ;
 KernelMergeObject kernel_arch_arm64.o :
 	arch_elf.cpp
 	arch_int.cpp
+	generic_int.cpp
 	arch_commpage.cpp
 	arch_thread.cpp
 	arch_cpu.cpp
