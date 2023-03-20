@@ -15,6 +15,8 @@
 #include "ProtocolHandler.h"
 
 #include <usb/USB_hid.h>
+#include <arch/generic/generic_int.h>
+#include <ScopeExit.h>
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -276,6 +278,7 @@ HIDDevice::_InterruptReceivedInt()
 	if (atomic_get_and_set(&fDpcQueued, 1) == 0)
 		DPCQueue::DefaultQueue(B_URGENT_DISPLAY_PRIORITY)->Add(this);
 
+	arch_int_disable_io_interrupt(fIrqVector);
 	return B_HANDLED_INTERRUPT;
 }
 
@@ -285,16 +288,21 @@ HIDDevice::DoDPC(DPCQueue* queue)
 {
 	atomic_set(&fDpcQueued, 0);
 
+	const auto& scopeExit = ScopeExit([&]() {
+		arch_int_enable_io_interrupt(fIrqVector);
+	});
+
 	status_t status = _FetchBuffer(NULL, 0, fTransferBuffer, fTransferBufferSize + 2);
 	if (status != B_OK)
 		return;
 
 	uint16 actualLength = fTransferBuffer[0] | (fTransferBuffer[1] << 8);
-#if 0
+
 	if (actualLength == 0) {
-		// TODO: handle reset
+		// handle reset
+		return;
 	}
-#endif
+
 	if (actualLength <= 2)
 		actualLength = 0;
 	else
