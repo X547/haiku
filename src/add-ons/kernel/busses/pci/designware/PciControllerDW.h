@@ -171,6 +171,7 @@ public:
 			void				EnableIoInterrupt(int vector) final;
 			void				DisableIoInterrupt(int vector) final;
 			void				ConfigureIoInterrupt(int vector, uint32 config) final;
+			void				EndOfInterrupt(int vector) final;
 			int32				AssignToCpu(int32 vector, int32 cpu) final;
 
 private:
