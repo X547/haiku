@@ -230,6 +230,9 @@ PlicInterruptController::HandleInterruptInt()
 void
 PlicInterruptController::EnableIoInterrupt(int irq)
 {
+	if (irq == 0)
+		return;
+
 	fRegs->enable[fPlicContexts[0]][irq / 32] |= 1 << (irq % 32);
 }
 
@@ -237,6 +240,9 @@ PlicInterruptController::EnableIoInterrupt(int irq)
 void
 PlicInterruptController::DisableIoInterrupt(int irq)
 {
+	if (irq == 0)
+		return;
+
 	fRegs->enable[fPlicContexts[0]][irq / 32] &= ~(1 << (irq % 32));
 }
 
@@ -244,6 +250,9 @@ PlicInterruptController::DisableIoInterrupt(int irq)
 void
 PlicInterruptController::EndOfInterrupt(int irq)
 {
+	if (irq == 0)
+		return;
+
 	uint32 context = fPendingContexts[irq];
 	fRegs->contexts[context].claimAndComplete = irq;
 }
