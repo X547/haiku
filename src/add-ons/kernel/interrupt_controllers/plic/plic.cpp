@@ -27,6 +27,7 @@ private:
 	PlicRegs volatile* fRegs {};
 	uint32 fIrqCount {};
 	uint32 fPlicContexts[SMP_MAX_CPUS] {};
+	uint32 fPendingContexts[NUM_IO_VECTORS] {};
 
 	inline status_t InitDriverInt(device_node* node);
 
@@ -46,6 +47,7 @@ public:
 	void EnableIoInterrupt(int irq) final;
 	void DisableIoInterrupt(int irq) final;
 	void ConfigureIoInterrupt(int irq, uint32 config) final {}
+	void EndOfInterrupt(int irq) final;
 	int32 AssignToCpu(int32 irq, int32 cpu) final;
 };
 
@@ -219,8 +221,8 @@ PlicInterruptController::HandleInterruptInt()
 	uint64 irq = fRegs->contexts[context].claimAndComplete;
 	if (irq == 0)
 		return B_HANDLED_INTERRUPT;
+	fPendingContexts[irq] = context;
 	int_io_interrupt_handler(irq, true);
-	fRegs->contexts[context].claimAndComplete = irq;
 	return B_HANDLED_INTERRUPT;
 }
 
@@ -236,6 +238,14 @@ void
 PlicInterruptController::DisableIoInterrupt(int irq)
 {
 	fRegs->enable[fPlicContexts[0]][irq / 32] &= ~(1 << (irq % 32));
+}
+
+
+void
+PlicInterruptController::EndOfInterrupt(int irq)
+{
+	uint32 context = fPendingContexts[irq];
+	fRegs->contexts[context].claimAndComplete = irq;
 }
 
 
