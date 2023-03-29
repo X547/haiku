@@ -37,7 +37,7 @@ MsiInterruptCtrlDW::Init(PciDbiRegs volatile* dbiRegs, int32 msiIrq)
 		dprintf("  unable to attach MSI irq handler!\n");
 		return result;
 	}
-	result = allocate_io_interrupt_vectors(32, &fMsiStartIrq, INTERRUPT_TYPE_IRQ);
+	result = allocate_io_interrupt_vectors_ex(32, &fMsiStartIrq, INTERRUPT_TYPE_IRQ, static_cast<InterruptSource*>(this));
 
 	if (result != B_OK) {
 		dprintf("  unable to attach MSI irq handler!\n");
@@ -108,4 +108,41 @@ MsiInterruptCtrlDW::InterruptReceivedInt()
 		}
 	}
 	return B_HANDLED_INTERRUPT;
+}
+
+
+void
+MsiInterruptCtrlDW::EnableIoInterrupt(int vector)
+{
+	dprintf("MsiInterruptCtrlDW::EnableIoInterrupt(%d)\n", vector);
+	uint32 irq = vector - fMsiStartIrq;
+	fDbiRegs->msiIntr[irq / 32].enable |= 1 << (irq % 32);
+}
+
+
+void
+MsiInterruptCtrlDW::DisableIoInterrupt(int vector)
+{
+	dprintf("MsiInterruptCtrlDW::DisableIoInterrupt(%d)\n", vector);
+	uint32 irq = vector - fMsiStartIrq;
+	fDbiRegs->msiIntr[irq / 32].enable &= ~(1 << (irq % 32));
+}
+
+
+void
+MsiInterruptCtrlDW::EndOfInterrupt(int vector)
+{
+}
+
+
+void
+MsiInterruptCtrlDW::ConfigureIoInterrupt(int vector, uint32 config)
+{
+}
+
+
+int32
+MsiInterruptCtrlDW::AssignToCpu(int32 vector, int32 cpu)
+{
+	return 0;
 }

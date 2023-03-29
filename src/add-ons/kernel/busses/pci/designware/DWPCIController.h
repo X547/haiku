@@ -9,6 +9,7 @@
 
 #include <bus/PCI.h>
 #include <arch/generic/msi.h>
+#include <arch/generic/generic_int.h>
 
 #include <AutoDeleterOS.h>
 #include <lock.h>
@@ -158,7 +159,7 @@ struct PciDbiRegs {
 };
 
 
-class MsiInterruptCtrlDW: public MSIInterface {
+class MsiInterruptCtrlDW: public MSIInterface, public InterruptSource {
 public:
 			virtual				~MsiInterruptCtrlDW() = default;
 
@@ -168,6 +169,11 @@ public:
 									uint16& data) final;
 			void				FreeVectors(uint8 count, uint8 startVector) final;
 
+			void				EnableIoInterrupt(int vector) final;
+			void				DisableIoInterrupt(int vector) final;
+			void				ConfigureIoInterrupt(int vector, uint32 config) final;
+			void				EndOfInterrupt(int vector) final;
+			int32				AssignToCpu(int32 vector, int32 cpu) final;
 
 private:
 	static	int32				InterruptReceived(void* arg);
