@@ -75,6 +75,10 @@ typedef int32 (*interrupt_handler)(void *data);
 
 /* Flags that can be passed to install_io_interrupt_handler() */
 #define B_NO_ENABLE_COUNTER		1
+// Do not automatically send end of interrupt. Interrupt handler should call end_of_interrupt()
+// when it completed servicing an interrupt. end_of_interrupt() can be called in another thread
+// and with interrupts enabled.
+#define B_DEFERRED_COMPLETION	2
 
 
 /* timer interrupts services */
@@ -168,6 +172,7 @@ extern status_t		install_io_interrupt_handler(long interrupt_number,
 						interrupt_handler handler, void *data, ulong flags);
 extern status_t		remove_io_interrupt_handler(long interrupt_number,
 						interrupt_handler handler, void	*data);
+extern void			end_of_interrupt(long interrupt_number);
 
 extern status_t		add_timer(timer *t, timer_hook hook, bigtime_t period,
 						int32 flags);

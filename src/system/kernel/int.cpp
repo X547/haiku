@@ -42,8 +42,9 @@ struct io_handler {
 	struct io_handler	*next;
 	interrupt_handler	func;
 	void				*data;
-	bool				use_enable_counter;
-	bool				no_handled_info;
+	bool				use_enable_counter: 1;
+	bool				deferred_completion: 1;
+	bool				no_handled_info: 1;
 #if DEBUG_INTERRUPTS
 	int64				handled_count;
 #endif
@@ -283,6 +284,12 @@ int_io_interrupt_handler(int vector, bool levelTriggered)
 	if (!sVectors[vector].no_lock_vector)
 		acquire_spinlock(&sVectors[vector].vector_lock);
 
+	bool deferredCompletion = sVectors[vector].handler_list != NULL
+		&& sVectors[vector].handler_list->deferred_completion;
+
+	if (!levelTriggered && !deferredCompletion)
+		arch_end_of_interrupt(vector);
+
 #if !DEBUG_INTERRUPTS
 	// The list can be empty at this place
 	if (sVectors[vector].handler_list == NULL) {
@@ -354,6 +361,9 @@ int_io_interrupt_handler(int vector, bool levelTriggered)
 		sVectors[vector].ignored_count = 0;
 	}
 #endif
+
+	if (levelTriggered && !deferredCompletion)
+		arch_end_of_interrupt(vector);
 
 	if (!sVectors[vector].no_lock_vector)
 		release_spinlock(&sVectors[vector].vector_lock);
@@ -450,6 +460,7 @@ install_io_interrupt_handler(long vector, interrupt_handler handler, void *data,
 	io->func = handler;
 	io->data = data;
 	io->use_enable_counter = (flags & B_NO_ENABLE_COUNTER) == 0;
+	io->deferred_completion = (flags & B_DEFERRED_COMPLETION) != 0;
 	io->no_handled_info = (flags & B_NO_HANDLED_INFO) != 0;
 #if DEBUG_INTERRUPTS
 	io->handled_count = 0LL;
@@ -598,6 +609,13 @@ remove_io_interrupt_handler(long vector, interrupt_handler handler, void *data)
 		free(io);
 
 	return status;
+}
+
+
+void
+end_of_interrupt(long vector)
+{
+	arch_end_of_interrupt(vector);
 }
 
 

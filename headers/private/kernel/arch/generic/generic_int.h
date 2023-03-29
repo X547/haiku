@@ -15,6 +15,7 @@ public:
 	virtual void EnableIoInterrupt(int irq) = 0;
 	virtual void DisableIoInterrupt(int irq) = 0;
 	virtual void ConfigureIoInterrupt(int irq, uint32 config) = 0;
+	virtual void EndOfInterrupt(int irq) = 0;
 	virtual int32 AssignToCpu(int32 irq, int32 cpu) = 0;
 };
 
