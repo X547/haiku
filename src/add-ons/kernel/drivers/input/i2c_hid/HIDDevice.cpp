@@ -114,7 +114,7 @@ HIDDevice::HIDDevice(uint16 descriptorAddress, i2c_bus_interface* i2cBus,
 		return;
 	}
 
-	install_io_interrupt_handler(fIrqVector, _InterruptReceived, this, 0);
+	install_io_interrupt_handler(fIrqVector, _InterruptReceived, this, B_DEFERRED_COMPLETION);
 
 	ProtocolHandler::AddHandlers(*this, fProtocolHandlerList,
 		fProtocolHandlerCount);
@@ -278,7 +278,6 @@ HIDDevice::_InterruptReceivedInt()
 	if (atomic_get_and_set(&fDpcQueued, 1) == 0)
 		DPCQueue::DefaultQueue(B_URGENT_DISPLAY_PRIORITY)->Add(this);
 
-	arch_int_disable_io_interrupt(fIrqVector);
 	return B_HANDLED_INTERRUPT;
 }
 
@@ -289,7 +288,7 @@ HIDDevice::DoDPC(DPCQueue* queue)
 	atomic_set(&fDpcQueued, 0);
 
 	const auto& scopeExit = ScopeExit([&]() {
-		arch_int_enable_io_interrupt(fIrqVector);
+		end_of_interrupt(fIrqVector);
 	});
 
 	status_t status = _FetchBuffer(NULL, 0, fTransferBuffer, fTransferBufferSize + 2);
