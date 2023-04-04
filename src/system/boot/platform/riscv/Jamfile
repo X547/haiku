@@ -11,7 +11,7 @@ UsePrivateHeaders [ FDirName virtio ] ;
 UseLibraryHeaders [ FDirName libfdt ] ;
 
 {
-	SubDirC++Flags -fno-rtti ;
+	SubDirC++Flags -fno-rtti --std=c++20 ;
 	SubDirAsFlags -I $(SUBDIR) ;
 }
 

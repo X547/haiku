@@ -25,6 +25,7 @@ extern "C" {
 #include "pci.h"
 #include "Htif.h"
 #include "Clint.h"
+#include "Aplic.h"
 #include "FwCfg.h"
 
 
@@ -37,6 +38,8 @@ static addr_range sHtif{};
 static addr_range sPlic{};
 static addr_range sClint{};
 static uart_info sUart{};
+
+static void InitAplic(const void* fdt, int node, uint32 addressCells, uint32 sizeCells, uint32 interruptCells);
 
 
 static bool
@@ -150,6 +153,8 @@ HandleFdt(const void* fdt, int node, uint32 addressCells, uint32 sizeCells,
 				contextId++;
 			}
 		}
+	} else if (HasFdtString(compatible, compatibleLen, "riscv,aplic")) {
+		InitAplic(fdt, node, addressCells, sizeCells, interruptCells);
 	} else if (HasFdtString(compatible, compatibleLen, "ucb,htif0")) {
 		// This address is used by TinyEMU and it is not present in FDT.
 		sHtif.start = 0x40008000;
@@ -198,6 +203,57 @@ HandleFdt(const void* fdt, int node, uint32 addressCells, uint32 sizeCells,
 		gFramebuf.height = fdt32_to_cpu(
 			*(uint32*)fdt_getprop(fdt, node, "height", NULL));
 	}
+}
+
+
+static void
+InitAplic(const void* fdt, int node, uint32 addressCells, uint32 sizeCells, uint32 interruptCells)
+{
+	int childrenSize;
+	uint32* children = (uint32*)fdt_getprop(fdt, node, "riscv,children", &childrenSize);
+	if (children == NULL)
+		return;
+
+	int delegateSize;
+	uint32* delegate = (uint32*)fdt_getprop(fdt, node, "riscv,delegate", &delegateSize);
+	if (delegate == NULL)
+		return;
+
+	addr_range reg;
+	GetReg(fdt, node, addressCells, sizeCells, 0, reg);
+	AplicRegs volatile* regs = (AplicRegs*)reg.start;
+
+	auto FindChildIdx = [&](uint32 phandle) -> int32 {
+		for (uint32* it = children; it != children + childrenSize; ++it) {
+			if (fdt32_to_cpu(it[0]) == phandle)
+				return it - children;
+		}
+		return -1;
+	};
+
+	regs->domainCfg.val = AplicDomainCfg {
+		.be = false,
+		.dm = AplicDeliveryMode::direct,
+		.ie = true
+	}.val;
+
+	for (uint32* it = delegate; it != delegate + delegateSize; it += 3) {
+		uint32 phandle   = fdt32_to_cpu(it[0]);
+		uint32 firstIntr = fdt32_to_cpu(it[1]);
+		uint32 lastIntr  = fdt32_to_cpu(it[2]);
+
+		int32 childIdx = FindChildIdx(phandle);
+		if (childIdx < 0)
+			continue;
+
+		for (uint32 intr = firstIntr; intr <= lastIntr; intr++) {
+			regs->sourceCfg[intr].val = AplicSourceCfg {
+				.deleg = {.childIdx = (uint32)childIdx}
+			}.val;
+		}
+	}
+
+	dprintf("Configured APLIC delegation\n");
 }
 
 
