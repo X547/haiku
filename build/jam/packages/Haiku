@@ -48,7 +48,7 @@ AddFilesToPackage add-ons kernel generic
 		locked_pool mpu401 scsi_periph smbios@x86,x86_64 <module>tty ;
 AddFilesToPackage add-ons kernel partitioning_systems
 	: amiga_rdb@m68k apple@ppc sun@sparc efi_gpt intel session ;
-AddFilesToPackage add-ons kernel interrupt_controllers : openpic@ppc plic@riscv64 ;
+AddFilesToPackage add-ons kernel interrupt_controllers : openpic@ppc plic@riscv64 aplic@riscv64 ;
 AddFilesToPackage add-ons kernel rtc : goldfish@riscv64 ;
 AddFilesToPackage add-ons kernel power : syscon@riscv64 ;
 AddFilesToPackage add-ons kernel power cpufreq : amd_pstates@x86,x86_64 intel_pstates@x86,x86_64 ;
@@ -200,10 +200,11 @@ AddBootModuleSymlinksToPackage
 	nvme_disk
 	openpic@ppc
 	plic@riscv64
+	aplic@riscv64
 	syscon@riscv64
 	goldfish@riscv64
 	packagefs pci
-	<pci>ecam@riscv64 <pci>designware@riscv64 <pci>x86@x86,x86_64
+#	<pci>ecam@riscv64 <pci>designware@riscv64 <pci>x86@x86,x86_64
 	fdt@riscv64,arm,arm64
 	scsi scsi_cd scsi_disk scsi_periph silicon_image_3112 highpoint_ide_pci
 	sdhci_pci

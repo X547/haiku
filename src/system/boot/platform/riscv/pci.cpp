@@ -479,6 +479,7 @@ pci_init()
 	if (sPciInitInfo.configRegs.size == 0)
 		return;
 
+#if 0
 	sInterruptMapMask.childAdr = B_BENDIAN_TO_HOST_INT32(*((uint32*)sPciInitInfo.intMapMask + 0));
 	sInterruptMapMask.childIrq = B_BENDIAN_TO_HOST_INT32(*((uint32*)sPciInitInfo.intMapMask + 3));
 
@@ -514,6 +515,7 @@ pci_init()
 		if (i % 4 == 3 && (i + 1 < sInterruptMapLen))
 			dprintf("\n");
 	}
+#endif
 
 	memset(sPCIeRegisterRanges, 0, sizeof(sPCIeRegisterRanges));
 	if (sPciInitInfo.ranges == NULL) {

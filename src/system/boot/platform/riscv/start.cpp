@@ -232,6 +232,14 @@ _start(int hartId, void* fdt)
 	SetMstatus(status.val);
 
 	clear_bss();
+	uart_info uart {
+		.kind = "8250",
+		.regs = {
+			.start = 0x10000000,
+			.size = 0x100
+		}
+	};
+	serial_init(&uart);
 	fdt_init(fdt);
 	call_ctors();
 
