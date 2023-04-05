@@ -221,6 +221,7 @@ AplicInterruptController::UninitDriver()
 status_t
 AplicInterruptController::GetVector(uint64 irq, long& vector)
 {
+	dprintf("AplicInterruptController::GetVector(%" B_PRIu64 ")\n", irq);
 	if (irq < 1 || irq >= fIrqCount + 1)
 		return B_BAD_INDEX;
 
@@ -242,7 +243,7 @@ AplicInterruptController::HandleInterruptInt()
 	uint32 context = fAplicContexts[smp_get_current_cpu()];
 
 	uint32 irq = fRegs->idc[context].claimi.intNo;
-	dprintf("AplicInterruptController::HandleInterruptInt(context: %" B_PRIu32 ", irq: %" B_PRIu32 ")\n", context, irq);
+	//dprintf("AplicInterruptController::HandleInterruptInt(context: %" B_PRIu32 ", irq: %" B_PRIu32 ")\n", context, irq);
 	if (irq == 0)
 		return B_HANDLED_INTERRUPT;
 
