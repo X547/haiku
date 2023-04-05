@@ -11,9 +11,11 @@
 #include <arch/cpu.h>
 #include <arch/int.h>
 
-#include <arch/x86/arch_int.h>
-
 #include <int.h>
+
+#include "interrupt_controller.h"
+
+#include <new>
 
 
 //#define TRACE_PIC
@@ -64,12 +66,27 @@ static uint16 sLevelTriggeredInterrupts = 0;
 	// binary mask: 1 level, 0 edge
 
 
+class PicInterruptController: public InterruptController {
+public:
+	const char* Name() final {return "8259 PIC";}
+
+	void EnableIoInterrupt(int num) final;
+	void DisableIoInterrupt(int num) final;
+	void ConfigureIoInterrupt(int num, uint32 config) final;
+	int32 AssignToCpu(int32 num, int32 cpu) final;
+
+	bool IsSpuriousInterrupt(int num) final;
+	bool IsLevelTriggeredInterrupt(int num) final;
+	void EndOfInterrupt(int num) final;
+};
+
+
 /*!	Tests if the interrupt in-service register of the responsible
 	PIC is set for interrupts 7 and 15, and if that's not the case,
 	it must assume it's a spurious interrupt.
 */
-static bool
-pic_is_spurious_interrupt(int32 num)
+bool
+PicInterruptController::IsSpuriousInterrupt(int num)
 {
 	if (num != 7)
 		return false;
@@ -86,8 +103,8 @@ pic_is_spurious_interrupt(int32 num)
 }
 
 
-static bool
-pic_is_level_triggered_interrupt(int32 num)
+bool
+PicInterruptController::IsLevelTriggeredInterrupt(int num)
 {
 	if (num < 0 || num > PIC_NUM_INTS)
 		return false;
@@ -100,11 +117,11 @@ pic_is_level_triggered_interrupt(int32 num)
 	question (or both of them).
 	This clears the PIC interrupt in-service bit.
 */
-static bool
-pic_end_of_interrupt(int32 num)
+void
+PicInterruptController::EndOfInterrupt(int num)
 {
 	if (num < 0 || num > PIC_NUM_INTS)
-		return false;
+		return;
 
 	// PIC 8259 controlled interrupt
 	if (num >= PIC_SLAVE_INT_BASE)
@@ -112,12 +129,11 @@ pic_end_of_interrupt(int32 num)
 
 	// we always need to acknowledge the master PIC
 	out8(PIC_NON_SPECIFIC_EOI, PIC_MASTER_CONTROL);
-	return true;
 }
 
 
-static void
-pic_enable_io_interrupt(int32 num)
+void
+PicInterruptController::EnableIoInterrupt(int num)
 {
 	// interrupt is specified "normalized"
 	if (num < 0 || num > PIC_NUM_INTS)
@@ -134,8 +150,8 @@ pic_enable_io_interrupt(int32 num)
 }
 
 
-static void
-pic_disable_io_interrupt(int32 num)
+void
+PicInterruptController::DisableIoInterrupt(int num)
 {
 	// interrupt is specified "normalized"
 	// never disable slave pic line IRQ 2
@@ -153,8 +169,8 @@ pic_disable_io_interrupt(int32 num)
 }
 
 
-static void
-pic_configure_io_interrupt(int32 num, uint32 config)
+void
+PicInterruptController::ConfigureIoInterrupt(int num, uint32 config)
 {
 	uint8 value;
 	int32 localBit;
@@ -186,19 +202,19 @@ pic_configure_io_interrupt(int32 num, uint32 config)
 }
 
 
+int32
+PicInterruptController::AssignToCpu(int32 irq, int32 cpu)
+{
+	// PIC do not support SMP
+	return 0;
+}
+
+
 void
 pic_init()
 {
-	static const interrupt_controller picController = {
-		"8259 PIC",
-		&pic_enable_io_interrupt,
-		&pic_disable_io_interrupt,
-		&pic_configure_io_interrupt,
-		&pic_is_spurious_interrupt,
-		&pic_is_level_triggered_interrupt,
-		&pic_end_of_interrupt,
-		NULL
-	};
+	static PicInterruptController picController;
+	new(&picController) PicInterruptController;
 
 	// Start initialization sequence for the master and slave PICs
 	out8(PIC_INIT1 | PIC_INIT1_SEND_INIT4, PIC_MASTER_INIT1);
@@ -232,7 +248,7 @@ pic_init()
 
 	TRACE(("PIC level trigger mode: 0x%08lx\n", sLevelTriggeredInterrupts));
 
-	reserve_io_interrupt_vectors(16, 0, INTERRUPT_TYPE_EXCEPTION);
+	reserve_io_interrupt_vectors_ex(16, 0, INTERRUPT_TYPE_EXCEPTION, &picController);
 
 	// make the pic controller the current one
 	arch_int_set_interrupt_controller(picController);
