@@ -12,6 +12,7 @@
 #include <util/kernel_cpp.h>
 #include <util/Vector.h>
 #include <device_manager.h>
+#include <interrupt_controller.h>
 
 #include <AutoDeleter.h>
 #include <AutoDeleterDrivers.h>
@@ -487,7 +488,7 @@ fdt_get_interrupt_cells(uint32 interrupt_parent_phandle)
 
 static bool
 fdt_device_get_interrupt(fdt_device* dev, uint32 index,
-	device_node** interruptController, uint64* interrupt)
+	device_node** outInterruptController, uint64* interrupt)
 {
 	ASSERT(dev != NULL);
 
@@ -530,10 +531,10 @@ fdt_device_get_interrupt(fdt_device* dev, uint32 index,
 		if (interrupt != NULL)
 			*interrupt = interruptNumber;
 
-		if (interruptController != NULL && interruptParent != 0) {
+		if (outInterruptController != NULL && interruptParent != 0) {
 			fdt_bus* bus;
 			ASSERT(gDeviceManager->get_driver(dev->bus, NULL, (void**)&bus) >= B_OK);
-			*interruptController = fdt_bus_node_by_phandle(bus, interruptParent);
+			*outInterruptController = fdt_bus_node_by_phandle(bus, interruptParent);
 		}
 
 		return true;
@@ -542,18 +543,34 @@ fdt_device_get_interrupt(fdt_device* dev, uint32 index,
 	if ((index + 1) * 8 > (uint32)propLen)
 		return false;
 
-	if (interruptController != NULL) {
-		uint32 phandle = fdt32_to_cpu(*(prop + 2 * index));
+	uint32 interruptNumber = fdt32_to_cpu(*(prop + 2 * index + 1));
 
-		fdt_bus* bus;
-		ASSERT(gDeviceManager->get_driver(
-			dev->bus, NULL, (void**)&bus) >= B_OK);
+	uint32 phandle = fdt32_to_cpu(*(prop + 2 * index));
 
-		*interruptController = fdt_bus_node_by_phandle(bus, phandle);
+	fdt_bus* bus;
+	ASSERT_ALWAYS(gDeviceManager->get_driver(dev->bus, NULL, (void**)&bus) >= B_OK);
+
+	device_node* intCtrlFdtNode = fdt_bus_node_by_phandle(bus, phandle);
+	device_node* intCtrlDriverNode = NULL;
+	interrupt_controller_module_info* intCtrlDriverModule = NULL;
+	void* intCtrlDriverCookie = NULL;
+
+	static const device_attr attrs = {{}};
+	if (gDeviceManager->get_next_child_node(intCtrlFdtNode, &attrs, &intCtrlDriverNode) >= B_OK) {
+		DeviceNodePutter<&gDeviceManager> hartNodePutter(intCtrlDriverNode);
+
+		ASSERT_ALWAYS(gDeviceManager->get_driver(dev->bus, (driver_module_info**)&intCtrlDriverModule, &intCtrlDriverCookie) >= B_OK);
+
+		long vector = 0;
+		ASSERT_ALWAYS(intCtrlDriverModule->get_vector(intCtrlDriverCookie, interruptNumber, &vector) >= B_OK);
+		interruptNumber = vector;
 	}
 
+	if (outInterruptController != NULL)
+		*outInterruptController = intCtrlFdtNode;
+
 	if (interrupt != NULL)
-		*interrupt = fdt32_to_cpu(*(prop + 2 * index + 1));
+		*interrupt = interruptNumber;
 
 	return true;
 }
