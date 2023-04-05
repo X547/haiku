@@ -172,6 +172,17 @@ static B_ALWAYS_INLINE uint64 VirtAdrOfs(uint64 physAdr)
 	return physAdr % PAGESIZE;
 }
 
+union CounterenReg {
+	struct {
+		uint32 cycle:  1;
+		uint32 time: 1;
+		uint32 instret: 1;
+		uint32 hpm: 29;
+	};
+	uint32 val;
+};
+
+
 #define CSR_REG_MACRO(Name, value) \
 	static B_ALWAYS_INLINE uint64 Name() { \
 		uint64 x; asm volatile("csrr %0, " #value : "=r" (x)); return x;} \
@@ -235,8 +246,9 @@ CSR_REG_MACRO(Scause, scause)
 CSR_REG_MACRO(Mtval, mtval)
 CSR_REG_MACRO(Stval, stval)
 
-// machine-mode counter enable
+// counter enable
 CSR_REG_MACRO(Mcounteren, mcounteren)
+CSR_REG_MACRO(Scounteren, scounteren)
 
 // cycle counter
 CSR_REG_MACRO(CpuMcycle, mcycle)

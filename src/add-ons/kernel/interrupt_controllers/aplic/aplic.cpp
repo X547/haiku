@@ -181,6 +181,7 @@ AplicInterruptController::InitDriverInt(device_node* node)
 		.ie = true
 	}.val;
 
+	uint32 context = fAplicContexts[0];
 	for (uint32 irq = 1; irq < fIrqCount + 1; irq++) {
 		fRegs->sourceCfg[irq].val = AplicSourceCfg {
 			.non_deleg = {
@@ -191,14 +192,14 @@ AplicInterruptController::InitDriverInt(device_node* node)
 		fRegs->target[irq].val = AplicTarget {
 			.direct = {
 				.iprio = 0,
-				.hartIdx = 0
+				.hartIdx = context
 			}
 		}.val;
 
 	}
 
-	fRegs->idc[0].idelivery = true;
-	fRegs->idc[0].ithreshold = 0;
+	fRegs->idc[context].idelivery = true;
+	fRegs->idc[context].ithreshold = 0;
 
 	return B_OK;
 }
@@ -283,8 +284,19 @@ AplicInterruptController::EndOfInterrupt(int irq)
 int32
 AplicInterruptController::AssignToCpu(int32 irq, int32 cpu)
 {
-	// Not yet supported.
-	return 0;
+	if (irq == 0)
+		return cpu;
+
+	uint32 context = fAplicContexts[cpu];
+
+	fRegs->target[irq].val = AplicTarget {
+		.direct = {
+			.iprio = 0,
+			.hartIdx = context
+		}
+	}.val;
+
+	return cpu;
 }
 
 
