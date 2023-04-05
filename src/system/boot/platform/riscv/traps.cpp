@@ -163,6 +163,7 @@ traps_init()
 	mstatus.ie = 1 << modeM;
 	SetMstatus(mstatus.val);
 	InitPmp();
-	SetMcounteren((1 << modeS) | (1 << modeU));
+	SetMcounteren(CounterenReg{.time = true}.val);
+	SetScounteren(CounterenReg{.time = true}.val);
 	MSyscall(kMSyscallSwitchToSmode);
 }
