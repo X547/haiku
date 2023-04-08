@@ -164,6 +164,8 @@ struct device_node : DoublyLinkedListLinkImpl<device_node> {
 			void			Dump(int32 level = 0);
 			void			Dump2(int32 level = 0);
 
+			void			InitialRegisterDynamic();
+
 private:
 			status_t		_RegisterFixed(uint32& registered);
 			bool			_AlwaysRegisterDynamic();
@@ -690,6 +692,8 @@ get_next_child_node(device_node* parent, const device_attr* attributes,
 	device_node** _node)
 {
 	RecursiveLocker _(sLock);
+
+	//parent->InitialRegisterDynamic();
 
 	NodeList::ConstIterator iterator = parent->Children().GetIterator();
 	device_node* last = *_node;
@@ -1552,9 +1556,9 @@ device_node::Register(device_node* parent)
 	// Register the children the driver wants
 
 	if (DriverModule()->register_child_devices != NULL) {
-		sInRegisterChildDevices++;
+		//sInRegisterChildDevices++;
 		status = DriverModule()->register_child_devices(DriverData());
-		sInRegisterChildDevices--;
+		//sInRegisterChildDevices--;
 		if (sInRegisterChildDevices <= 0) {
 			dprintf("register_child_devices: %" B_PRId32 " nodes registered\n", sProbePendingList.Count());
 			while (device_node* childNode = sProbePendingList.RemoveHead()) {
@@ -2434,6 +2438,14 @@ device_node::Dump2(int32 level)
 		put_level(level + 1);
 		kprintf("File(\"%s\")\n", file->Path());
 	}
+}
+
+
+void
+device_node::InitialRegisterDynamic()
+{
+	if (fChildren.IsEmpty())
+		_RegisterDynamic();
 }
 
 
