@@ -510,11 +510,14 @@ fdt_device_get_interrupt(fdt_device* dev, uint32 index,
 	ASSERT(gDeviceManager->get_attr_uint32(
 		dev->node, "fdt/node", &fdtNode, false) >= B_OK);
 
+	uint32 interruptParent = 0;
+	uint32 interruptNumber = 0;
+
 	int propLen;
 	const uint32 *prop = (uint32*)fdt_getprop(gFDT, (int)fdtNode, "interrupts-extended",
 		&propLen);
 	if (prop == NULL) {
-		uint32 interruptParent = fdt_get_interrupt_parent(dev, fdtNode);
+		interruptParent = fdt_get_interrupt_parent(dev, fdtNode);
 		uint32 interruptCells = fdt_get_interrupt_cells(interruptParent);
 
 		prop = (uint32*)fdt_getprop(gFDT, (int)fdtNode, "interrupts",
@@ -526,7 +529,6 @@ fdt_device_get_interrupt(fdt_device* dev, uint32 index,
 			return false;
 
 		uint32 offset = interruptCells * index;
-		uint32 interruptNumber = 0;
 
 		if ((interruptCells == 1) || (interruptCells == 2)) {
 			 interruptNumber = fdt32_to_cpu(*(prop + offset));
@@ -541,30 +543,27 @@ fdt_device_get_interrupt(fdt_device* dev, uint32 index,
 		} else {
 			panic("unsupported interruptCells");
 		}
+	} else {
+		if ((index + 1) * 8 > (uint32)propLen)
+			return false;
 
-		if (interrupt != NULL)
-			*interrupt = interruptNumber;
-
-		if (outInterruptController != NULL && interruptParent != 0) {
-			fdt_bus* bus;
-			ASSERT(gDeviceManager->get_driver(dev->bus, NULL, (void**)&bus) >= B_OK);
-			*outInterruptController = fdt_bus_node_by_phandle(bus, interruptParent);
-		}
-
-		return true;
+		interruptParent = fdt32_to_cpu(*(prop + 2 * index));
+		interruptNumber = fdt32_to_cpu(*(prop + 2 * index + 1));
 	}
 
-	if ((index + 1) * 8 > (uint32)propLen)
-		return false;
-
-	uint32 interruptNumber = fdt32_to_cpu(*(prop + 2 * index + 1));
-
-	uint32 phandle = fdt32_to_cpu(*(prop + 2 * index));
+	dprintf("fdt_device_get_interrupt(\"%s\", %" B_PRIu32 ")\n", fdt_device_get_name(dev), index);
 
 	fdt_bus* bus;
 	ASSERT_ALWAYS(gDeviceManager->get_driver(dev->bus, NULL, (void**)&bus) >= B_OK);
 
-	device_node* intCtrlFdtNode = fdt_bus_node_by_phandle(bus, phandle);
+	device_node* intCtrlFdtNode = fdt_bus_node_by_phandle(bus, interruptParent);
+#if 0
+	dprintf("  intCtrlFdtNode: %p\n", intCtrlFdtNode);
+	if (intCtrlFdtNode != NULL) {
+		uint32 fdtNode;
+		ASSERT_ALWAYS(gDeviceManager->get_attr_uint32(intCtrlFdtNode, "fdt/node", &fdtNode, false) >= B_OK);
+		dprintf("    name: %s\n", fdt_get_name(gFDT, (int)fdtNode, NULL));
+	}
 	device_node* intCtrlDriverNode = NULL;
 	interrupt_controller_module_info* intCtrlDriverModule = NULL;
 	void* intCtrlDriverCookie = NULL;
@@ -578,7 +577,10 @@ fdt_device_get_interrupt(fdt_device* dev, uint32 index,
 		long vector = 0;
 		ASSERT_ALWAYS(intCtrlDriverModule->get_vector(intCtrlDriverCookie, interruptNumber, &vector) >= B_OK);
 		interruptNumber = vector;
+	} else {
+		dprintf("  [!] child node not found\n");
 	}
+#endif
 
 	if (outInterruptController != NULL)
 		*outInterruptController = intCtrlFdtNode;
