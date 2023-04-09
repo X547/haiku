@@ -13,6 +13,8 @@
 #include <malloc.h>
 #include <KernelExport.h>
 
+#pragma GCC diagnostic ignored "-Wvolatile"
+
 
 enum {
 	maxVirtioDevices = 32,
