@@ -20,7 +20,6 @@
 
 #include <string.h>
 #include <new>
-#include <algorithm>
 
 //#define TRACE_DEVICES
 #ifdef TRACE_DEVICES
