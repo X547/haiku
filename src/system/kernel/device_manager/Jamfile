@@ -6,6 +6,7 @@ KernelMergeObject kernel_device_manager.o :
 	AbstractModuleDevice.cpp
 	BaseDevice.cpp
 	device_manager.cpp
+	DriverRoster.cpp
 	devfs.cpp
 	FileDevice.cpp
 	id_generator.cpp

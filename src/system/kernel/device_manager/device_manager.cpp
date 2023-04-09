@@ -15,7 +15,6 @@
 #include <KernelExport.h>
 #include <Locker.h>
 #include <module.h>
-#include <PCI.h>
 
 #include <boot_device.h>
 #include <device_manager_defs.h>
@@ -34,7 +33,7 @@
 #include "IORequest.h"
 #include "io_resources.h"
 #include "IOSchedulerRoster.h"
-
+#include "DriverRoster.h"
 
 //#define TRACE_DEVICE_MANAGER
 #ifdef TRACE_DEVICE_MANAGER
@@ -169,17 +168,6 @@ struct device_node : DoublyLinkedListLinkImpl<device_node> {
 
 private:
 			status_t		_RegisterFixed(uint32& registered);
-			bool			_AlwaysRegisterDynamic();
-			status_t		_AddPath(Stack<KPath*>& stack, const char* path,
-								const char* subPath = NULL);
-			status_t		_GetNextDriverPath(void*& cookie, KPath& _path);
-			status_t		_GetNextDriver(void* list,
-								driver_module_info*& driver);
-			status_t		_FindBestDriver(const char* path,
-								driver_module_info*& bestDriver,
-								float& bestSupport,
-								device_node* previous = NULL);
-			status_t		_RegisterPath(const char* path);
 			status_t		_RegisterDynamic(device_node* previous = NULL);
 			status_t		_RemoveChildren();
 			device_node*	_FindCurrentChild();
@@ -223,7 +211,6 @@ enum node_flags {
 
 static device_node *sRootNode;
 static recursive_lock sLock;
-static const char* sGenericContextPath;
 static device_node::ProbePendingList sProbePendingList;
 static int32 sInRegisterChildDevices = 0;
 
@@ -1644,330 +1631,43 @@ device_node::_RegisterFixed(uint32& registered)
 
 
 status_t
-device_node::_AddPath(Stack<KPath*>& stack, const char* basePath,
-	const char* subPath)
-{
-	KPath* path = new(std::nothrow) KPath;
-	if (path == NULL)
-		return B_NO_MEMORY;
-
-	status_t status = path->SetTo(basePath);
-	if (status == B_OK && subPath != NULL && subPath[0])
-		status = path->Append(subPath);
-	if (status == B_OK)
-		status = stack.Push(path);
-
-	TRACE(("  add path: \"%s\", %" B_PRId32 "\n", path->Path(), status));
-
-	if (status != B_OK)
-		delete path;
-
-	return status;
-}
-
-
-status_t
-device_node::_GetNextDriverPath(void*& cookie, KPath& _path)
-{
-	Stack<KPath*>* stack = NULL;
-
-	if (cookie == NULL) {
-		// find all paths and add them
-		stack = new(std::nothrow) Stack<KPath*>();
-		if (stack == NULL)
-			return B_NO_MEMORY;
-
-		StackDeleter<KPath*> stackDeleter(stack);
-
-		bool generic = false;
-		uint16 type = 0;
-		uint16 subType = 0;
-		uint16 interface = 0;
-		if (get_attr_uint16(this, B_DEVICE_TYPE, &type, false) != B_OK
-			|| get_attr_uint16(this, B_DEVICE_SUB_TYPE, &subType, false)
-					!= B_OK)
-			generic = true;
-
-		get_attr_uint16(this, B_DEVICE_INTERFACE, &interface, false);
-
-		// TODO: maybe make this extendible via settings file?
-		switch (type) {
-			case PCI_mass_storage:
-				switch (subType) {
-					case PCI_scsi:
-						_AddPath(*stack, "busses", "scsi");
-						_AddPath(*stack, "busses", "virtio");
-						break;
-					case PCI_ide:
-						_AddPath(*stack, "busses", "ata");
-						_AddPath(*stack, "busses", "ide");
-						break;
-					case PCI_sata:
-						// TODO: check for ahci interface
-						_AddPath(*stack, "busses", "scsi");
-						_AddPath(*stack, "busses", "ata");
-						_AddPath(*stack, "busses", "ide");
-						break;
-					case PCI_nvm:
-						_AddPath(*stack, "drivers", "disk");
-						break;
-					default:
-						_AddPath(*stack, "busses");
-						break;
-				}
-				break;
-			case PCI_serial_bus:
-				switch (subType) {
-					case PCI_firewire:
-						_AddPath(*stack, "busses", "firewire");
-						break;
-					case PCI_usb:
-						_AddPath(*stack, "busses", "usb");
-						break;
-					default:
-						_AddPath(*stack, "busses");
-						break;
-				}
-				break;
-			case PCI_network:
-				_AddPath(*stack, "drivers", "net");
-				_AddPath(*stack, "busses", "virtio");
-				break;
-			case PCI_display:
-				_AddPath(*stack, "drivers", "graphics");
-				break;
-			case PCI_multimedia:
-				switch (subType) {
-					case PCI_audio:
-					case PCI_hd_audio:
-						_AddPath(*stack, "drivers", "audio");
-						break;
-					case PCI_video:
-						_AddPath(*stack, "drivers", "video");
-						break;
-					default:
-						_AddPath(*stack, "drivers");
-						break;
-				}
-				break;
-			case PCI_base_peripheral:
-				switch (subType) {
-					case PCI_sd_host:
-						_AddPath(*stack, "busses", "mmc");
-						break;
-					case PCI_system_peripheral_other:
-						_AddPath(*stack, "busses", "mmc");
-						_AddPath(*stack, "drivers");
-						break;
-					default:
-						_AddPath(*stack, "drivers");
-						break;
-				}
-				break;
-			case PCI_encryption_decryption:
-				switch (subType) {
-					case PCI_encryption_decryption_other:
-						_AddPath(*stack, "busses", "random");
-						break;
-					default:
-						_AddPath(*stack, "drivers");
-						break;
-				}
-				break;
-			case PCI_data_acquisition:
-				switch (subType) {
-					case PCI_data_acquisition_other:
-						_AddPath(*stack, "busses", "i2c");
-						break;
-					default:
-						_AddPath(*stack, "drivers");
-						break;
-				}
-				break;
-			default:
-				if (sRootNode == this) {
-					_AddPath(*stack, "busses/pci");
-					_AddPath(*stack, "bus_managers");
-				} else if (!generic) {
-					_AddPath(*stack, "drivers");
-					_AddPath(*stack, "busses/virtio");
-				} else {
-					// For generic drivers, we only allow busses when the
-					// request is more specified
-					if (sGenericContextPath != NULL
-						&& (!strcmp(sGenericContextPath, "disk")
-							|| !strcmp(sGenericContextPath, "ports")
-							|| !strcmp(sGenericContextPath, "bus"))) {
-						_AddPath(*stack, "busses");
-					}
-					_AddPath(*stack, "drivers", sGenericContextPath);
-					_AddPath(*stack, "busses/i2c");
-					_AddPath(*stack, "busses/scsi");
-					_AddPath(*stack, "busses", "virtio");
-					_AddPath(*stack, "busses/random");
-					_AddPath(*stack, "busses/virtio");
-					_AddPath(*stack, "bus_managers/pci");
-					_AddPath(*stack, "busses/pci");
-					_AddPath(*stack, "interrupt_controllers");
-					_AddPath(*stack, "rtc");
-					_AddPath(*stack, "power");
-				}
-				break;
-		}
-
-		stackDeleter.Detach();
-
-		cookie = (void*)stack;
-	} else
-		stack = static_cast<Stack<KPath*>*>(cookie);
-
-	KPath* path;
-	if (stack->Pop(&path)) {
-		_path.Adopt(*path);
-		delete path;
-		return B_OK;
-	}
-
-	delete stack;
-	return B_ENTRY_NOT_FOUND;
-}
-
-
-status_t
-device_node::_GetNextDriver(void* list, driver_module_info*& driver)
-{
-	while (true) {
-		char name[B_FILE_NAME_LENGTH];
-		size_t nameLength = sizeof(name);
-
-		status_t status = read_next_module_name(list, name, &nameLength);
-		if (status != B_OK)
-			return status;
-
-		if (!strcmp(fModuleName, name))
-			continue;
-
-		if (get_module(name, (module_info**)&driver) != B_OK)
-			continue;
-
-		if (driver->supports_device == NULL
-			|| driver->register_device == NULL) {
-			put_module(name);
-			continue;
-		}
-
-		return B_OK;
-	}
-}
-
-
-status_t
-device_node::_FindBestDriver(const char* path, driver_module_info*& bestDriver,
-	float& bestSupport, device_node* previous)
-{
-	if (bestDriver == NULL)
-		bestSupport = previous != NULL ? previous->fSupportsParent : 0.0f;
-
-	void* list = open_module_list_etc(path, "driver_v1");
-	driver_module_info* driver;
-	while (_GetNextDriver(list, driver) == B_OK) {
-		if (previous != NULL && driver == previous->DriverModule()) {
-			put_module(driver->info.name);
-			continue;
-		}
-
-		float support = driver->supports_device(this);
-		if (support > bestSupport) {
-			if (bestDriver != NULL)
-				put_module(bestDriver->info.name);
-
-			bestDriver = driver;
-			bestSupport = support;
-			continue;
-				// keep reference to best module around
-		}
-
-		put_module(driver->info.name);
-	}
-	close_module_list(list);
-
-	return bestDriver != NULL ? B_OK : B_ENTRY_NOT_FOUND;
-}
-
-
-status_t
-device_node::_RegisterPath(const char* path)
-{
-	void* list = open_module_list_etc(path, "driver_v1");
-	driver_module_info* driver;
-	uint32 count = 0;
-
-	while (_GetNextDriver(list, driver) == B_OK) {
-		float support = driver->supports_device(this);
-		if (support > 0.0) {
-			TRACE(("  register module \"%s\", support %f\n", driver->info.name,
-				support));
-			if (driver->register_device(this) == B_OK)
-				count++;
-		}
-
-		put_module(driver->info.name);
-	}
-	close_module_list(list);
-
-	return count > 0 ? B_OK : B_ENTRY_NOT_FOUND;
-}
-
-
-bool
-device_node::_AlwaysRegisterDynamic()
-{
-	uint16 type = 0;
-	uint16 subType = 0;
-	get_attr_uint16(this, B_DEVICE_TYPE, &type, false);
-	get_attr_uint16(this, B_DEVICE_SUB_TYPE, &subType, false);
-
-	switch (type) {
-		case PCI_serial_bus:
-		case PCI_bridge:
-		case PCI_encryption_decryption:
-		case 0:
-			return true;
-	}
-	return false;
-		// TODO: we may want to be a bit more specific in the future
-}
-
-
-status_t
 device_node::_RegisterDynamic(device_node* previous)
 {
 	// If this is not a bus, we don't have to scan it
 	if (find_attr(this, B_DEVICE_BUS, false, B_STRING_TYPE) == NULL)
 		return B_OK;
 
+#if 0
 	// If we're not being probed, we honour the B_FIND_CHILD_ON_DEMAND
 	// requirements
-	if (!IsProbed() && (fFlags & B_FIND_CHILD_ON_DEMAND) != 0
-		&& !_AlwaysRegisterDynamic())
+	if (!IsProbed() && (fFlags & B_FIND_CHILD_ON_DEMAND) != 0)
 		return B_OK;
-
-	KPath path;
+#endif
 
 	if ((fFlags & B_FIND_MULTIPLE_CHILDREN) == 0) {
 		// find the one driver
 		driver_module_info* bestDriver = NULL;
 		float bestSupport = 0.0;
-		void* cookie = NULL;
 
-		while (_GetNextDriverPath(cookie, path) == B_OK) {
-			_FindBestDriver(path.Path(), bestDriver, bestSupport, previous);
+		DriverRoster::LookupResultArray lookupResults;
+		DriverRoster::Instance().Lookup(this, lookupResults);
+		if (!lookupResults.IsEmpty()) {
+			if (get_module(lookupResults[0].module, (module_info**)&bestDriver) < B_OK) {
+				dprintf("[!] device_manager: can't load driver module \"%s\"\n", lookupResults[0].module);
+				bestDriver = NULL;
+			} else
+				bestSupport = lookupResults[0].score;
+		} else {
+			device_attr_private* nameAttr = find_attr(this, B_DEVICE_PRETTY_NAME, false, B_STRING_TYPE);
+			dprintf("[!] device_manager: can't find driver for node %p(%s)\n", this, nameAttr == NULL ? NULL : nameAttr->value.string);
 		}
 
 		if (bestDriver != NULL) {
 			TRACE(("  register best module \"%s\", support %f\n",
 				bestDriver->info.name, bestSupport));
 			if (bestDriver->register_device(this) == B_OK) {
+				device_attr_private* nameAttr = find_attr(this, B_DEVICE_PRETTY_NAME, false, B_STRING_TYPE);
+				dprintf("device_manager: dynamic driver \"%s\" attached for node %p(%s)\n", bestDriver->info.name, this, nameAttr == NULL ? NULL : nameAttr->value.string);
 				// There can only be one node of this driver
 				// (usually only one at all, but there might be a new driver
 				// "waiting" for its turn)
@@ -1987,9 +1687,25 @@ device_node::_RegisterDynamic(device_node* previous)
 		}
 	} else {
 		// register all drivers that match
-		void* cookie = NULL;
-		while (_GetNextDriverPath(cookie, path) == B_OK) {
-			_RegisterPath(path.Path());
+
+		DriverRoster::LookupResultArray lookupResults;
+		DriverRoster::Instance().Lookup(this, lookupResults);
+		for (int32 i = 0; i < lookupResults.Count(); i++) {
+			DriverRoster::LookupResult& result = lookupResults[i];
+			driver_module_info* driver;
+			if (get_module(result.module, (module_info**)&driver) < B_OK) {
+				dprintf("[!] device_manager: can't load driver module \"%s\"\n", result.module);
+				driver = NULL;
+			} else {
+				float support = driver->supports_device(this);
+				if (support > 0.0) {
+					if (driver->register_device(this) == B_OK) {
+						device_attr_private* nameAttr = find_attr(this, B_DEVICE_PRETTY_NAME, false, B_STRING_TYPE);
+						dprintf("device_manager: dynamic driver \"%s\" attached for node %p(%s)\n", driver->info.name, this, nameAttr == NULL ? NULL : nameAttr->value.string);
+					}
+				}
+				put_module(driver->info.name);
+			}
 		}
 	}
 
@@ -2075,53 +1791,11 @@ device_node::Probe(const char* devicePath, uint32 updateCycle)
 
 	MethodDeleter<device_node, bool, &device_node::UninitDriver> uninit(this);
 
+#if 0
 	if ((fFlags & B_FIND_CHILD_ON_DEMAND) != 0) {
-		bool matches = false;
-		uint16 type = 0;
-		uint16 subType = 0;
-		if (get_attr_uint16(this, B_DEVICE_SUB_TYPE, &subType, false) == B_OK
-			&& get_attr_uint16(this, B_DEVICE_TYPE, &type, false) == B_OK) {
-			// Check if this node matches the device path
-			// TODO: maybe make this extendible via settings file?
-			if (!strcmp(devicePath, "disk")) {
-				matches = type == PCI_mass_storage
-					|| (type == PCI_base_peripheral
-						&& (subType == PCI_sd_host
-							|| subType == PCI_system_peripheral_other));
-			} else if (!strcmp(devicePath, "audio")) {
-				matches = type == PCI_multimedia
-					&& (subType == PCI_audio || subType == PCI_hd_audio);
-			} else if (!strcmp(devicePath, "net")) {
-				matches = type == PCI_network;
-			} else if (!strcmp(devicePath, "graphics")) {
-				matches = type == PCI_display;
-			} else if (!strcmp(devicePath, "video")) {
-				matches = type == PCI_multimedia && subType == PCI_video;
-			} else if (!strcmp(devicePath, "power")) {
-				matches = type == PCI_data_acquisition;
-			} else if (!strcmp(devicePath, "input")) {
-				matches = type == PCI_data_acquisition
-					&& subType == PCI_data_acquisition_other;
-			}
-		} else {
-			// This driver does not support types, but still wants to its
-			// children explored on demand only.
-			matches = true;
-			sGenericContextPath = devicePath;
-		}
-
-		if (matches) {
-			fLastUpdateCycle = updateCycle;
-				// This node will be probed in this update cycle
-
-			status = _Probe();
-
-			sGenericContextPath = NULL;
-			return status;
-		}
-
 		return B_OK;
 	}
+#endif
 
 	NodeList::Iterator iterator = fChildren.GetIterator();
 	while (iterator.HasNext()) {
@@ -2563,5 +2237,7 @@ status_t
 device_manager_init_post_modules(struct kernel_args* args)
 {
 	RecursiveLocker _(sLock);
+	new(&DriverRoster::Instance()) DriverRoster();
+	DriverRoster::Instance().InitPostModules();
 	return sRootNode->Reprobe();
 }
