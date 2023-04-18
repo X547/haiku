@@ -8,6 +8,11 @@
 #include <sys/stat.h>
 #include <new>
 
+#include <kmodule.h>
+#include <syscalls.h>
+#include <fs/KPath.h>
+#include <vfs.h>
+
 #include <AutoDeleterPosix.h>
 
 extern struct device_manager_info gDeviceManagerModule;
@@ -21,6 +26,26 @@ DriverRoster::DriverWatcher::EventOccurred(NotificationService& service, const K
 {
 	dprintf("DriverWatcher::EventOccurred\n");
 	event->Dump(dprintf);
+
+	int32 opcode = event->GetInt32("opcode", -1);
+	dev_t device = event->GetInt32("device", -1);
+	ino_t directory = event->GetInt64("directory", -1);
+	const char* name = event->GetString("name", NULL);
+
+	switch (opcode) {
+		case B_ENTRY_CREATED: {
+			entry_ref ref {device, directory, name};
+			MutexLocker lock(&DriverRoster::Instance().fLock);
+			DriverRoster::Instance().AddDirectoryWatchers(ref);
+			break;
+		}
+		case B_ENTRY_REMOVED: {
+			entry_ref ref {device, directory, name};
+			MutexLocker lock(&DriverRoster::Instance().fLock);
+			delete DriverRoster::Instance().fEntryWatchers.Remove(ref);
+			break;
+		}
+	}
 
 	// TODO
 #if 0
@@ -61,45 +86,186 @@ DriverRoster::DriverWatcher::EventOccurred(NotificationService& service, const K
 }
 
 
+DriverRoster::EntryWatcher::EntryWatcher(const Key& key):
+	fKey({key.device, key.directory, fName})
+{
+	strcpy(fName, key.name);
+}
+
+
 DriverRoster::DirectoryWatcher::~DirectoryWatcher()
 {
+	char path[MAXPATHLEN];
+	vfs_entry_ref_to_path(fKey.device, fKey.directory, fKey.name, true, path, B_COUNT_OF(path));
+
+	dprintf("-DirectoryWatcher(\"%s\")\n", path);
+}
+
+
+DriverRoster::AddOn::~AddOn()
+{
+	char path[MAXPATHLEN];
+	vfs_entry_ref_to_path(fKey.device, fKey.directory, fKey.name, true, path, B_COUNT_OF(path));
+
+	dprintf("-AddOn(\"%s\")\n", path);
+
+	while (CompatDef* def = fDefs.RemoveHead())
+		def->RemoveSelf();
 }
 
 
 void
-DriverRoster::AddDirectoryWatchers(int dirFd)
+DriverRoster::AddDirectoryWatchers(const entry_ref& ref)
 {
+	FileDescriptorCloser dirFd(_kern_open_dir_entry_ref(ref.device, ref.directory, ref.name));
+
 	struct stat stat;
-	if (::fstat(dirFd, &stat) < 0)
-		return;
+	if (::fstat(dirFd.Get(), &stat) < 0 || !S_ISDIR(stat.st_mode))
+		return AddAddOn(ref);
 
-	if (!S_ISDIR(stat.st_mode))
-		return;
+	char path[MAXPATHLEN];
+	vfs_entry_ref_to_path(ref.device, ref.directory, ref.name, true, path, B_COUNT_OF(path));
+	dprintf("AddDirectoryWatchers(\"%s\")\n", path);
 
-	DirCloser dir(fdopendir(dirFd));
+	DirCloser dir(fdopendir(dirFd.Get()));
 	if (!dir.IsSet())
 		return;
 
-	ObjectDeleter<DirectoryWatcher> watcher(new(std::nothrow) DirectoryWatcher({.dev = stat.st_dev, .inode = stat.st_ino}));
+	ObjectDeleter<DirectoryWatcher> watcher(new(std::nothrow) DirectoryWatcher(ref));
 	if (!watcher.IsSet())
 		return;
 
-	fDirectoryWatchers.Insert(watcher.Detach());
-	add_node_listener(stat.st_dev, stat.st_ino, B_WATCH_ALL, fDriverWatcher);
+	fEntryWatchers.Insert(watcher.Detach());
+	if (add_node_listener(stat.st_dev, stat.st_ino, B_WATCH_ALL, fDriverWatcher) < B_OK)
+		return;
 
 	for (struct dirent* dirent = readdir(dir.Get()); dirent != NULL; dirent = readdir(dir.Get())) {
 		if (strcmp(dirent->d_name, ".") == 0 || strcmp(dirent->d_name, "..") == 0)
 			continue;
 
-		dprintf("AddDirectoryWatchers(\"%s\")\n", dirent->d_name);
-		FileDescriptorCloser childFd(openat(dirFd, dirent->d_name, O_DIRECTORY | O_RDONLY));
-		if (!childFd.IsSet())
-			continue;
-
 		// TODO: avoid recursion
-		AddDirectoryWatchers(childFd.Get());
+		AddDirectoryWatchers(entry_ref{stat.st_dev, stat.st_ino, dirent->d_name});
 	}
 }
+
+
+void
+DriverRoster::AddAddOn(const entry_ref& ref)
+{
+	char path[MAXPATHLEN];
+	vfs_entry_ref_to_path(ref.device, ref.directory, ref.name, true, path, B_COUNT_OF(path));
+	dprintf("AddAddOn(\"%s\")\n", path);
+
+	ObjectDeleter<AddOn> watcher(new(std::nothrow) AddOn(ref));
+	if (!watcher.IsSet())
+		return;
+
+	FileDescriptorCloser fd(_kern_open_entry_ref(ref.device, ref.directory, ref.name, O_RDONLY, 0));
+	if (fd.IsSet()) {
+		dprintf("  fd.IsSet()\n");
+		FileDescriptorCloser attrFd(_kern_open_attr(fd.Get(), NULL, "driver", B_RAW_TYPE, O_RDONLY));
+		if (attrFd.IsSet()) {
+			dprintf("  attrFd.IsSet()\n");
+			struct stat stat;
+			if (fstat(attrFd.Get(), &stat) >= B_OK) {
+				dprintf("  size: %" B_PRIu64 "\n", stat.st_size);
+				// TODO: out of memory check
+				MemoryDeleter buffer(malloc(stat.st_size));
+				// TODO: check read failure
+				read_pos(attrFd.Get(), 0, buffer.Get(), stat.st_size);
+				KMessage msg;
+				msg.SetTo(buffer.Detach(), stat.st_size, 0, KMessage::KMESSAGE_INIT_FROM_BUFFER | KMessage::KMESSAGE_OWNS_BUFFER);
+				msg.Dump(dprintf);
+				fRootDef.Insert(msg, watcher.Get());
+			}
+		}
+	}
+
+	fEntryWatchers.Insert(watcher.Detach());
+}
+
+
+DriverRoster::CompatDef::CompatDef(CompatDef* parent, const KMessage& msg):
+	fParent(parent)
+{
+	const char* module;
+	if (msg.FindString("module", &module) >= B_OK)
+		// TODO: check out of memory
+		fModule.SetTo(strdup(module));
+
+	const void* data;
+	int32 size;
+	if (msg.FindData("score", B_FLOAT_TYPE, &data, &size) >= B_OK && size == sizeof(float))
+		fScore = *(float*)data;
+
+	KMessageField field;
+	if (msg.FindField("attrs", B_MESSAGE_TYPE, &field) >= B_OK) {
+		data = field.ElementAt(0, &size);
+		// TODO: check out of memory
+		fAttrs.SetTo((void*)data, size, 0, KMessage::KMESSAGE_INIT_FROM_BUFFER | KMessage::KMESSAGE_CLONE_BUFFER);
+	}
+
+	if (msg.FindField("driver", B_MESSAGE_TYPE, &field) >= B_OK) {
+		for (int32 i = 0; i < field.CountElements(); i++) {
+			int32 size;
+			const void *data = field.ElementAt(i, &size);
+			KMessage subMsg;
+			subMsg.SetTo((void*)data, size);
+			// TODO: check status code
+			Insert(subMsg);
+		}
+	}
+}
+
+
+DriverRoster::CompatDef::~CompatDef()
+{
+	while (CompatDef* def = fSub.RemoveHead())
+		delete def;
+}
+
+
+status_t
+DriverRoster::CompatDef::Insert(const KMessage &msg, AddOn* addOn)
+{
+	// TODO: check out of memory
+	ObjectDeleter subDef(new (std::nothrow) CompatDef(this, msg));
+
+	if (addOn != NULL)
+		addOn->fDefs.Insert(subDef.Get());
+
+	fSub.Insert(subDef.Detach());
+
+	return B_OK;
+}
+
+
+void
+DriverRoster::CompatDef::RemoveSelf()
+{
+	fParent->fSub.Remove(this);
+	delete this;
+}
+
+
+void
+DriverRoster::CompatDef::Lookup(Vector<CompatDef*>& matches, device_attr* devAttr)
+{
+	if (fSub.IsEmpty()) {
+
+	} else {
+		for (CompatDef* def = fSub.First(); def != NULL; def = fSub.GetNext(def)) {
+			Lookup(matches, devAttr);
+		}
+	}
+}
+
+
+void
+DriverRoster::Init()
+{
+}
+
 
 void
 DriverRoster::InitPostModules()
@@ -113,17 +279,16 @@ DriverRoster::InitPostModules()
 	};
 
 	for (size_t i = 0; i < B_COUNT_OF(paths); i++) {
+		KPath path(paths[i]);
+		KPath parentPath = path;
+		parentPath.RemoveLeaf();
 		struct stat stat;
-		if (::stat(paths[i], &stat) >= 0) {
-			add_node_listener(stat.st_dev, stat.st_ino, B_WATCH_ALL, fDriverWatcher);
-			dprintf("DriverRoster: added node listener for \"%s\"\n", paths[i]);
+		if (::stat(parentPath.Path(), &stat) < B_OK)
+			continue;
 
-			FileDescriptorCloser dirFd(open(paths[i], O_DIRECTORY | O_RDONLY));
-			if (!dirFd.IsSet())
-				continue;
-
-			AddDirectoryWatchers(dirFd.Get());
-		}
+		entry_ref ref{stat.st_dev, stat.st_ino, path.Leaf()};
+		MutexLocker lock(&fLock);
+		AddDirectoryWatchers(ref);
 	}
 }
 

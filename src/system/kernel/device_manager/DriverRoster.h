@@ -1,5 +1,7 @@
 #pragma once
 
+#include <optional>
+
 #include <device_manager.h>
 
 #include <Notifications.h>
@@ -8,6 +10,8 @@
 
 #include <Vector.h>
 #include <AVLTree.h>
+#include <DoublyLinkedList.h>
+#include <AutoDeleter.h>
 
 
 template <class T, class M>
@@ -23,6 +27,13 @@ static inline constexpr T& ContainerOf(M &ptr, const M T::*member)
 }
 
 
+struct entry_ref {
+	dev_t device;
+	ino_t directory;
+	const char* name;
+};
+
+
 class DriverRoster {
 private:
 	class DriverWatcher: public NotificationListener {
@@ -31,17 +42,14 @@ private:
 		void EventOccurred(NotificationService& service, const KMessage* event) final;
 	};
 
-	class DirectoryWatcher {
+	class EntryWatcher {
 	public:
-		struct Key {
-			dev_t dev;
-			ino_t inode;
-			char name[MAXPATHLEN];
-		};
+		typedef entry_ref Key;
 
+	private:
 		struct NodeDef {
-			typedef ::DriverRoster::DirectoryWatcher::Key Key;
-			typedef DirectoryWatcher Value;
+			typedef ::DriverRoster::EntryWatcher::Key Key;
+			typedef EntryWatcher Value;
 
 			inline AVLTreeNode* GetAVLTreeNode(Value* value) const
 			{
@@ -50,15 +58,15 @@ private:
 
 			inline Value* GetValue(AVLTreeNode* node) const
 			{
-				return &ContainerOf(*node, &DirectoryWatcher::fTreeNode);
+				return &ContainerOf(*node, &EntryWatcher::fTreeNode);
 			}
 
 			inline int Compare(const Key& a, const Value* b) const
 			{
-				if (a.dev < b->fKey.dev) return -1;
-				if (a.dev > b->fKey.dev) return 1;
-				if (a.inode < b->fKey.inode) return -1;
-				if (a.inode > b->fKey.inode) return 1;
+				if (a.device < b->fKey.device) return -1;
+				if (a.device > b->fKey.device) return 1;
+				if (a.directory < b->fKey.directory) return -1;
+				if (a.directory > b->fKey.directory) return 1;
 				return strcmp(a.name, b->fKey.name);
 			}
 
@@ -68,22 +76,73 @@ private:
 			}
 		};
 
-	private:
+	protected:
 		Key fKey;
+		char fName[MAXPATHLEN];
 		AVLTreeNode fTreeNode;
 
 	public:
-		DirectoryWatcher(const Key& key): fKey(key) {}
-		~DirectoryWatcher();
+		typedef AVLTree<NodeDef> Map;
+
+		EntryWatcher(const Key& key);
+		virtual ~EntryWatcher() = default;
+	};
+
+	class DirectoryWatcher: public EntryWatcher {
+	public:
+		DirectoryWatcher(const Key& key): EntryWatcher(key) {}
+		virtual ~DirectoryWatcher();
+	};
+
+	class AddOn;
+
+	class CompatDef {
+	private:
+		DoublyLinkedListLink<CompatDef> fSubLink;
+		DoublyLinkedListLink<CompatDef> fAddOnLink;
+
+	public:
+		typedef DoublyLinkedList<CompatDef, DoublyLinkedListMemberGetLink<CompatDef, &CompatDef::fSubLink>> SubList;
+		typedef DoublyLinkedList<CompatDef, DoublyLinkedListMemberGetLink<CompatDef, &CompatDef::fAddOnLink>> AddOnList;
+
+	private:
+		CompatDef* fParent {};
+		MemoryDeleter fModule;
+		std::optional<float> fScore;
+		KMessage fAttrs;
+		SubList fSub;
+
+	public:
+		CompatDef() {};
+		CompatDef(CompatDef* parent, const KMessage &msg);
+		~CompatDef();
+
+		status_t Insert(const KMessage &msg, AddOn* addOn = NULL);
+		void RemoveSelf();
+
+		void Lookup(Vector<CompatDef*>& matches, device_attr* devAttr);
+	};
+
+	class AddOn: public EntryWatcher {
+	private:
+		friend class CompatDef;
+
+		CompatDef::AddOnList fDefs;
+
+	public:
+		AddOn(const Key& key): EntryWatcher(key) {}
+		virtual ~AddOn();
 	};
 
 	static DriverRoster sInstance;
 
 	mutex fLock = MUTEX_INITIALIZER("DriverRoster");
 	DriverWatcher fDriverWatcher;
-	AVLTree<DirectoryWatcher::NodeDef> fDirectoryWatchers;
+	EntryWatcher::Map fEntryWatchers;
+	CompatDef fRootDef;
 
-	void AddDirectoryWatchers(int dirFd);
+	void AddDirectoryWatchers(const entry_ref& ref);
+	void AddAddOn(const entry_ref& ref);
 
 public:
 	struct LookupResult {
@@ -94,6 +153,7 @@ public:
 
 	static DriverRoster& Instance() {return sInstance;}
 
+	void Init();
 	void InitPostModules();
 
 	void Lookup(device_node* node, LookupResultArray& result);

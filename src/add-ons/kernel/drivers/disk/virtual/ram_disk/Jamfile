@@ -6,3 +6,8 @@ UsePrivateKernelHeaders ;
 
 
 KernelAddon ram_disk : ram_disk.cpp ;
+
+local compat_decls = [ FGristFiles ram_disk.kmsg ] ;
+SEARCH on $(compat_decls) = [ FDirName $(SUBDIR) ] ;
+
+AddFileDataAttribute ram_disk : driver : raw : $(compat_decls) ;

@@ -2227,6 +2227,9 @@ device_manager_init(struct kernel_args* args)
 	add_debugger_command("io_buffer", &dump_io_buffer, "dump an I/O buffer");
 	add_debugger_command("dma_buffer", &dump_dma_buffer, "dump a DMA buffer");
 
+	new(&DriverRoster::Instance()) DriverRoster();
+	DriverRoster::Instance().Init();
+
 	init_node_tree();
 
 	return B_OK;
@@ -2237,7 +2240,6 @@ status_t
 device_manager_init_post_modules(struct kernel_args* args)
 {
 	RecursiveLocker _(sLock);
-	new(&DriverRoster::Instance()) DriverRoster();
 	DriverRoster::Instance().InitPostModules();
 	return sRootNode->Reprobe();
 }
