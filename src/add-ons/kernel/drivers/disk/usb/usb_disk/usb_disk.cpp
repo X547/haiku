@@ -1029,6 +1029,13 @@ usb_disk_callback(void *cookie, status_t status, void *data,
 static status_t
 usb_disk_attach(device_node *node, usb_device newDevice, void **cookie)
 {
+	const usb_device_descriptor *descriptor
+		= gUSBModule->get_device_descriptor(newDevice);
+
+	// Some strange built-in motherboard device that do not work well with this driver.
+	if (descriptor->vendor_id == 0x14cd && descriptor->product_id == 0x125d)
+		return B_ERROR;
+
 	TRACE("device_added(0x%08" B_PRIx32 ")\n", newDevice);
 	disk_device *device = new(std::nothrow) disk_device;
 	recursive_lock_lock(&device->io_lock);
