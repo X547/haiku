@@ -44,7 +44,18 @@ arch_handle_fdt(const void* fdt, int node)
 	if (deviceType != NULL) {
 		if (strcmp(deviceType, "cpu") == 0) {
 			// TODO: improve incompatible CPU detection
-			if (!(fdt_getprop(fdt, node, "mmu-type", NULL) != NULL))
+
+			const void* prop;
+			prop = fdt_getprop(fdt, node, "status", NULL);
+			if (prop != NULL && strcmp((const char*)prop, "disabled") == 0)
+				return;
+
+			prop = fdt_getprop(fdt, node, "riscv,isa", NULL);
+			if (prop == NULL || strcmp((const char*)prop, "rv64imac") == 0)
+				return;
+
+			prop = fdt_getprop(fdt, node, "mmu-type", NULL);
+			if (prop == NULL)
 				return;
 
 			platform_cpu_info* info;

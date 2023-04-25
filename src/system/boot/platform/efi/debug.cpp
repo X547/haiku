@@ -43,8 +43,15 @@ dprintf_args(const char *format, va_list args)
 	if (length == 0)
 		return;
 
+	if (stdout == NULL) {
+		serial_puts(buffer, length);
+		return;
+	}
+
 	if (length >= (int)sizeof(buffer))
 		length = sizeof(buffer) - 1;
+
+	printf("%s", buffer);
 
 	syslog_write(buffer, length);
 	serial_puts(buffer, length);
