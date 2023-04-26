@@ -5,6 +5,11 @@ SubDirC++Flags -fno-rtti ;
 UsePrivateKernelHeaders ;
 
 KernelAddon <pci>plda :
+	# TODO: move to separate driver
+	Syscon.cpp
+	StarfiveClock.cpp
+	StarfiveReset.cpp
+
 	PciControllerPlda.cpp
 	MsiInterruptCtrlPlda.cpp
 	kernel_interface.cpp

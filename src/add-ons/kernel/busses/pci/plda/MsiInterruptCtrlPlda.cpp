@@ -86,20 +86,20 @@ MsiInterruptCtrlPlda::InterruptReceived(void* arg)
 int32
 MsiInterruptCtrlPlda::InterruptReceivedInt()
 {
-	dprintf("MsiInterruptCtrlPlda::InterruptReceivedInt()\n");
+	// dprintf("MsiInterruptCtrlPlda::InterruptReceivedInt()\n");
 	uint32 status = fRegs->istatusMsi;
 	for (int i = 0; i < 32; i++) {
 		if (((1 << i) & status) != 0) {
-			dprintf("MSI IRQ: %d (%ld)\n", i, fMsiStartIrq + i);
+			// dprintf("MSI IRQ: %d (%ld)\n", i, fMsiStartIrq + i);
 			int_io_interrupt_handler(fMsiStartIrq + i, false);
 			fRegs->istatusMsi = (1 << i);
 		}
 	}
 	fRegs->istatusLocal.val = PciPldaInt{.msi = true}.val;
 
-	uint32 statusMisc = fRegs->istatusLocal.val;
+	uint32 statusMisc = fRegs->istatusLocal.val & kPciPldaIntAll.val;
 	if (statusMisc != 0) {
-		dprintf("  istatusLocal: %#" B_PRIx32 "\n", statusMisc);
+		dprintf("  [!] unhandled PCI interrupts: %#" B_PRIx32 "\n", statusMisc);
 		fRegs->istatusLocal.val = statusMisc;
 	}
 

@@ -5,6 +5,12 @@
 
 
 #include "PciControllerPlda.h"
+#include "Syscon.h"
+#include "StarfiveClock.h"
+#include "StarfiveReset.h"
+#include "starfive-jh7110-clkgen.h"
+#include "starfive-jh7110.h"
+
 #include <bus/FDT.h>
 
 #include <AutoDeleterDrivers.h>
@@ -12,6 +18,20 @@
 
 #include <string.h>
 #include <new>
+
+
+static uint32
+fls(uint32 mask)
+{
+	if (mask == 0)
+		return 0;
+	uint32 pos = 1;
+	while (mask != 1) {
+		mask >>= 1;
+		pos++;
+	}
+	return pos;
+}
 
 
 static uint32
@@ -261,11 +281,6 @@ PciControllerPlda::InitDriverInt(device_node* node)
 		return B_ERROR;
 	dprintf("  config: %08" B_PRIx64 ", %08" B_PRIx64 "\n", fConfigPhysBase, fConfigSize);
 
-	if (fRegsPhysBase != 0x2C000000) {
-		dprintf("  skipping device\n");
-		return B_ERROR;
-	}
-
 	uint64 irq;
 	if (!fdtModule->get_interrupt(fdtDev, 0, NULL, &irq))
 		return B_ERROR;
@@ -278,6 +293,125 @@ PciControllerPlda::InitDriverInt(device_node* node)
 		B_ANY_KERNEL_ADDRESS, B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA, (void**)&fConfigBase));
 	CHECK_RET(fConfigArea.Get());
 
+	const void* prop;
+	int propLen;
+	prop = fdtModule->get_prop(fdtDev, "starfive,stg-syscon", &propLen);
+	if (prop == NULL || propLen < 4*(1 + 4)) {
+		dprintf("  [!] no \"starfive,stg-syscon\" property\n");
+		return B_ERROR;
+	}
+
+	const uint32* stgSyscon = (const uint32*)prop;
+
+	uint32 stgArfun = B_BENDIAN_TO_HOST_INT32(stgSyscon[1]);
+	uint32 stgAwfun = B_BENDIAN_TO_HOST_INT32(stgSyscon[2]);
+	uint32 stgRpNep = B_BENDIAN_TO_HOST_INT32(stgSyscon[3]);
+	uint32 stgLnksta = B_BENDIAN_TO_HOST_INT32(stgSyscon[4]);
+
+	dprintf(  "stgArfun: %#" B_PRIx32 "\n", stgArfun);
+	dprintf(  "stgAwfun: %#" B_PRIx32 "\n", stgAwfun);
+	dprintf(  "stgRpNep: %#" B_PRIx32 "\n", stgRpNep);
+	dprintf(  "stgLnksta: %#" B_PRIx32 "\n", stgLnksta);
+
+	StarfiveClock clock;
+	StarfiveReset reset;
+	Syscon syscon(0x10240000, 0x1000);
+
+	syscon.SetBits(stgRpNep, STG_SYSCON_K_RP_NEP_MASK, 1 << STG_SYSCON_K_RP_NEP_SHIFT);
+	syscon.SetBits(stgAwfun, STG_SYSCON_CKREF_SRC_MASK, 2 << STG_SYSCON_CKREF_SRC_SHIFT);
+	syscon.SetBits(stgAwfun, STG_SYSCON_CLKREQ_MASK, 1 << STG_SYSCON_CLKREQ_SHIFT);
+
+	switch (fRegsPhysBase) {
+		case 0x2B000000:
+			dprintf("  clock[JH7110_NOC_BUS_CLK_STG_AXI]: %d\n", clock.IsEnabled(JH7110_NOC_BUS_CLK_STG_AXI));
+			dprintf("  clock[JH7110_PCIE0_CLK_TL]: %d\n", clock.IsEnabled(JH7110_PCIE0_CLK_TL));
+			dprintf("  clock[JH7110_PCIE0_CLK_AXI_MST0]: %d\n", clock.IsEnabled(JH7110_PCIE0_CLK_AXI_MST0));
+			dprintf("  clock[JH7110_PCIE0_CLK_APB]: %d\n", clock.IsEnabled(JH7110_PCIE0_CLK_APB));
+
+			dprintf("  reset[RSTN_U0_PLDA_PCIE_AXI_MST0]: %d\n", reset.IsAsserted(RSTN_U0_PLDA_PCIE_AXI_MST0));
+			dprintf("  reset[RSTN_U0_PLDA_PCIE_AXI_SLV0]: %d\n", reset.IsAsserted(RSTN_U0_PLDA_PCIE_AXI_SLV0));
+			dprintf("  reset[RSTN_U0_PLDA_PCIE_AXI_SLV]: %d\n", reset.IsAsserted(RSTN_U0_PLDA_PCIE_AXI_SLV));
+			dprintf("  reset[RSTN_U0_PLDA_PCIE_BRG]: %d\n", reset.IsAsserted(RSTN_U0_PLDA_PCIE_BRG));
+			dprintf("  reset[RSTN_U0_PLDA_PCIE_CORE]: %d\n", reset.IsAsserted(RSTN_U0_PLDA_PCIE_CORE));
+			dprintf("  reset[RSTN_U0_PLDA_PCIE_APB]: %d\n", reset.IsAsserted(RSTN_U0_PLDA_PCIE_APB));
+			break;
+		case 0x2C000000:
+			dprintf("  clock[JH7110_NOC_BUS_CLK_STG_AXI]: %d\n", clock.IsEnabled(JH7110_NOC_BUS_CLK_STG_AXI));
+			dprintf("  clock[JH7110_PCIE1_CLK_TL]: %d\n", clock.IsEnabled(JH7110_PCIE1_CLK_TL));
+			dprintf("  clock[JH7110_PCIE1_CLK_AXI_MST0]: %d\n", clock.IsEnabled(JH7110_PCIE1_CLK_AXI_MST0));
+			dprintf("  clock[JH7110_PCIE1_CLK_APB]: %d\n", clock.IsEnabled(JH7110_PCIE1_CLK_APB));
+
+			dprintf("  reset[RSTN_U1_PLDA_PCIE_AXI_MST0]: %d\n", reset.IsAsserted(RSTN_U1_PLDA_PCIE_AXI_MST0));
+			dprintf("  reset[RSTN_U1_PLDA_PCIE_AXI_SLV0]: %d\n", reset.IsAsserted(RSTN_U1_PLDA_PCIE_AXI_SLV0));
+			dprintf("  reset[RSTN_U1_PLDA_PCIE_AXI_SLV]: %d\n", reset.IsAsserted(RSTN_U1_PLDA_PCIE_AXI_SLV));
+			dprintf("  reset[RSTN_U1_PLDA_PCIE_BRG]: %d\n", reset.IsAsserted(RSTN_U1_PLDA_PCIE_BRG));
+			dprintf("  reset[RSTN_U1_PLDA_PCIE_CORE]: %d\n", reset.IsAsserted(RSTN_U1_PLDA_PCIE_CORE));
+			dprintf("  reset[RSTN_U1_PLDA_PCIE_APB]: %d\n", reset.IsAsserted(RSTN_U1_PLDA_PCIE_APB));
+			break;
+	}
+
+	dprintf("  init clocks and resets\n");
+	switch (fRegsPhysBase) {
+		case 0x2B000000:
+			clock.SetEnabled(JH7110_NOC_BUS_CLK_STG_AXI, true);
+			clock.SetEnabled(JH7110_PCIE0_CLK_TL, true);
+			clock.SetEnabled(JH7110_PCIE0_CLK_AXI_MST0, true);
+			clock.SetEnabled(JH7110_PCIE0_CLK_APB, true);
+
+			reset.SetAsserted(RSTN_U0_PLDA_PCIE_AXI_MST0, false);
+			reset.SetAsserted(RSTN_U0_PLDA_PCIE_AXI_SLV0, false);
+			reset.SetAsserted(RSTN_U0_PLDA_PCIE_AXI_SLV, false);
+			reset.SetAsserted(RSTN_U0_PLDA_PCIE_BRG, false);
+			reset.SetAsserted(RSTN_U0_PLDA_PCIE_CORE, false);
+			reset.SetAsserted(RSTN_U0_PLDA_PCIE_APB, false);
+			break;
+		case 0x2C000000:
+			clock.SetEnabled(JH7110_NOC_BUS_CLK_STG_AXI, true);
+			clock.SetEnabled(JH7110_PCIE1_CLK_TL, true);
+			clock.SetEnabled(JH7110_PCIE1_CLK_AXI_MST0, true);
+			clock.SetEnabled(JH7110_PCIE1_CLK_APB, true);
+
+			reset.SetAsserted(RSTN_U1_PLDA_PCIE_AXI_MST0, false);
+			reset.SetAsserted(RSTN_U1_PLDA_PCIE_AXI_SLV0, false);
+			reset.SetAsserted(RSTN_U1_PLDA_PCIE_AXI_SLV, false);
+			reset.SetAsserted(RSTN_U1_PLDA_PCIE_BRG, false);
+			reset.SetAsserted(RSTN_U1_PLDA_PCIE_CORE, false);
+			reset.SetAsserted(RSTN_U1_PLDA_PCIE_APB, false);
+			break;
+	}
+
+	for (uint32 i = 1; i < PLDA_FUNC_NUM; i++) {
+		syscon.SetBits(stgArfun, STG_SYSCON_AXI4_SLVL_ARFUNC_MASK, (i << PLDA_PHY_FUNC_SHIFT) << STG_SYSCON_AXI4_SLVL_ARFUNC_SHIFT);
+		syscon.SetBits(stgAwfun, STG_SYSCON_AXI4_SLVL_AWFUNC_MASK, (i << PLDA_PHY_FUNC_SHIFT) << STG_SYSCON_AXI4_SLVL_AWFUNC_SHIFT);
+
+		fRegs->pciMisc |= PLDA_FUNCTION_DIS;
+	}
+	syscon.SetBits(stgArfun, STG_SYSCON_AXI4_SLVL_ARFUNC_MASK, 0 << STG_SYSCON_AXI4_SLVL_ARFUNC_SHIFT);
+	syscon.SetBits(stgAwfun, STG_SYSCON_AXI4_SLVL_AWFUNC_MASK, 0 << STG_SYSCON_AXI4_SLVL_AWFUNC_SHIFT);
+
+	fRegs->genSettings |= PLDA_RP_ENABLE;
+	fRegs->pciePciIds = (IDS_PCI_TO_PCI_BRIDGE << IDS_CLASS_CODE_SHIFT) | IDS_REVISION_ID;
+	fRegs->pmsgSupportRx &= ~PMSG_LTR_SUPPORT;
+	fRegs->pcieWinrom |= PREF_MEM_WIN_64_SUPPORT;
+
+	uint32 atrIndex = 0;
+	SetAtrEntry(atrIndex++, fConfigPhysBase, 0, 1 << 28, PciPldaAtrTrslParam{.type = PciPldaAtrTrslId::config});
+
+	for (uint32 i = 0; i < B_COUNT_OF(fResourceRanges); i++) {
+		const pci_resource_range& range = fResourceRanges[i];
+		if (range.type >= kPciRangeMmio && range.type < kPciRangeMmioEnd)
+			SetAtrEntry(atrIndex++, range.host_addr, range.pci_addr, range.size, PciPldaAtrTrslParam{.type = PciPldaAtrTrslId::memory});
+	}
+
+	snooze(200000);
+
+#if 1
+	if (fRegsPhysBase != 0x2C000000) {
+		dprintf("  skipping device\n");
+		return B_ERROR;
+	}
+#endif
+
 	CHECK_RET(fIrqCtrl.Init(GetRegs(), irq));
 
 	dprintf("-PciControllerPlda::InitDriver()\n");
@@ -289,6 +423,28 @@ void
 PciControllerPlda::UninitDriver()
 {
 	delete this;
+}
+
+
+void
+PciControllerPlda::SetAtrEntry(uint32 index, phys_addr_t srcAddr, phys_addr_t trslAddr,
+	size_t windowSize, PciPldaAtrTrslParam trslParam)
+{
+	ASSERT_ALWAYS(index < B_COUNT_OF(fRegs->xr3pciAtrAxi4Slv0));
+	PciPldaAtr volatile& atr = fRegs->xr3pciAtrAxi4Slv0[index];
+	atr.srcAddrLow.val = PciPldaAtrAddrLow{
+		.enable = 1,
+		.windowSize = fls(windowSize) - 1,
+		.address = (uint32)srcAddr >> 12
+	}.val;
+	atr.srcAddrHigh = (uint32)(srcAddr >> 32);
+	atr.trslAddrLow = (uint32)trslAddr;
+	atr.trslAddrHigh = (uint32)(trslAddr >> 32);
+	atr.trslParam.val = trslParam.val;
+
+	dprintf("ATR entry: 0x%010" B_PRIx64 " %s 0x%010" B_PRIx64 " [0x%010" B_PRIx64 "] (param: 0x%06x)\n",
+	       srcAddr, (trslParam.dir) ? "<-" : "->",
+	       trslAddr, (uint64)windowSize, trslParam.val);
 }
 
 
