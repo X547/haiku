@@ -17,9 +17,17 @@
 #include <algorithm>
 
 
+#define L2_CACHE_FLUSH64 0x200
+#define L2_CACHE_BASE_ADDR 0x2010000
+#define CONFIG_SYS_CACHELINE_SIZE 64
+
+
 extern "C" void SVec();
 
 extern uint32 gPlatform;
+
+static area_id sL2CacheArea = B_ERROR;
+static uint8 volatile* sL2CacheRegs;
 
 
 status_t
@@ -78,6 +86,10 @@ arch_cpu_init_post_vm(kernel_args *args)
 		VMAddressSpace::Kernel()->Get();
 	}
 
+	sL2CacheArea = map_physical_memory("L2 Cache MMIO", L2_CACHE_BASE_ADDR, 0x1000, B_ANY_KERNEL_ADDRESS,
+		B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA, (void**)&sL2CacheRegs);
+	ASSERT_ALWAYS(sL2CacheArea >= B_OK);
+
 	return B_OK;
 }
 
@@ -86,6 +98,20 @@ status_t
 arch_cpu_init_post_modules(kernel_args *args)
 {
 	return B_OK;
+}
+
+
+void
+arch_cpu_flush_dcache(void *address, size_t len)
+{
+	auto flush64 = (uint64 volatile*)(sL2CacheRegs + L2_CACHE_FLUSH64);
+
+	memory_full_barrier();
+	uint64 end = (addr_t)address + len;
+	for (addr_t line = (addr_t)address; line < end; line += CONFIG_SYS_CACHELINE_SIZE) {
+		(*flush64) = line;
+		memory_full_barrier();
+	}
 }
 
 
