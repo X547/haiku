@@ -189,10 +189,11 @@ cpu_frequency(int32 cpu)
 void
 clear_caches(void *address, size_t length, uint32 flags)
 {
-	// TODO: data cache
-	if ((B_INVALIDATE_ICACHE & flags) != 0) {
+	if ((B_FLUSH_DCACHE & flags) != 0)
+		arch_cpu_flush_dcache(address, length);
+
+	if ((B_INVALIDATE_ICACHE & flags) != 0)
 		arch_cpu_sync_icache(address, length);
-	}
 }
 
 
