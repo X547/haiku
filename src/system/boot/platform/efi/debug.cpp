@@ -43,7 +43,7 @@ dprintf_args(const char *format, va_list args)
 	if (length == 0)
 		return;
 
-	if (stdout == NULL) {
+	if (true) {
 		serial_puts(buffer, length);
 		return;
 	}

@@ -11,6 +11,7 @@
 #define __HAIKU_PCI_BUS_MANAGER_TESTING 1
 #include <PCI.h>
 #include <arch/generic/msi.h>
+#include <arch/generic/generic_int.h>
 #if defined(__i386__) || defined(__x86_64__)
 #include <arch/x86/msi.h>
 #endif
@@ -23,8 +24,8 @@
 
 
 #define TRACE_CAP(x...) dprintf(x)
-#define FLOW(x...)
-//#define FLOW(x...) dprintf(x)
+//#define FLOW(x...)
+#define FLOW(x...) dprintf(x)
 
 
 PCI *gPCI;
@@ -481,6 +482,13 @@ pci_init_deferred(void)
 {
 	dprintf("pci_init_deferred()\n");
 
+	static int32 count = 0;
+	dprintf("  count: %" B_PRId32 "\n", count);
+	if (count < 1) {
+		count++;
+		return B_OK;
+	}
+
 	if (sInitDone)
 		return B_OK;
 
@@ -508,6 +516,8 @@ pci_init_deferred(void)
 		TRACE(("PCI: pci_controller_finalize failed\n"));
 		return B_ERROR;
 	}
+
+	gPCI->RefreshDeviceInfo();
 
 	pci_print_info();
 
@@ -564,7 +574,7 @@ PCI::PCI()
 	fVirtualBusMap(),
 	fNextVirtualBus(0)
 {
-	#if defined(__POWERPC__) || defined(__M68K__)
+	#if defined(__POWERPC__) || defined(__M68K__) || defined(__riscv)
 		fBusEnumeration = true;
 	#endif
 }
@@ -2020,8 +2030,11 @@ PCI::ConfigureMSI(PCIDev *device, uint8 count, uint8 *startVector)
 	if (info->configured_count != 0)
 		return B_BUSY;
 
-	status_t result = msi_allocate_vectors(count, &info->start_vector,
-		&info->address_value, &info->data_value);
+	domain_data *domain = _GetDomainData(device->domain);
+	MsiDriver *driver = domain->controller->get_msi_driver(domain->controller_cookie);
+
+	status_t result = driver->AllocateVectors(count, info->start_vector,
+		info->address_value, info->data_value);
 	if (result != B_OK)
 		return result;
 
@@ -2064,7 +2077,10 @@ PCI::UnconfigureMSI(PCIDev *device)
 	if (info->configured_count == 0)
 		return B_NO_INIT;
 
-	msi_free_vectors(info->configured_count, info->start_vector);
+	domain_data *domain = _GetDomainData(device->domain);
+	MsiDriver *driver = domain->controller->get_msi_driver(domain->controller_cookie);
+
+	driver->FreeVectors(info->configured_count, info->start_vector);
 
 	info->control_value &= ~PCI_msi_control_mme_mask;
 	WriteConfig(device, info->capability_offset + PCI_msi_control, 2,
@@ -2212,8 +2228,11 @@ PCI::ConfigureMSIX(PCIDev *device, uint8 count, uint8 *startVector)
 		info->pba_area_id = -1;
 	info->pba_address = address + info->pba_offset;
 
-	status_t result = msi_allocate_vectors(count, &info->start_vector,
-		&info->address_value, &info->data_value);
+	domain_data *domain = _GetDomainData(device->domain);
+	MsiDriver *driver = domain->controller->get_msi_driver(domain->controller_cookie);
+
+	status_t result = driver->AllocateVectors(count, info->start_vector,
+		info->address_value, info->data_value);
 	if (result != B_OK) {
 		delete_area(info->pba_area_id);
 		delete_area(info->table_area_id);
@@ -2414,7 +2433,10 @@ PCI::_UnconfigureMSIX(PCIDev *device)
 	WriteConfig(device, info->capability_offset + PCI_msix_control, 2,
 		info->control_value);
 
-	msi_free_vectors(info->configured_count, info->start_vector);
+	domain_data *domain = _GetDomainData(device->domain);
+	MsiDriver *driver = domain->controller->get_msi_driver(domain->controller_cookie);
+
+	driver->FreeVectors(info->configured_count, info->start_vector);
 	for (uint8 index = 0; index < info->configured_count; index++) {
 		volatile uint32 *entry = (uint32*)(info->table_address + 16 * index);
 		if ((*(entry + 3) & PCI_msix_vctrl_mask) == 0)

@@ -33,15 +33,6 @@ enum {
 };
 
 
-enum PciBarKind {
-	kRegIo,
-	kRegMmio32,
-	kRegMmio64,
-	kRegMmio1MB,
-	kRegUnknown,
-};
-
-
 union PciAddress {
 	struct {
 		uint32 offset: 8;
@@ -329,6 +320,10 @@ public:
 
 	status_t GetRange(uint32 index, pci_resource_range* range);
 
+	status_t Finalize();
+
+	MsiDriver* GetMsiDriver() {return static_cast<MsiDriver*>(&fIrqCtrl);}
+
 private:
 	status_t ReadResourceInfo();
 	inline status_t InitDriverInt(device_node* node);
@@ -339,6 +334,16 @@ private:
 	inline addr_t ConfigAddress(uint8 bus, uint8 device, uint8 function, uint16 offset);
 
 	PciPldaRegs volatile* GetRegs() {return fRegs;}
+
+	phys_addr_t AllocRegister(uint32 kind, size_t size);
+	InterruptMap* LookupInterruptMap(uint32 childAdr, uint32 childIrq);
+	uint32 GetPciBarKind(uint32 val);
+	void GetBarValMask(uint32& val, uint32& mask, uint8 bus, uint8 device, uint8 function, uint16 offset);
+	void GetBarKindValSize(uint32& barKind, uint64& val, uint64& size, uint8 bus, uint8 device, uint8 function, uint16 offset);
+	uint64 GetBarVal(uint8 bus, uint8 device, uint8 function, uint16 offset);
+	void SetBarVal(uint8 bus, uint8 device, uint8 function, uint16 offset, uint32 barKind, uint64 val);
+	bool AllocBar(uint8 bus, uint8 device, uint8 function, uint16 offset);
+	void AllocRegsForDevice(uint8 bus, uint8 device, uint8 function);
 
 private:
 	spinlock fLock = B_SPINLOCK_INITIALIZER;
@@ -351,6 +356,7 @@ private:
 	size_t fConfigSize {};
 
 	pci_resource_range fResourceRanges[kPciRangeEnd] {};
+	phys_addr_t fResourceFree[kPciRangeEnd] {};
 	InterruptMapMask fInterruptMapMask {};
 	uint32 fInterruptMapLen {};
 	ArrayDeleter<InterruptMap> fInterruptMap;
@@ -365,5 +371,6 @@ private:
 
 
 extern device_manager_info* gDeviceManager;
+extern pci_module_info* gPCI;
 
 #endif	// _PCICONTROLLERPLDA_H_

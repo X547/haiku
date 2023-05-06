@@ -488,8 +488,9 @@ run_menu(Menu* menu)
 				}
 			}
 		} else if (key == TEXT_CONSOLE_KEY_RETURN
-			|| key == TEXT_CONSOLE_KEY_SPACE) {
-			if (item != NULL && invoke_item(menu, item, selected, key))
+			|| key == TEXT_CONSOLE_KEY_SPACE
+			|| key == 'i') {
+			if (item != NULL && invoke_item(menu, item, selected, TEXT_CONSOLE_KEY_RETURN))
 				break;
 		} else if (key == '\t') {
 			if (item == NULL)

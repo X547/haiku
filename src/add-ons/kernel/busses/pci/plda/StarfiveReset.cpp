@@ -75,6 +75,7 @@ status_t StarfiveReset::SetAsserted(uint32 id, bool doAssert)
 	uint32 done = 0;
 
 	uint32 value = *assertAndStatus.assert;
+	dprintf("reset: readl(%16" B_PRIx64 ") -> %#" B_PRIx32 "\n", (addr_t)assertAndStatus.assert, value);
 	if (doAssert) {
 		value |= mask;
 	} else {
@@ -83,6 +84,7 @@ status_t StarfiveReset::SetAsserted(uint32 id, bool doAssert)
 	}
 
 	*assertAndStatus.assert = value;
+	dprintf("reset: writel(%#" B_PRIx32 ", %16" B_PRIx64 ")\n", value, (addr_t)assertAndStatus.assert);
 
 	uint32 attempts = 10000;
 	do {
@@ -122,26 +124,26 @@ bool StarfiveReset::GetAssertAndStatus(uint32 id, AssertAndStatus& res)
 			return true;
 		case STGCRG:
 			res = AssertAndStatus{
-				fSyscrg.regs + STGCRG_RESET_ASSERT / 4,
-				fSyscrg.regs + STGCRG_RESET_STATUS / 4
+				fStgcrg.regs + STGCRG_RESET_ASSERT / 4,
+				fStgcrg.regs + STGCRG_RESET_STATUS / 4
 			};
 			return true;
 		case AONCRG:
 			res = AssertAndStatus{
-				fSyscrg.regs + AONCRG_RESET_ASSERT / 4,
-				fSyscrg.regs + AONCRG_RESET_STATUS / 4
+				fAoncrg.regs + AONCRG_RESET_ASSERT / 4,
+				fAoncrg.regs + AONCRG_RESET_STATUS / 4
 			};
 			return true;
 		case ISPCRG:
 			res = AssertAndStatus{
-				fSyscrg.regs + ISPCRG_RESET_ASSERT / 4,
-				fSyscrg.regs + ISPCRG_RESET_STATUS / 4
+				fIspcrg.regs + ISPCRG_RESET_ASSERT / 4,
+				fIspcrg.regs + ISPCRG_RESET_STATUS / 4
 			};
 			return true;
 		case VOUTCRG:
 			res = AssertAndStatus{
-				fSyscrg.regs + VOUTCRG_RESET_ASSERT / 4,
-				fSyscrg.regs + VOUTCRG_RESET_STATUS / 4
+				fVoutcrg.regs + VOUTCRG_RESET_ASSERT / 4,
+				fVoutcrg.regs + VOUTCRG_RESET_STATUS / 4
 			};
 			return true;
 	}

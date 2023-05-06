@@ -9,6 +9,11 @@
 #include <device_manager.h>
 #include <PCI.h>
 
+#ifdef __cplusplus
+class MsiDriver;
+#else
+typedef struct MsiDriver MsiDriver;
+#endif
 
 typedef struct pci_device pci_device;
 
@@ -102,6 +107,8 @@ typedef struct pci_controller_module_info {
 	status_t	(*get_range)(void *cookie, uint32 index, pci_resource_range *range);
 
 	status_t	(*finalize)(void *cookie);
+
+	MsiDriver*	(*get_msi_driver)(void *cookie);
 
 } pci_controller_module_info;
 

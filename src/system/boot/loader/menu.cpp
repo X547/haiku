@@ -1608,6 +1608,7 @@ user_menu(BootVolume& _bootVolume, PathBlocklist& _pathBlocklist)
 	// Add boot volume
 	menu->AddItem(item = new(std::nothrow) MenuItem("Select boot volume/state",
 		add_boot_volume_menu()));
+	item->SetShortcut('s');
 
 	// Add safe mode
 	menu->AddItem(item = new(std::nothrow) MenuItem("Select safe mode options",

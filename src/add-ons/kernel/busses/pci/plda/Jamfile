@@ -9,6 +9,7 @@ KernelAddon <pci>plda :
 	Syscon.cpp
 	StarfiveClock.cpp
 	StarfiveReset.cpp
+	StarfivePinCtrl.cpp
 
 	PciControllerPlda.cpp
 	MsiInterruptCtrlPlda.cpp

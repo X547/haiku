@@ -79,12 +79,11 @@ namespace {
 class Device : public AbstractModuleDevice,
 	public DoublyLinkedListLinkImpl<Device> {
 public:
-							Device(device_node* node, const char* path, const char* moduleName);
+							Device(device_node* node, const char* moduleName);
 	virtual					~Device();
 
 			status_t		InitCheck() const;
 
-			const char*		Path() const { return fPath; }
 			const char*		ModuleName() const { return fModuleName; }
 
 	virtual	status_t		InitDevice();
@@ -98,7 +97,6 @@ public:
 								{ fRemovedFromParent = removed; }
 
 private:
-	const char*				fPath;
 	const char*				fModuleName;
 	bool					fRemovedFromParent;
 };
@@ -162,9 +160,6 @@ struct device_node : DoublyLinkedListLinkImpl<device_node> {
 			int32			Priority();
 
 			void			Dump(int32 level = 0);
-			void			Dump2(int32 level = 0);
-
-			void			InitialRegisterDynamic();
 
 private:
 			status_t		_RegisterFixed(uint32& registered);
@@ -199,14 +194,9 @@ private:
 	driver_module_info*		fDriver;
 	void*					fDriverData;
 
-	DoublyLinkedListLink<device_node> fProbePendingLink;
-
 	DeviceList				fDevices;
 	AttributeList			fAttributes;
 	ResourceList			fResources;
-
-public:
-	typedef DoublyLinkedList<device_node, DoublyLinkedListMemberGetLink<device_node, &device_node::fProbePendingLink>> ProbePendingList;
 };
 
 // flags in addition to those specified by B_DEVICE_FLAGS
@@ -223,8 +213,7 @@ enum node_flags {
 static device_node *sRootNode;
 static recursive_lock sLock;
 static const char* sGenericContextPath;
-static device_node::ProbePendingList sProbePendingList;
-static int32 sInRegisterChildDevices = 0;
+
 
 //	#pragma mark -
 
@@ -389,14 +378,6 @@ static int
 dump_device_nodes(int argc, char** argv)
 {
 	sRootNode->Dump();
-	return 0;
-}
-
-
-static int
-dump_device_nodes2(int argc, char** argv)
-{
-	sRootNode->Dump2();
 	return 0;
 }
 
@@ -693,8 +674,6 @@ get_next_child_node(device_node* parent, const device_attr* attributes,
 {
 	RecursiveLocker _(sLock);
 
-	//parent->InitialRegisterDynamic();
-
 	NodeList::ConstIterator iterator = parent->Children().GetIterator();
 	device_node* last = *_node;
 
@@ -763,7 +742,7 @@ publish_device(device_node *node, const char *path, const char *moduleName)
 	dprintf("publish device: node %p, path %s, module %s\n", node, path,
 		moduleName);
 
-	Device* device = new(std::nothrow) Device(node, path, moduleName);
+	Device* device = new(std::nothrow) Device(node, moduleName);
 	if (device == NULL)
 		return B_NO_MEMORY;
 
@@ -1172,9 +1151,8 @@ device_attr_private::Compare(const device_attr* attrA, const device_attr *attrB)
 //	#pragma mark - Device
 
 
-Device::Device(device_node* node, const char* path, const char* moduleName)
+Device::Device(device_node* node, const char* moduleName)
 	:
-	fPath(strdup(path)),
 	fModuleName(strdup(moduleName)),
 	fRemovedFromParent(false)
 {
@@ -1184,7 +1162,6 @@ Device::Device(device_node* node, const char* path, const char* moduleName)
 
 Device::~Device()
 {
-	free((char*)fPath);
 	free((char*)fModuleName);
 }
 
@@ -1556,15 +1533,7 @@ device_node::Register(device_node* parent)
 	// Register the children the driver wants
 
 	if (DriverModule()->register_child_devices != NULL) {
-		//sInRegisterChildDevices++;
 		status = DriverModule()->register_child_devices(DriverData());
-		//sInRegisterChildDevices--;
-		if (sInRegisterChildDevices <= 0) {
-			dprintf("register_child_devices: %" B_PRId32 " nodes registered\n", sProbePendingList.Count());
-			while (device_node* childNode = sProbePendingList.RemoveHead()) {
-				childNode->_RegisterDynamic();
-			}
-		}
 		if (status != B_OK) {
 			UninitUnusedDriver();
 			return status;
@@ -1584,12 +1553,6 @@ device_node::Register(device_node* parent)
 	}
 
 	// Register all possible child device nodes
-
-	if (sInRegisterChildDevices > 0) {
-		sProbePendingList.Insert(this);
-		fRegistered = true;
-		return B_OK;
-	}
 
 	status = _RegisterDynamic();
 	if (status == B_OK)
@@ -2416,39 +2379,6 @@ device_node::Dump(int32 level)
 }
 
 
-void
-device_node::Dump2(int32 level)
-{
-	device_attr_private* nameAttr = find_attr(this, B_DEVICE_PRETTY_NAME, false, B_STRING_TYPE);
-	device_attr_private* busAttr = find_attr(this, B_DEVICE_BUS, false, B_STRING_TYPE);
-
-	put_level(level);
-	if (busAttr != NULL) {
-		kprintf("Device(\"%s\", \"%s\")\n", busAttr == NULL ? "" : busAttr->value.string, nameAttr == NULL ? "" : nameAttr->value.string);
-	} else {
-		kprintf("Driver(\"%s\")\n", nameAttr == NULL ? "" : nameAttr->value.string);
-	}
-
-	for (NodeList::ConstIterator it = Children().GetIterator(); it.HasNext(); ) {
-		it.Next()->Dump2(level + 1);
-	}
-
-	for (DeviceList::ConstIterator it = Devices().GetIterator(); it.HasNext(); ) {
-		Device* file = it.Next();
-		put_level(level + 1);
-		kprintf("File(\"%s\")\n", file->Path());
-	}
-}
-
-
-void
-device_node::InitialRegisterDynamic()
-{
-	if (fChildren.IsEmpty())
-		_RegisterDynamic();
-}
-
-
 //	#pragma mark - root node
 
 
@@ -2536,8 +2466,6 @@ device_manager_init(struct kernel_args* args)
 
 	add_debugger_command("dm_tree", &dump_device_nodes,
 		"dump device node tree");
-	add_debugger_command("dm_tree2", &dump_device_nodes2,
-		"dump device node tree 2");
 	add_debugger_command_etc("io_scheduler", &dump_io_scheduler,
 		"Dump an I/O scheduler",
 		"<scheduler>\n"

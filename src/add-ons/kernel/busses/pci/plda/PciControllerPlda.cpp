@@ -8,6 +8,7 @@
 #include "Syscon.h"
 #include "StarfiveClock.h"
 #include "StarfiveReset.h"
+#include "StarfivePinCtrl.h"
 #include "starfive-jh7110-clkgen.h"
 #include "starfive-jh7110.h"
 
@@ -240,6 +241,7 @@ PciControllerPlda::ReadResourceInfo()
 			fResourceRanges[outType].host_addr = parentAdr;
 			fResourceRanges[outType].pci_addr = childAdr;
 			fResourceRanges[outType].size = len;
+			fResourceFree[outType] = (childAdr != 0) ? childAdr : 1;
 		}
 
 		switch (type & fdtPciRangeTypeMask) {
@@ -301,6 +303,14 @@ PciControllerPlda::InitDriverInt(device_node* node)
 		return B_ERROR;
 	}
 
+#if 0
+	if (fRegsPhysBase != 0x2C000000) {
+		dprintf("  skipping device\n");
+		return B_ERROR;
+	}
+#endif
+
+#if 1
 	const uint32* stgSyscon = (const uint32*)prop;
 
 	uint32 stgArfun = B_BENDIAN_TO_HOST_INT32(stgSyscon[1]);
@@ -316,39 +326,43 @@ PciControllerPlda::InitDriverInt(device_node* node)
 	StarfiveClock clock;
 	StarfiveReset reset;
 	Syscon syscon(0x10240000, 0x1000);
+	StarfivePinCtrl pinCtrl(0x13040000, 0x10000);
 
 	syscon.SetBits(stgRpNep, STG_SYSCON_K_RP_NEP_MASK, 1 << STG_SYSCON_K_RP_NEP_SHIFT);
 	syscon.SetBits(stgAwfun, STG_SYSCON_CKREF_SRC_MASK, 2 << STG_SYSCON_CKREF_SRC_SHIFT);
 	syscon.SetBits(stgAwfun, STG_SYSCON_CLKREQ_MASK, 1 << STG_SYSCON_CLKREQ_SHIFT);
 
-	switch (fRegsPhysBase) {
-		case 0x2B000000:
-			dprintf("  clock[JH7110_NOC_BUS_CLK_STG_AXI]: %d\n", clock.IsEnabled(JH7110_NOC_BUS_CLK_STG_AXI));
-			dprintf("  clock[JH7110_PCIE0_CLK_TL]: %d\n", clock.IsEnabled(JH7110_PCIE0_CLK_TL));
-			dprintf("  clock[JH7110_PCIE0_CLK_AXI_MST0]: %d\n", clock.IsEnabled(JH7110_PCIE0_CLK_AXI_MST0));
-			dprintf("  clock[JH7110_PCIE0_CLK_APB]: %d\n", clock.IsEnabled(JH7110_PCIE0_CLK_APB));
+	auto ShowClockResetStatus = [&]() {
+		switch (fRegsPhysBase) {
+			case 0x2B000000:
+				dprintf("  clock[JH7110_NOC_BUS_CLK_STG_AXI]: %d\n", clock.IsEnabled(JH7110_NOC_BUS_CLK_STG_AXI));
+				dprintf("  clock[JH7110_PCIE0_CLK_TL]: %d\n", clock.IsEnabled(JH7110_PCIE0_CLK_TL));
+				dprintf("  clock[JH7110_PCIE0_CLK_AXI_MST0]: %d\n", clock.IsEnabled(JH7110_PCIE0_CLK_AXI_MST0));
+				dprintf("  clock[JH7110_PCIE0_CLK_APB]: %d\n", clock.IsEnabled(JH7110_PCIE0_CLK_APB));
 
-			dprintf("  reset[RSTN_U0_PLDA_PCIE_AXI_MST0]: %d\n", reset.IsAsserted(RSTN_U0_PLDA_PCIE_AXI_MST0));
-			dprintf("  reset[RSTN_U0_PLDA_PCIE_AXI_SLV0]: %d\n", reset.IsAsserted(RSTN_U0_PLDA_PCIE_AXI_SLV0));
-			dprintf("  reset[RSTN_U0_PLDA_PCIE_AXI_SLV]: %d\n", reset.IsAsserted(RSTN_U0_PLDA_PCIE_AXI_SLV));
-			dprintf("  reset[RSTN_U0_PLDA_PCIE_BRG]: %d\n", reset.IsAsserted(RSTN_U0_PLDA_PCIE_BRG));
-			dprintf("  reset[RSTN_U0_PLDA_PCIE_CORE]: %d\n", reset.IsAsserted(RSTN_U0_PLDA_PCIE_CORE));
-			dprintf("  reset[RSTN_U0_PLDA_PCIE_APB]: %d\n", reset.IsAsserted(RSTN_U0_PLDA_PCIE_APB));
-			break;
-		case 0x2C000000:
-			dprintf("  clock[JH7110_NOC_BUS_CLK_STG_AXI]: %d\n", clock.IsEnabled(JH7110_NOC_BUS_CLK_STG_AXI));
-			dprintf("  clock[JH7110_PCIE1_CLK_TL]: %d\n", clock.IsEnabled(JH7110_PCIE1_CLK_TL));
-			dprintf("  clock[JH7110_PCIE1_CLK_AXI_MST0]: %d\n", clock.IsEnabled(JH7110_PCIE1_CLK_AXI_MST0));
-			dprintf("  clock[JH7110_PCIE1_CLK_APB]: %d\n", clock.IsEnabled(JH7110_PCIE1_CLK_APB));
+				dprintf("  reset[RSTN_U0_PLDA_PCIE_AXI_MST0]: %d\n", reset.IsAsserted(RSTN_U0_PLDA_PCIE_AXI_MST0));
+				dprintf("  reset[RSTN_U0_PLDA_PCIE_AXI_SLV0]: %d\n", reset.IsAsserted(RSTN_U0_PLDA_PCIE_AXI_SLV0));
+				dprintf("  reset[RSTN_U0_PLDA_PCIE_AXI_SLV]: %d\n", reset.IsAsserted(RSTN_U0_PLDA_PCIE_AXI_SLV));
+				dprintf("  reset[RSTN_U0_PLDA_PCIE_BRG]: %d\n", reset.IsAsserted(RSTN_U0_PLDA_PCIE_BRG));
+				dprintf("  reset[RSTN_U0_PLDA_PCIE_CORE]: %d\n", reset.IsAsserted(RSTN_U0_PLDA_PCIE_CORE));
+				dprintf("  reset[RSTN_U0_PLDA_PCIE_APB]: %d\n", reset.IsAsserted(RSTN_U0_PLDA_PCIE_APB));
+				break;
+			case 0x2C000000:
+				dprintf("  clock[JH7110_NOC_BUS_CLK_STG_AXI]: %d\n", clock.IsEnabled(JH7110_NOC_BUS_CLK_STG_AXI));
+				dprintf("  clock[JH7110_PCIE1_CLK_TL]: %d\n", clock.IsEnabled(JH7110_PCIE1_CLK_TL));
+				dprintf("  clock[JH7110_PCIE1_CLK_AXI_MST0]: %d\n", clock.IsEnabled(JH7110_PCIE1_CLK_AXI_MST0));
+				dprintf("  clock[JH7110_PCIE1_CLK_APB]: %d\n", clock.IsEnabled(JH7110_PCIE1_CLK_APB));
 
-			dprintf("  reset[RSTN_U1_PLDA_PCIE_AXI_MST0]: %d\n", reset.IsAsserted(RSTN_U1_PLDA_PCIE_AXI_MST0));
-			dprintf("  reset[RSTN_U1_PLDA_PCIE_AXI_SLV0]: %d\n", reset.IsAsserted(RSTN_U1_PLDA_PCIE_AXI_SLV0));
-			dprintf("  reset[RSTN_U1_PLDA_PCIE_AXI_SLV]: %d\n", reset.IsAsserted(RSTN_U1_PLDA_PCIE_AXI_SLV));
-			dprintf("  reset[RSTN_U1_PLDA_PCIE_BRG]: %d\n", reset.IsAsserted(RSTN_U1_PLDA_PCIE_BRG));
-			dprintf("  reset[RSTN_U1_PLDA_PCIE_CORE]: %d\n", reset.IsAsserted(RSTN_U1_PLDA_PCIE_CORE));
-			dprintf("  reset[RSTN_U1_PLDA_PCIE_APB]: %d\n", reset.IsAsserted(RSTN_U1_PLDA_PCIE_APB));
-			break;
-	}
+				dprintf("  reset[RSTN_U1_PLDA_PCIE_AXI_MST0]: %d\n", reset.IsAsserted(RSTN_U1_PLDA_PCIE_AXI_MST0));
+				dprintf("  reset[RSTN_U1_PLDA_PCIE_AXI_SLV0]: %d\n", reset.IsAsserted(RSTN_U1_PLDA_PCIE_AXI_SLV0));
+				dprintf("  reset[RSTN_U1_PLDA_PCIE_AXI_SLV]: %d\n", reset.IsAsserted(RSTN_U1_PLDA_PCIE_AXI_SLV));
+				dprintf("  reset[RSTN_U1_PLDA_PCIE_BRG]: %d\n", reset.IsAsserted(RSTN_U1_PLDA_PCIE_BRG));
+				dprintf("  reset[RSTN_U1_PLDA_PCIE_CORE]: %d\n", reset.IsAsserted(RSTN_U1_PLDA_PCIE_CORE));
+				dprintf("  reset[RSTN_U1_PLDA_PCIE_APB]: %d\n", reset.IsAsserted(RSTN_U1_PLDA_PCIE_APB));
+				break;
+		};
+	};
+	ShowClockResetStatus();
 
 	dprintf("  init clocks and resets\n");
 	switch (fRegsPhysBase) {
@@ -380,6 +394,18 @@ PciControllerPlda::InitDriverInt(device_node* node)
 			break;
 	}
 
+	ShowClockResetStatus();
+
+	// pinctrl_select_state(dev, "perst-active");
+	switch (fRegsPhysBase) {
+		case 0x2B000000:
+			pinCtrl.SetPinmux(26, GPOUT_LOW, GPOEN_ENABLE);
+			break;
+		case 0x2C000000:
+			pinCtrl.SetPinmux(28, GPOUT_LOW, GPOEN_ENABLE);
+			break;
+	}
+
 	for (uint32 i = 1; i < PLDA_FUNC_NUM; i++) {
 		syscon.SetBits(stgArfun, STG_SYSCON_AXI4_SLVL_ARFUNC_MASK, (i << PLDA_PHY_FUNC_SHIFT) << STG_SYSCON_AXI4_SLVL_ARFUNC_SHIFT);
 		syscon.SetBits(stgAwfun, STG_SYSCON_AXI4_SLVL_AWFUNC_MASK, (i << PLDA_PHY_FUNC_SHIFT) << STG_SYSCON_AXI4_SLVL_AWFUNC_SHIFT);
@@ -403,13 +429,17 @@ PciControllerPlda::InitDriverInt(device_node* node)
 			SetAtrEntry(atrIndex++, range.host_addr, range.pci_addr, range.size, PciPldaAtrTrslParam{.type = PciPldaAtrTrslId::memory});
 	}
 
-	snooze(200000);
-
-#if 1
-	if (fRegsPhysBase != 0x2C000000) {
-		dprintf("  skipping device\n");
-		return B_ERROR;
+	snooze(300000);
+	// pinctrl_select_state(dev, "perst-default");
+	switch (fRegsPhysBase) {
+		case 0x2B000000:
+			pinCtrl.SetPinmux(26, GPOUT_HIGH, GPOEN_ENABLE);
+			break;
+		case 0x2C000000:
+			pinCtrl.SetPinmux(28, GPOUT_HIGH, GPOEN_ENABLE);
+			break;
 	}
+
 #endif
 
 	CHECK_RET(fIrqCtrl.Init(GetRegs(), irq));
@@ -451,10 +481,7 @@ PciControllerPlda::SetAtrEntry(uint32 index, phys_addr_t srcAddr, phys_addr_t tr
 addr_t
 PciControllerPlda::ConfigAddress(uint8 bus, uint8 device, uint8 function, uint16 offset)
 {
-	if (bus != 0 && bus != 1)
-		return 0;
-
-	if (device != 0 || function != 0)
+	if ((bus == 0 || bus == 1) && !(device == 0 && function == 0))
 		return 0;
 
 	return fConfigBase + PciAddressEcam{.offset = offset, .function = function, .device = device, .bus = bus}.val;
@@ -469,10 +496,13 @@ PciControllerPlda::ReadConfig(uint8 bus, uint8 device, uint8 function,
 	uint16 offset, uint8 size, uint32& value)
 {
 	InterruptsSpinLocker lock(fLock);
+	// dprintf("PciControllerPlda::ReadConfig(%u, %u, %u, %u, %u)\n", bus, device, function, offset, size);
 
 	addr_t address = ConfigAddress(bus, device, function, offset);
-	if (address == 0)
+	if (address == 0) {
+		// dprintf("  address: 0\n");
 		return B_ERROR;
+	}
 
 	switch (size) {
 		case 1: value = ReadReg8(address); break;
@@ -481,6 +511,7 @@ PciControllerPlda::ReadConfig(uint8 bus, uint8 device, uint8 function,
 		default:
 			return B_ERROR;
 	}
+	// dprintf("  value: %#" B_PRIx32 "\n", value);
 
 	return B_OK;
 }
@@ -491,10 +522,16 @@ PciControllerPlda::WriteConfig(uint8 bus, uint8 device, uint8 function,
 	uint16 offset, uint8 size, uint32 value)
 {
 	InterruptsSpinLocker lock(fLock);
+	// dprintf("PciControllerPlda::WriteConfig(%u, %u, %u, %u, %u, %#" B_PRIx32 ")\n", bus, device, function, offset, size, value);
+
+	if (bus == 0 && device == 0 && function == 0 && offset == PCI_base_registers)
+		return B_ERROR;
 
 	addr_t address = ConfigAddress(bus, device, function, offset);
-	if (address == 0)
+	if (address == 0) {
+		// dprintf("  address: 0\n");
 		return B_ERROR;
+	}
 
 	switch (size) {
 		case 1: WriteReg8(address, value); break;
@@ -539,5 +576,244 @@ PciControllerPlda::GetRange(uint32 index, pci_resource_range* range)
 		return B_BAD_INDEX;
 
 	*range = fResourceRanges[index];
+	return B_OK;
+}
+
+
+phys_addr_t
+PciControllerPlda::AllocRegister(uint32 kind, size_t size)
+{
+	if (kind == kPciRangeMmio + kPciRangeMmio64Bit) {
+		kind += kPciRangeMmioPrefetch;
+	}
+
+	auto& range = fResourceRanges[kind];
+
+	phys_addr_t adr = ROUNDUP(fResourceFree[kind], size);
+	if (adr - range.pci_addr + size > range.size)
+		return 0;
+
+	fResourceFree[kind] = adr + size;
+
+	return adr;
+}
+
+
+InterruptMap*
+PciControllerPlda::LookupInterruptMap(uint32 childAdr, uint32 childIrq)
+{
+	childAdr &= fInterruptMapMask.childAdr;
+	childIrq &= fInterruptMapMask.childIrq;
+	for (uint32 i = 0; i < fInterruptMapLen; i++) {
+		if ((fInterruptMap[i].childAdr) == childAdr
+			&& (fInterruptMap[i].childIrq) == childIrq)
+			return &fInterruptMap[i];
+	}
+	return NULL;
+}
+
+
+uint32
+PciControllerPlda::GetPciBarKind(uint32 val)
+{
+	if (val % 2 == 1)
+		return kPciRangeIoPort;
+	if (val / 2 % 4 == 0)
+		return kPciRangeMmio;
+/*
+	if (val / 2 % 4 == 1)
+		return kRegMmio1MB;
+*/
+	if (val / 2 % 4 == 2)
+		return kPciRangeMmio + kPciRangeMmio64Bit;
+	return kPciRangeInvalid;
+}
+
+
+void
+PciControllerPlda::GetBarValMask(uint32& val, uint32& mask, uint8 bus, uint8 device, uint8 function, uint16 offset)
+{
+	val = 0;
+	mask = 0;
+	ReadConfig(bus, device, function, offset, 4, val);
+	WriteConfig(bus, device, function, offset, 4, 0xffffffff);
+	ReadConfig(bus, device, function, offset, 4, mask);
+	WriteConfig(bus, device, function, offset, 4, val);
+}
+
+
+void
+PciControllerPlda::GetBarKindValSize(uint32& barKind, uint64& val, uint64& size, uint8 bus, uint8 device, uint8 function, uint16 offset)
+{
+	uint32 oldValLo = 0, oldValHi = 0, sizeLo = 0, sizeHi = 0;
+	GetBarValMask(oldValLo, sizeLo, bus, device, function, offset);
+	barKind = GetPciBarKind(oldValLo);
+	val = oldValLo;
+	size = sizeLo;
+	if (barKind == kPciRangeMmio + kPciRangeMmio64Bit) {
+		GetBarValMask(oldValHi, sizeHi, bus, device, function, offset + 4);
+		val  += ((uint64)oldValHi) << 32;
+		size += ((uint64)sizeHi  ) << 32;
+	} else {
+		if (sizeLo != 0)
+			size += ((uint64)0xffffffff) << 32;
+	}
+	if (barKind == kPciRangeIoPort)
+		val &= ~(uint64)0x3;
+	else
+		val &= ~(uint64)0xf;
+	size = ~(size & ~(uint64)0xf) + 1;
+}
+
+
+uint64
+PciControllerPlda::GetBarVal(uint8 bus, uint8 device, uint8 function, uint16 offset)
+{
+	uint32 oldValLo = 0, oldValHi = 0;
+	ReadConfig(bus, device, function, offset, 4, oldValLo);
+	uint32 barKind = GetPciBarKind(oldValLo);
+	uint64 val = oldValLo;
+	if (barKind == kPciRangeMmio + kPciRangeMmio64Bit) {
+		ReadConfig(bus, device, function, offset + 4, 4, oldValHi);
+		val += ((uint64)oldValHi) << 32;
+	}
+	if (barKind == kPciRangeIoPort)
+		val &= ~(uint64)0x3;
+	else
+		val &= ~(uint64)0xf;
+	return val;
+}
+
+
+void
+PciControllerPlda::SetBarVal(uint8 bus, uint8 device, uint8 function, uint16 offset, uint32 barKind, uint64 val)
+{
+	WriteConfig(bus, device, function, offset, 4, (uint32)val);
+	if (barKind == kPciRangeMmio + kPciRangeMmio64Bit)
+		WriteConfig(bus, device, function, offset + 4, 4, (uint32)(val >> 32));
+}
+
+
+bool
+PciControllerPlda::AllocBar(uint8 bus, uint8 device, uint8 function, uint16 offset)
+{
+	bool allocBars = true;
+
+	uint32 regKind;
+	uint64 val, size;
+	GetBarKindValSize(regKind, val, size, bus, device, function, offset);
+	switch (regKind) {
+		case kPciRangeIoPort:                    dprintf("IOPORT"); break;
+		case kPciRangeMmio:                      dprintf("MMIO32"); break;
+		case kPciRangeMmio + kPciRangeMmio64Bit: dprintf("MMIO64"); break;
+		default:
+			dprintf("?(%#x)", (unsigned)(val%16));
+			dprintf("\n");
+			return false;
+	}
+
+	dprintf(", adr: 0x%" B_PRIx64 ", size: 0x%" B_PRIx64, val, size);
+
+	if (allocBars && size != 0) {
+		val = AllocRegister(regKind, size);
+		SetBarVal(bus, device, function, offset, regKind, val);
+		dprintf(" -> 0x%" B_PRIx64, val);
+	}
+
+	dprintf("\n");
+
+	return regKind == kPciRangeMmio + kPciRangeMmio64Bit;
+}
+
+
+void
+PciControllerPlda::AllocRegsForDevice(uint8 bus, uint8 device, uint8 function)
+{
+	dprintf("AllocRegsForDevice(bus: %d, device: %d, function: %d)\n", bus, device, function);
+
+	uint32 vendorID = 0, deviceID = 0;
+	uint32 baseClass = 0, subClass = 0;
+	if (ReadConfig(bus, device, function, PCI_vendor_id, 2, vendorID) < B_OK || vendorID == 0xffff)
+		return;
+
+	ReadConfig(bus, device, function, PCI_device_id, 2, deviceID);
+	ReadConfig(bus, device, function, PCI_class_base, 1, baseClass);
+	ReadConfig(bus, device, function, PCI_class_sub, 1, subClass);
+	dprintf("  vendorID: %#04" B_PRIx32 "\n", vendorID);
+	dprintf("  deviceID: %#04" B_PRIx32 "\n", deviceID);
+	dprintf("  baseClass: %#04" B_PRIx32 "\n", baseClass);
+	dprintf("  subClass: %#04" B_PRIx32 "\n", subClass);
+
+	uint32 headerType = 0;
+	ReadConfig(bus, device, function, PCI_header_type, 1, headerType);
+	headerType = headerType % 0x80;
+
+	dprintf("  headerType: ");
+	switch (headerType) {
+		case PCI_header_type_generic: dprintf("generic"); break;
+		case PCI_header_type_PCI_to_PCI_bridge: dprintf("bridge"); break;
+		case PCI_header_type_cardbus: dprintf("cardbus"); break;
+		default: dprintf("?(%u)", headerType);
+	}
+	dprintf("\n");
+
+	if (headerType == PCI_header_type_PCI_to_PCI_bridge) {
+		uint32 primaryBus = 0, secondaryBus = 0, subordinateBus = 0;
+		ReadConfig(bus, device, function, PCI_primary_bus, 1, primaryBus);
+		ReadConfig(bus, device, function, PCI_secondary_bus, 1, secondaryBus);
+		ReadConfig(bus, device, function, PCI_subordinate_bus, 1, subordinateBus);
+		dprintf("  primaryBus: %u\n", primaryBus);
+		dprintf("  secondaryBus: %u\n", secondaryBus);
+		dprintf("  subordinateBus: %u\n", subordinateBus);
+	}
+
+	for (int i = 0; i < ((headerType == PCI_header_type_PCI_to_PCI_bridge) ? 2 : 6); i++) {
+		dprintf("  bar[%d]: ", i);
+		if (AllocBar(bus, device, function, PCI_base_registers + i*4))
+			i++;
+	}
+	// ROM
+	dprintf("  romBar: ");
+	uint32 romBaseOfs = (headerType == PCI_header_type_PCI_to_PCI_bridge) ? PCI_bridge_rom_base : PCI_rom_base;
+	AllocBar(bus, device, function, romBaseOfs);
+
+	uint32 intPin = 0;
+	ReadConfig(bus, device, function, PCI_interrupt_pin, 1, intPin);
+
+	PciAddress pciAddress{
+		.function = function,
+		.device = device,
+		.bus = bus
+	};
+	InterruptMap* intMap = LookupInterruptMap(pciAddress.val, intPin);
+	if (intMap == NULL)
+		dprintf("no interrupt mapping for childAdr: (%d:%d:%d), childIrq: %d)\n", bus, device, function, intPin);
+	else
+		WriteConfig(bus, device, function, PCI_interrupt_line, 1, intMap->parentIrq);
+
+	uint32 intLine = 0;
+	ReadConfig(bus, device, function, PCI_interrupt_line, 1, intLine);
+	dprintf("  intLine: %u\n", intLine);
+	dprintf("  intPin: ");
+	switch (intPin) {
+		case 0: dprintf("-"); break;
+		case 1: dprintf("INTA#"); break;
+		case 2: dprintf("INTB#"); break;
+		case 3: dprintf("INTC#"); break;
+		case 4: dprintf("INTD#"); break;
+		default: dprintf("?(%u)", intPin); break;
+	}
+	dprintf("\n");
+}
+
+
+status_t
+PciControllerPlda::Finalize()
+{
+	dprintf("PciControllerPlda::Finalize()\n");
+
+	AllocRegsForDevice(0, 0, 0);
+	AllocRegsForDevice(1, 0, 0);
+
 	return B_OK;
 }

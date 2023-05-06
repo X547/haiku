@@ -16,10 +16,10 @@ Syscon::Syscon(phys_addr_t physAdr, size_t size):
 
 void Syscon::SetBits(uint32 index, uint32 mask, uint32 value)
 {
-	if (index >= fSize / 4)
+	if (index / 4 >= fSize / 4)
 		return;
 
-	uint32 volatile *regs = fRegs + index;
+	uint32 volatile *regs = fRegs + index / 4;
 	uint32 oldValue = *regs;
 	*regs = (oldValue & ~mask) | (value & mask);
 }

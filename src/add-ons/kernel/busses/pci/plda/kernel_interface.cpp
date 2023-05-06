@@ -8,6 +8,7 @@
 
 
 device_manager_info* gDeviceManager;
+pci_module_info* gPCI;
 
 
 pci_controller_module_info gPciControllerDriver = {
@@ -51,12 +52,19 @@ pci_controller_module_info gPciControllerDriver = {
 	},
 	.get_range = [](void *cookie, uint32 index, pci_resource_range* range) {
 		return static_cast<PciControllerPlda*>(cookie)->GetRange(index, range);
+	},
+	.finalize = [](void *cookie) {
+		return static_cast<PciControllerPlda*>(cookie)->Finalize();
+	},
+	.get_msi_driver = [](void *cookie) {
+		return static_cast<PciControllerPlda*>(cookie)->GetMsiDriver();
 	}
 };
 
 
 _EXPORT module_dependency module_dependencies[] = {
 	{ B_DEVICE_MANAGER_MODULE_NAME, (module_info**)&gDeviceManager },
+	{ B_PCI_MODULE_NAME, (module_info**)&gPCI },
 	{}
 };
 
