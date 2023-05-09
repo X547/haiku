@@ -35,6 +35,7 @@ void arch_cpu_user_TLB_invalidate(void);
 void arch_cpu_global_TLB_invalidate(void);
 
 void arch_cpu_flush_dcache(void *address, size_t length);
+void arch_cpu_invalidate_dcache(void *address, size_t length);
 void arch_cpu_sync_icache(void *address, size_t length);
 
 
