@@ -192,6 +192,9 @@ clear_caches(void *address, size_t length, uint32 flags)
 	if ((B_FLUSH_DCACHE & flags) != 0)
 		arch_cpu_flush_dcache(address, length);
 
+	if ((B_INVALIDATE_DCACHE & flags) != 0)
+		arch_cpu_invalidate_dcache(address, length);
+
 	if ((B_INVALIDATE_ICACHE & flags) != 0)
 		arch_cpu_sync_icache(address, length);
 }
