@@ -4,6 +4,8 @@
 
 #include <new>
 
+#define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
+
 
 device_manager_info* gDeviceManager;
 net_stack_module_info* gStackModule;
@@ -20,6 +22,30 @@ dwmac_std_ops(int32 op, ...)
 
 		case B_MODULE_UNINIT:
 			DwmacRoster::Instance().~DwmacRoster();
+			return B_OK;
+	}
+	return B_ERROR;
+}
+
+
+static status_t
+dwmac_net_device_std_ops(int32 op, ...)
+{
+	switch (op) {
+		case B_MODULE_INIT:
+			CHECK_RET(get_module(NET_STACK_MODULE_NAME, (module_info **)&gStackModule));
+			CHECK_RET(get_module(NET_BUFFER_MODULE_NAME, (module_info **)&gBufferModule));
+			return B_OK;
+
+		case B_MODULE_UNINIT:
+			if (gStackModule != NULL) {
+				put_module(NET_STACK_MODULE_NAME);
+				gStackModule = NULL;
+			}
+			if (gBufferModule != NULL) {
+				put_module(NET_BUFFER_MODULE_NAME);
+				gBufferModule = NULL;
+			}
 			return B_OK;
 	}
 	return B_ERROR;
@@ -59,7 +85,8 @@ struct device_module_info sDeviceModule = {
 
 static net_device_module_info sNetDeviceModule = {
 	.info = {
-		.name = DWMAC_NET_DEVICE_MODULE_NAME
+		.name = DWMAC_NET_DEVICE_MODULE_NAME,
+		.std_ops = dwmac_net_device_std_ops
 	},
 	.init_device = [](const char* name, net_device** _device) {
 		return DwmacNetDevice::InitDevice(name, *(DwmacNetDevice**)_device);
@@ -102,8 +129,6 @@ static net_device_module_info sNetDeviceModule = {
 
 _EXPORT module_dependency module_dependencies[] = {
 	{B_DEVICE_MANAGER_MODULE_NAME, (module_info**)&gDeviceManager},
-	{NET_STACK_MODULE_NAME, (module_info **)&gStackModule},
-	{NET_BUFFER_MODULE_NAME, (module_info **)&gBufferModule},
 	{}
 };
 
