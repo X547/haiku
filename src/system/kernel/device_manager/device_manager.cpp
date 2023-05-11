@@ -1763,6 +1763,7 @@ device_node::_GetNextDriverPath(void*& cookie, KPath& _path)
 						_AddPath(*stack, "busses");
 					}
 					_AddPath(*stack, "drivers", sGenericContextPath);
+					_AddPath(*stack, "drivers/network");
 					_AddPath(*stack, "busses/i2c");
 					_AddPath(*stack, "busses/scsi");
 					_AddPath(*stack, "busses", "virtio");

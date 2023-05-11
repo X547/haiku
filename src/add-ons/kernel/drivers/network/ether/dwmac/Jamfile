@@ -1,0 +1,10 @@
+SubDir HAIKU_TOP src add-ons kernel drivers network ether dwmac ;
+
+UsePrivateKernelHeaders ;
+UsePrivateHeaders drivers net ;
+
+KernelAddon dwmac :
+	kernel_interface.cpp
+	DwmacDriver.cpp
+	DwmacNetDevice.cpp
+;
