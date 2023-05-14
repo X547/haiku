@@ -33,6 +33,7 @@ DwmacDriver::SupportsDevice(device_node* parent)
 		return -1.0f;
 
 	if (strcmp(compatible, "snps,dwmac-5.10a") != 0
+		&& strcmp(compatible, "starfive,dwmac") != 0
 		&& strcmp(compatible, "starfive,jh7110-eqos-5.20") != 0)
 		return 0.0f;
 
@@ -68,6 +69,7 @@ DwmacDriver::InitDriver(device_node* node, DwmacDriver*& outDriver)
 status_t
 DwmacDriver::InitDriverInt(device_node* node)
 {
+	dprintf("DwmacDriver::InitDriverInt()\n");
 	fNode = node;
 
 	RecursiveLocker locker(DwmacRoster::Instance().Lock());
@@ -77,6 +79,7 @@ DwmacDriver::InitDriverInt(device_node* node)
 
 	DwmacRoster::Instance().Insert(this);
 
+	dprintf("-DwmacDriver::InitDriverInt()\n");
 	return B_OK;
 }
 
@@ -102,8 +105,10 @@ DwmacDriver::UninitDriver()
 status_t
 DwmacDriver::RegisterChildDevices()
 {
+	dprintf("DwmacDriver::RegisterChildDevices()\n");
 	char name[64];
 	snprintf(name, sizeof(name), "net/dwmac/%" B_PRId32, fId);
+	dprintf("  name: \"%s\"\n", name);
 
 	CHECK_RET(gDeviceManager->publish_device(fNode, name, DWMAC_DEVICE_MODULE_NAME));
 

@@ -88,41 +88,38 @@ static net_device_module_info sNetDeviceModule = {
 		.name = DWMAC_NET_DEVICE_MODULE_NAME,
 		.std_ops = dwmac_net_device_std_ops
 	},
-	.init_device = [](const char* name, net_device** _device) {
-		return DwmacNetDevice::InitDevice(name, *(DwmacNetDevice**)_device);
+	.init_device = [](const char* name, net_device** device) {
+		return DwmacNetDevice::InitDevice(name, *device);
 	},
 	.uninit_device = [](net_device* device) {
-		return static_cast<DwmacNetDevice*>(device)->UninitDevice();
+		return DwmacNetDevice::FromNetDevice(device)->UninitDevice();
 	},
 	.up = [](net_device* device) {
-		return static_cast<DwmacNetDevice*>(device)->Up();
+		return DwmacNetDevice::FromNetDevice(device)->Up();
 	},
 	.down = [](net_device* device) {
-		static_cast<DwmacNetDevice*>(device)->Down();
+		DwmacNetDevice::FromNetDevice(device)->Down();
 	},
 	.control = [](net_device* device, int32 op, void* argument, size_t length) {
-		return static_cast<DwmacNetDevice*>(device)->Control(op, argument, length);
+		return DwmacNetDevice::FromNetDevice(device)->Control(op, argument, length);
 	},
 	.send_data = [](net_device* device, net_buffer* buffer) {
-		return static_cast<DwmacNetDevice*>(device)->SendData(buffer);
-	},
-	.receive_data = [](net_device* device, net_buffer** buffer) {
-		return static_cast<DwmacNetDevice*>(device)->ReceiveData(*buffer);
+		return DwmacNetDevice::FromNetDevice(device)->SendData(buffer);
 	},
 	.set_mtu = [](net_device* device, size_t mtu) {
-		return static_cast<DwmacNetDevice*>(device)->SetMtu(mtu);
+		return DwmacNetDevice::FromNetDevice(device)->SetMtu(mtu);
 	},
 	.set_promiscuous = [](net_device* device, bool promiscuous) {
-		return static_cast<DwmacNetDevice*>(device)->SetPromiscuous(promiscuous);
+		return DwmacNetDevice::FromNetDevice(device)->SetPromiscuous(promiscuous);
 	},
 	.set_media = [](net_device* device, uint32 media) {
-		return static_cast<DwmacNetDevice*>(device)->SetMedia(media);
+		return DwmacNetDevice::FromNetDevice(device)->SetMedia(media);
 	},
 	.add_multicast = [](net_device* device, const struct sockaddr* address) {
-		return static_cast<DwmacNetDevice*>(device)->AddMulticast(address);
+		return DwmacNetDevice::FromNetDevice(device)->AddMulticast(address);
 	},
 	.remove_multicast = [](net_device* device, const struct sockaddr* address) {
-		return static_cast<DwmacNetDevice*>(device)->RemoveMulticast(address);
+		return DwmacNetDevice::FromNetDevice(device)->RemoveMulticast(address);
 	},
 };
 
