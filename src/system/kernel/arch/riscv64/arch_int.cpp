@@ -254,8 +254,6 @@ SendSignal(debug_exception_type type, uint32 signalNumber, int32 signalCode,
 		struct sigaction action;
 		Thread* thread = thread_get_current_thread();
 
-		//DoStackTrace(Fp(), 0);
-
 		enable_interrupts();
 
 		// If the thread has a signal handler for the signal, we simply send it
