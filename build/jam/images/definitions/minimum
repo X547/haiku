@@ -124,7 +124,7 @@ SYSTEM_SERVERS = [ FFilterByBuildFeatures
 ] ;
 
 SYSTEM_NETWORK_DEVICES =
-	ethernet
+	# ethernet
 	loopback
 	tun
 ;

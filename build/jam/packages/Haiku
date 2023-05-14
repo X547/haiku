@@ -248,6 +248,10 @@ AddDirectoryToPackage add-ons input_server methods ;
 AddFilesToPackage add-ons kernel network : <net>notifications stack ;
 AddFilesToPackage add-ons kernel network : dns_resolver ;
 AddFilesToPackage add-ons kernel network devices : $(SYSTEM_NETWORK_DEVICES) ;
+
+AddSymlinkToPackage add-ons kernel network devices
+	: ../../drivers/network/dwmac : dwmac ;
+
 AddFilesToPackage add-ons kernel network datalink_protocols
 	: $(SYSTEM_NETWORK_DATALINK_PROTOCOLS) ;
 AddFilesToPackage add-ons kernel network ppp : $(SYSTEM_NETWORK_PPP) ;

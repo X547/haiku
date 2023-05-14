@@ -1,6 +1,6 @@
 RemotePackageRepository HaikuPorts
 	: riscv64
-	: https://eu.hpkg.haiku-os.org/haikuports/master/build-packages
+	: file:///Haiku/data/packages-riscv64/repo/HaikuPorts
 	:
 	# architecture "any" packages
 	be_book-2008_10_26-3
@@ -20,7 +20,7 @@ RemotePackageRepository HaikuPorts
 	automake-1.16.5-1
 	bash-4.4.023-1
 	bc-1.07.1-2
-	binutils-2.32_2021_02_27-1
+	binutils-2.36.1_2021_09_21-2
 	bison-3.0.5-1
 	bzip2_devel-1.0.8-1
 	bzip2-1.0.8-1
