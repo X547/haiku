@@ -5,6 +5,7 @@
 #include <lock.h>
 #include <util/AVLTree.h>
 
+#include "DwmacRegs.h"
 #include "CppUtils.h"
 
 
