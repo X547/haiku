@@ -5,6 +5,8 @@
 #include <lock.h>
 #include <util/AVLTree.h>
 
+#include <AutoDeleterOS.h>
+
 #include "DwmacRegs.h"
 #include "CppUtils.h"
 
@@ -57,11 +59,17 @@ public:
 	DwmacNetDevice* NetDevice() {return fNetDevice;}
 	void SetNetDevice(DwmacNetDevice* netDevice) {fNetDevice = netDevice;}
 
+	status_t MdioWaitIdle();
+	status_t MdioRead(uint32 addr, uint32 reg, uint32& value);
+	status_t MdioWrite(uint32 addr, uint32 reg, uint32 value);
+
 private:
 	device_node* fNode {};
 	int32 fId = -1;
 	AVLTreeNode fIdNode;
 	DwmacNetDevice* fNetDevice {};
+	AreaDeleter fRegsArea;
+	DwmacRegs* fRegs {};
 
 	inline status_t InitDriverInt(device_node* node);
 };

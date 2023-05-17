@@ -2,7 +2,10 @@
 #include "DwmacNetDevice.h"
 #include "kernel_interface.h"
 
+#include <bus/FDT.h>
+
 #include <AutoDeleter.h>
+#include <AutoDeleterDrivers.h>
 #include <util/AutoLock.h>
 
 #include <stdio.h>
@@ -72,6 +75,23 @@ DwmacDriver::InitDriverInt(device_node* node)
 	dprintf("DwmacDriver::InitDriverInt()\n");
 	fNode = node;
 
+	DeviceNodePutter<&gDeviceManager> fdtNode(gDeviceManager->get_parent_node(node));
+
+	fdt_device_module_info *fdtModule;
+	fdt_device* fdtDev;
+	CHECK_RET(gDeviceManager->get_driver(fdtNode.Get(),
+		(driver_module_info**)&fdtModule, (void**)&fdtDev));
+
+	addr_t regsPhysBase;
+	size_t regsSize;
+	if (!fdtModule->get_reg(fdtDev, 0, &regsPhysBase, &regsSize))
+		return B_ERROR;
+	dprintf("  regs: %08" B_PRIx64 ", %08" B_PRIx64 "\n", regsPhysBase, regsSize);
+
+	fRegsArea.SetTo(map_physical_memory("DWMAC Regs MMIO", regsPhysBase, regsSize, B_ANY_KERNEL_ADDRESS,
+		B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA, (void**)&fRegs));
+	CHECK_RET(fRegsArea.Get());
+
 	RecursiveLocker locker(DwmacRoster::Instance().Lock());
 
 	fId = gDeviceManager->create_id(DWMAC_DEVICE_ID_GENERATOR);
@@ -111,6 +131,66 @@ DwmacDriver::RegisterChildDevices()
 	dprintf("  name: \"%s\"\n", name);
 
 	CHECK_RET(gDeviceManager->publish_device(fNode, name, DWMAC_DEVICE_MODULE_NAME));
+
+	return B_OK;
+}
+
+
+status_t
+DwmacDriver::MdioWaitIdle()
+{
+	for (uint32 i = 0; i < 1000000; i++) {
+		if (!fRegs->mac.mdioAddr.gb)
+			return B_OK;
+
+		snooze(1);
+	}
+	return B_TIMED_OUT;
+}
+
+
+status_t
+DwmacDriver::MdioRead(uint32 addr, uint32 reg, uint32& value)
+{
+	CHECK_RET(MdioWaitIdle());
+
+	DwmacMdioAddr mdioAddr {.val = fRegs->mac.mdioAddr.val};
+	mdioAddr.val &= DwmacMdioAddr{.c45e = true, .skap = true}.val;
+	mdioAddr.pa  = addr;
+	mdioAddr.rda = reg;
+	mdioAddr.cr  = DwmacMdioAddrCr::cr250_300;
+	mdioAddr.goc = DwmacMdioAddrGoc::read;
+	mdioAddr.gb  = true;
+	fRegs->mac.mdioAddr.val = mdioAddr.val;
+
+	snooze(10);
+
+	CHECK_RET(MdioWaitIdle());
+
+	value = fRegs->mac.mdioData.gd;
+	return B_OK;
+}
+
+
+status_t
+DwmacDriver::MdioWrite(uint32 addr, uint32 reg, uint32 value)
+{
+	CHECK_RET(MdioWaitIdle());
+
+	fRegs->mac.mdioData.val = value;
+
+	DwmacMdioAddr mdioAddr {.val = fRegs->mac.mdioAddr.val};
+	mdioAddr.val &= DwmacMdioAddr{.c45e = true, .skap = true}.val;
+	mdioAddr.pa  = addr;
+	mdioAddr.rda = reg;
+	mdioAddr.cr  = DwmacMdioAddrCr::cr250_300;
+	mdioAddr.goc = DwmacMdioAddrGoc::write;
+	mdioAddr.gb  = true;
+	fRegs->mac.mdioAddr.val = mdioAddr.val;
+
+	snooze(10);
+
+	CHECK_RET(MdioWaitIdle());
 
 	return B_OK;
 }
