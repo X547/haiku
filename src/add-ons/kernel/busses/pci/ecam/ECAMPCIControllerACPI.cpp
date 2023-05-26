@@ -179,6 +179,7 @@ ECAMPCIControllerACPI::AcpiCrsScanCallbackInt(acpi_resource *res)
 status_t
 ECAMPCIControllerACPI::Finalize()
 {
+#if !defined(__i386__) && !defined(__x86_64__)
 	dprintf("finalize PCI controller from ACPI\n");
 
 	acpi_module_info *acpiModule;
@@ -190,6 +191,7 @@ ECAMPCIControllerACPI::Finalize()
 	CHECK_RET(enable_irq_routing(acpiModule, table));
 
 	print_irq_routing_table(table);
+#endif
 
 	return B_OK;
 }
