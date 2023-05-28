@@ -222,7 +222,7 @@ downloadFile()
 				"is set!"
 			exit 1
 		fi
-		wget -O "$path" "$url"
+		curl --output "$path" "$url"
 	fi
 }
 
