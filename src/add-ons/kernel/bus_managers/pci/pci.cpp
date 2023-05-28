@@ -2031,7 +2031,7 @@ PCI::ConfigureMSI(PCIDev *device, uint8 count, uint8 *startVector)
 		return B_BUSY;
 
 	domain_data *domain = _GetDomainData(device->domain);
-	MsiDriver *driver = domain->controller->get_msi_driver(domain->controller_cookie);
+	MSIInterface *driver = domain->controller->get_msi_driver(domain->controller_cookie);
 
 	status_t result = driver->AllocateVectors(count, info->start_vector,
 		info->address_value, info->data_value);
@@ -2078,7 +2078,7 @@ PCI::UnconfigureMSI(PCIDev *device)
 		return B_NO_INIT;
 
 	domain_data *domain = _GetDomainData(device->domain);
-	MsiDriver *driver = domain->controller->get_msi_driver(domain->controller_cookie);
+	MSIInterface *driver = domain->controller->get_msi_driver(domain->controller_cookie);
 
 	driver->FreeVectors(info->configured_count, info->start_vector);
 
@@ -2229,7 +2229,7 @@ PCI::ConfigureMSIX(PCIDev *device, uint8 count, uint8 *startVector)
 	info->pba_address = address + info->pba_offset;
 
 	domain_data *domain = _GetDomainData(device->domain);
-	MsiDriver *driver = domain->controller->get_msi_driver(domain->controller_cookie);
+	MSIInterface *driver = domain->controller->get_msi_driver(domain->controller_cookie);
 
 	status_t result = driver->AllocateVectors(count, info->start_vector,
 		info->address_value, info->data_value);
@@ -2434,7 +2434,7 @@ PCI::_UnconfigureMSIX(PCIDev *device)
 		info->control_value);
 
 	domain_data *domain = _GetDomainData(device->domain);
-	MsiDriver *driver = domain->controller->get_msi_driver(domain->controller_cookie);
+	MSIInterface *driver = domain->controller->get_msi_driver(domain->controller_cookie);
 
 	driver->FreeVectors(info->configured_count, info->start_vector);
 	for (uint8 index = 0; index < info->configured_count; index++) {

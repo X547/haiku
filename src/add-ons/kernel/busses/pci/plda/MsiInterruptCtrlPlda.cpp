@@ -34,7 +34,7 @@ MsiInterruptCtrlPlda::Init(PciPldaRegs volatile* regs, int32 irq)
 		return result;
 	}
 
-	msi_set_driver(static_cast<MsiDriver*>(this));
+	msi_set_interface(static_cast<MSIInterface*>(this));
 
 	dprintf("  fMsiStartIrq: %ld\n", fMsiStartIrq);
 

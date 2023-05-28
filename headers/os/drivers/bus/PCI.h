@@ -10,9 +10,9 @@
 #include <PCI.h>
 
 #ifdef __cplusplus
-class MsiDriver;
+class MSIInterface;
 #else
-typedef struct MsiDriver MsiDriver;
+typedef struct MSIInterface MSIInterface;
 #endif
 
 typedef struct pci_device pci_device;
@@ -108,7 +108,7 @@ typedef struct pci_controller_module_info {
 
 	status_t	(*finalize)(void *cookie);
 
-	MsiDriver*	(*get_msi_driver)(void *cookie);
+	MSIInterface* (*get_msi_driver)(void *cookie);
 
 } pci_controller_module_info;
 

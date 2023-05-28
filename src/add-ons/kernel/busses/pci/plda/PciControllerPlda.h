@@ -9,6 +9,7 @@
 
 #include <bus/PCI.h>
 #include <arch/generic/generic_int.h>
+#include <arch/generic/msi.h>
 
 #include <AutoDeleterOS.h>
 #include <lock.h>
@@ -263,7 +264,7 @@ static_assert(offsetof(PciPldaRegs, xr3pciAtrAxi4Slv0) == 0x800);
 static_assert(offsetof(PciPldaRegs, cfgSpace) ==         0x1000);
 
 
-class MsiInterruptCtrlPlda: public InterruptSource, public MsiDriver {
+class MsiInterruptCtrlPlda: public InterruptSource, public MSIInterface {
 public:
 			virtual				~MsiInterruptCtrlPlda() = default;
 
@@ -322,7 +323,7 @@ public:
 
 	status_t Finalize();
 
-	MsiDriver* GetMsiDriver() {return static_cast<MsiDriver*>(&fIrqCtrl);}
+	MSIInterface* GetMsiDriver() {return static_cast<MSIInterface*>(&fIrqCtrl);}
 
 private:
 	status_t ReadResourceInfo();

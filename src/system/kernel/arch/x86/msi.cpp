@@ -26,7 +26,7 @@ static bool sMSISupported = false;
 static uint32 sBootCPUAPICId = 0;
 
 
-class ApicMsiDriver: public MsiDriver {
+class ApicMsiDriver: public MSIInterface {
 public:
 	status_t AllocateVectors(uint8 count, uint8& startVector, uint64& address, uint16& data) final;
 	void FreeVectors(uint8 count, uint8 startVector) final;
@@ -45,7 +45,7 @@ msi_init(kernel_args* args)
 
 	dprintf("msi support enabled\n");
 	new(&sApicMsiDriver) ApicMsiDriver;
-	msi_set_driver(&sApicMsiDriver);
+	msi_set_interface(&sApicMsiDriver);
 	sBootCPUAPICId = args->arch_args.cpu_apic_id[0];
 }
 
