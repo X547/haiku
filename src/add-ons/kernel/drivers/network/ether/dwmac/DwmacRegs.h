@@ -278,14 +278,35 @@ static_assert(sizeof(DwmacMtlRegs) == 0x300);
 
 
 union DwmacDmaChannelControl {
+	struct {
+		uint32 unknown1: 16;
+		uint32 pblx8: 1;
+		uint32 unknown2: 1;
+		uint32 dsl: 14;
+	};
 	uint32 val;
 };
 
 union DwmacDmaChannelTxControl {
+	struct {
+		uint32 st: 1;
+		uint32 unknown1: 3;
+		uint32 osp: 1;
+		uint32 unknown2: 11;
+		uint32 txpbl: 6;
+		uint32 unknown3: 6;
+	};
 	uint32 val;
 };
 
 union DwmacDmaChannelRxControl {
+	struct {
+		uint32 sl: 1;
+		uint32 rbsz: 14;
+		uint32 unknown1: 1;
+		uint32 rxpbl: 6;
+		uint32 unknown2: 10;
+	};
 	uint32 val;
 };
 
