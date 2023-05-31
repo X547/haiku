@@ -137,6 +137,26 @@ DwmacDriver::RegisterChildDevices()
 
 
 status_t
+DwmacDriver::Start()
+{
+	//StartClocks();
+	//StartResets();
+	snooze(10);
+
+
+
+	return B_ERROR;
+}
+
+
+status_t
+DwmacDriver::Stop()
+{
+	return B_ERROR;
+}
+
+
+status_t
 DwmacDriver::MdioWaitIdle()
 {
 	for (uint32 i = 0; i < 1000000; i++) {

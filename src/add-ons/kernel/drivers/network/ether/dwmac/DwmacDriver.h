@@ -59,6 +59,9 @@ public:
 	DwmacNetDevice* NetDevice() {return fNetDevice;}
 	void SetNetDevice(DwmacNetDevice* netDevice) {fNetDevice = netDevice;}
 
+	status_t Start();
+	status_t Stop();
+
 	status_t MdioWaitIdle();
 	status_t MdioRead(uint32 addr, uint32 reg, uint32& value);
 	status_t MdioWrite(uint32 addr, uint32 reg, uint32 value);
