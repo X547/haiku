@@ -98,9 +98,9 @@ MsiInterruptCtrlPlda::InterruptReceivedInt()
 		uint32 statusMsi = fRegs->istatusMsi;
 		for (int i = 0; i < 32; i++) {
 			if (((1 << i) & statusMsi) != 0) {
+				fRegs->istatusMsi = (1 << i);
 				//dprintf("MSI IRQ: %d (%ld)\n", i, fMsiStartIrq + i);
 				int_io_interrupt_handler(fMsiStartIrq + i, false);
-				fRegs->istatusMsi = (1 << i);
 			}
 		}
 		fRegs->istatusLocal.val = PciPldaInt{.msi = true}.val;
