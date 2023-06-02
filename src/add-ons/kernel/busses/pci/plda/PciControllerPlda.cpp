@@ -298,7 +298,7 @@ PciControllerPlda::InitDriverInt(device_node* node)
 	const void* prop;
 	int propLen;
 	prop = fdtModule->get_prop(fdtDev, "starfive,stg-syscon", &propLen);
-	if (prop == NULL || propLen < 4*(1 + 4)) {
+	if (prop == NULL || propLen < 4*(1 + 3)) {
 		dprintf("  [!] no \"starfive,stg-syscon\" property\n");
 		return B_ERROR;
 	}
@@ -316,12 +316,10 @@ PciControllerPlda::InitDriverInt(device_node* node)
 	uint32 stgArfun = B_BENDIAN_TO_HOST_INT32(stgSyscon[1]);
 	uint32 stgAwfun = B_BENDIAN_TO_HOST_INT32(stgSyscon[2]);
 	uint32 stgRpNep = B_BENDIAN_TO_HOST_INT32(stgSyscon[3]);
-	uint32 stgLnksta = B_BENDIAN_TO_HOST_INT32(stgSyscon[4]);
 
 	dprintf(  "stgArfun: %#" B_PRIx32 "\n", stgArfun);
 	dprintf(  "stgAwfun: %#" B_PRIx32 "\n", stgAwfun);
 	dprintf(  "stgRpNep: %#" B_PRIx32 "\n", stgRpNep);
-	dprintf(  "stgLnksta: %#" B_PRIx32 "\n", stgLnksta);
 
 	StarfiveClock clock;
 	StarfiveReset reset;
