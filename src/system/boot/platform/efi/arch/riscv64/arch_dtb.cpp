@@ -58,6 +58,12 @@ arch_handle_fdt(const void* fdt, int node)
 			if (prop == NULL)
 				return;
 
+			int compatibleLen;
+			const char* compatible = (const char*)fdt_getprop(fdt, node,
+				"compatible", &compatibleLen);
+			if (dtb_has_fdt_string(compatible, compatibleLen, "sifive,s7"))
+				return;
+
 			platform_cpu_info* info;
 			arch_smp_register_cpu(&info);
 			if (info == NULL)
