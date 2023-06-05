@@ -2337,6 +2337,8 @@ XHCI::GetPortStatus(uint8 index, usb_port_status* status)
 		else
 			status->status |= PORT_STATUS_POWER;
 	}
+	if (fPortSpeeds[index] == USB_SPEED_SUPERSPEED)
+		status->status |= portStatus & PS_PLS_MASK;
 
 	// build the change
 	if (portStatus & PS_CSC)
