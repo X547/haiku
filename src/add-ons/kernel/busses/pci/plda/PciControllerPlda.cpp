@@ -260,6 +260,78 @@ PciControllerPlda::ReadResourceInfo()
 }
 
 
+static int32
+FdtFindString(const char* prop, int size, const char* name)
+{
+	int32 index = 0;
+	int nameLen = strlen(name);
+	const char* propEnd = prop + size;
+	while (propEnd - prop > 0) {
+		int curLen = strlen(prop);
+		if (curLen == nameLen && memcmp(prop, name, curLen + 1) == 0)
+			return index;
+		prop += curLen + 1;
+		index++;
+	}
+	return B_ERROR;
+}
+
+
+static int32
+FdtGetClock(fdt_device_module_info* fdtModule, fdt_device* fdtDev, const char* name)
+{
+	const void* prop;
+	int propLen;
+	prop = fdtModule->get_prop(fdtDev, "clock-names", &propLen);
+	if (prop == NULL) {
+		dprintf("  [!] no \"clock-names\" property\n");
+		return B_ERROR;
+	}
+	int32 index = FdtFindString((const char*)prop, propLen, name);
+	if (index < 0) {
+		dprintf("  [!] clock \"%s\" not found\n", name);
+		return B_ERROR;
+	}
+	CHECK_RET(index);
+	prop = fdtModule->get_prop(fdtDev, "clocks", &propLen);
+	if (prop == NULL || propLen < 4*(2*(index + 1))) {
+		dprintf("  [!] no \"clocks\" property\n");
+		return B_ERROR;
+	}
+	const uint32* clocks = (const uint32*)prop;
+	int32 clockId = B_BENDIAN_TO_HOST_INT32(clocks[2*index + 1]);
+	dprintf("  clock \"%s\": %" B_PRId32 "\n", name, clockId);
+	return clockId;
+}
+
+
+static int32
+FdtGetReset(fdt_device_module_info* fdtModule, fdt_device* fdtDev, const char* name)
+{
+	const void* prop;
+	int propLen;
+	prop = fdtModule->get_prop(fdtDev, "reset-names", &propLen);
+	if (prop == NULL) {
+		dprintf("  [!] no \"reset-names\" property\n");
+		return B_ERROR;
+	}
+	int32 index = FdtFindString((const char*)prop, propLen, name);
+	if (index < 0) {
+		dprintf("  [!] reset \"%s\" not found\n", name);
+		return B_ERROR;
+	}
+	prop = fdtModule->get_prop(fdtDev, "resets", &propLen);
+	if (prop == NULL || propLen < 4*(2*(index + 1))) {
+		dprintf("  [!] no \"resets\" property\n");
+		return B_ERROR;
+	}
+	const uint32* resets = (const uint32*)prop;
+	int32 resetId = B_BENDIAN_TO_HOST_INT32(resets[2*index + 1]);
+	dprintf("  reset \"%s\": %" B_PRId32 "\n", name, resetId);
+	return resetId;
+}
+
+
 status_t
 PciControllerPlda::InitDriverInt(device_node* node)
 {
@@ -303,14 +375,6 @@ PciControllerPlda::InitDriverInt(device_node* node)
 		return B_ERROR;
 	}
 
-#if 0
-	if (fRegsPhysBase != 0x2C000000) {
-		dprintf("  skipping device\n");
-		return B_ERROR;
-	}
-#endif
-
-#if 1
 	const uint32* stgSyscon = (const uint32*)prop;
 
 	uint32 stgArfun = B_BENDIAN_TO_HOST_INT32(stgSyscon[1]);
@@ -330,67 +394,55 @@ PciControllerPlda::InitDriverInt(device_node* node)
 	syscon.SetBits(stgAwfun, STG_SYSCON_CKREF_SRC_MASK, 2 << STG_SYSCON_CKREF_SRC_SHIFT);
 	syscon.SetBits(stgAwfun, STG_SYSCON_CLKREQ_MASK, 1 << STG_SYSCON_CLKREQ_SHIFT);
 
+	int32 nocClk     = FdtGetClock(fdtModule, fdtDev, "noc");
+	int32 tlClk      = FdtGetClock(fdtModule, fdtDev, "tl");
+	int32 axiMst0Clk = FdtGetClock(fdtModule, fdtDev, "axi_mst0");
+	int32 apbClk     = FdtGetClock(fdtModule, fdtDev, "apb");
+	CHECK_RET(nocClk);
+	CHECK_RET(tlClk);
+	CHECK_RET(axiMst0Clk);
+	CHECK_RET(apbClk);
+
+	int32 mst0Rst = FdtGetReset(fdtModule, fdtDev, "rst_mst0");
+	int32 slv0Rst = FdtGetReset(fdtModule, fdtDev, "rst_slv0");
+	int32 slvRst  = FdtGetReset(fdtModule, fdtDev, "rst_slv");
+	int32 brgRst  = FdtGetReset(fdtModule, fdtDev, "rst_brg");
+	int32 coreRst = FdtGetReset(fdtModule, fdtDev, "rst_core");
+	int32 apbRst  = FdtGetReset(fdtModule, fdtDev, "rst_apb");
+	CHECK_RET(mst0Rst);
+	CHECK_RET(slv0Rst);
+	CHECK_RET(slvRst);
+	CHECK_RET(brgRst);
+	CHECK_RET(coreRst);
+	CHECK_RET(apbRst);
+
 	auto ShowClockResetStatus = [&]() {
-		switch (fRegsPhysBase) {
-			case 0x2B000000:
-				dprintf("  clock[JH7110_NOC_BUS_CLK_STG_AXI]: %d\n", clock.IsEnabled(JH7110_NOC_BUS_CLK_STG_AXI));
-				dprintf("  clock[JH7110_PCIE0_CLK_TL]: %d\n", clock.IsEnabled(JH7110_PCIE0_CLK_TL));
-				dprintf("  clock[JH7110_PCIE0_CLK_AXI_MST0]: %d\n", clock.IsEnabled(JH7110_PCIE0_CLK_AXI_MST0));
-				dprintf("  clock[JH7110_PCIE0_CLK_APB]: %d\n", clock.IsEnabled(JH7110_PCIE0_CLK_APB));
+		dprintf("  clock[noc]:      %d\n", clock.IsEnabled(nocClk));
+		dprintf("  clock[tl]:       %d\n", clock.IsEnabled(tlClk));
+		dprintf("  clock[axi_mst0]: %d\n", clock.IsEnabled(axiMst0Clk));
+		dprintf("  clock[apb]:      %d\n", clock.IsEnabled(apbClk));
 
-				dprintf("  reset[RSTN_U0_PLDA_PCIE_AXI_MST0]: %d\n", reset.IsAsserted(RSTN_U0_PLDA_PCIE_AXI_MST0));
-				dprintf("  reset[RSTN_U0_PLDA_PCIE_AXI_SLV0]: %d\n", reset.IsAsserted(RSTN_U0_PLDA_PCIE_AXI_SLV0));
-				dprintf("  reset[RSTN_U0_PLDA_PCIE_AXI_SLV]: %d\n", reset.IsAsserted(RSTN_U0_PLDA_PCIE_AXI_SLV));
-				dprintf("  reset[RSTN_U0_PLDA_PCIE_BRG]: %d\n", reset.IsAsserted(RSTN_U0_PLDA_PCIE_BRG));
-				dprintf("  reset[RSTN_U0_PLDA_PCIE_CORE]: %d\n", reset.IsAsserted(RSTN_U0_PLDA_PCIE_CORE));
-				dprintf("  reset[RSTN_U0_PLDA_PCIE_APB]: %d\n", reset.IsAsserted(RSTN_U0_PLDA_PCIE_APB));
-				break;
-			case 0x2C000000:
-				dprintf("  clock[JH7110_NOC_BUS_CLK_STG_AXI]: %d\n", clock.IsEnabled(JH7110_NOC_BUS_CLK_STG_AXI));
-				dprintf("  clock[JH7110_PCIE1_CLK_TL]: %d\n", clock.IsEnabled(JH7110_PCIE1_CLK_TL));
-				dprintf("  clock[JH7110_PCIE1_CLK_AXI_MST0]: %d\n", clock.IsEnabled(JH7110_PCIE1_CLK_AXI_MST0));
-				dprintf("  clock[JH7110_PCIE1_CLK_APB]: %d\n", clock.IsEnabled(JH7110_PCIE1_CLK_APB));
-
-				dprintf("  reset[RSTN_U1_PLDA_PCIE_AXI_MST0]: %d\n", reset.IsAsserted(RSTN_U1_PLDA_PCIE_AXI_MST0));
-				dprintf("  reset[RSTN_U1_PLDA_PCIE_AXI_SLV0]: %d\n", reset.IsAsserted(RSTN_U1_PLDA_PCIE_AXI_SLV0));
-				dprintf("  reset[RSTN_U1_PLDA_PCIE_AXI_SLV]: %d\n", reset.IsAsserted(RSTN_U1_PLDA_PCIE_AXI_SLV));
-				dprintf("  reset[RSTN_U1_PLDA_PCIE_BRG]: %d\n", reset.IsAsserted(RSTN_U1_PLDA_PCIE_BRG));
-				dprintf("  reset[RSTN_U1_PLDA_PCIE_CORE]: %d\n", reset.IsAsserted(RSTN_U1_PLDA_PCIE_CORE));
-				dprintf("  reset[RSTN_U1_PLDA_PCIE_APB]: %d\n", reset.IsAsserted(RSTN_U1_PLDA_PCIE_APB));
-				break;
-		};
+		dprintf("  reset[rst_mst0]: %d\n", reset.IsAsserted(mst0Rst));
+		dprintf("  reset[rst_slv0]: %d\n", reset.IsAsserted(slv0Rst));
+		dprintf("  reset[rst_slv]:  %d\n", reset.IsAsserted(slvRst));
+		dprintf("  reset[rst_brg]:  %d\n", reset.IsAsserted(brgRst));
+		dprintf("  reset[rst_core]: %d\n", reset.IsAsserted(coreRst));
+		dprintf("  reset[rst_apb]:  %d\n", reset.IsAsserted(apbRst));
 	};
 	ShowClockResetStatus();
 
 	dprintf("  init clocks and resets\n");
-	switch (fRegsPhysBase) {
-		case 0x2B000000:
-			clock.SetEnabled(JH7110_NOC_BUS_CLK_STG_AXI, true);
-			clock.SetEnabled(JH7110_PCIE0_CLK_TL, true);
-			clock.SetEnabled(JH7110_PCIE0_CLK_AXI_MST0, true);
-			clock.SetEnabled(JH7110_PCIE0_CLK_APB, true);
+	clock.SetEnabled(nocClk,     true);
+	clock.SetEnabled(tlClk,      true);
+	clock.SetEnabled(axiMst0Clk, true);
+	clock.SetEnabled(apbClk,     true);
 
-			reset.SetAsserted(RSTN_U0_PLDA_PCIE_AXI_MST0, false);
-			reset.SetAsserted(RSTN_U0_PLDA_PCIE_AXI_SLV0, false);
-			reset.SetAsserted(RSTN_U0_PLDA_PCIE_AXI_SLV, false);
-			reset.SetAsserted(RSTN_U0_PLDA_PCIE_BRG, false);
-			reset.SetAsserted(RSTN_U0_PLDA_PCIE_CORE, false);
-			reset.SetAsserted(RSTN_U0_PLDA_PCIE_APB, false);
-			break;
-		case 0x2C000000:
-			clock.SetEnabled(JH7110_NOC_BUS_CLK_STG_AXI, true);
-			clock.SetEnabled(JH7110_PCIE1_CLK_TL, true);
-			clock.SetEnabled(JH7110_PCIE1_CLK_AXI_MST0, true);
-			clock.SetEnabled(JH7110_PCIE1_CLK_APB, true);
-
-			reset.SetAsserted(RSTN_U1_PLDA_PCIE_AXI_MST0, false);
-			reset.SetAsserted(RSTN_U1_PLDA_PCIE_AXI_SLV0, false);
-			reset.SetAsserted(RSTN_U1_PLDA_PCIE_AXI_SLV, false);
-			reset.SetAsserted(RSTN_U1_PLDA_PCIE_BRG, false);
-			reset.SetAsserted(RSTN_U1_PLDA_PCIE_CORE, false);
-			reset.SetAsserted(RSTN_U1_PLDA_PCIE_APB, false);
-			break;
-	}
+	reset.SetAsserted(mst0Rst, false);
+	reset.SetAsserted(slv0Rst, false);
+	reset.SetAsserted(slvRst,  false);
+	reset.SetAsserted(brgRst,  false);
+	reset.SetAsserted(coreRst, false);
+	reset.SetAsserted(apbRst,  false);
 
 	ShowClockResetStatus();
 
@@ -437,8 +489,6 @@ PciControllerPlda::InitDriverInt(device_node* node)
 			pinCtrl.SetPinmux(28, GPOUT_HIGH, GPOEN_ENABLE);
 			break;
 	}
-
-#endif
 
 	CHECK_RET(fIrqCtrl.Init(GetRegs(), irq));
 
