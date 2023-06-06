@@ -4,6 +4,10 @@ UsePrivateKernelHeaders ;
 UsePrivateHeaders drivers net ;
 
 KernelAddon dwmac :
+	# TODO: move to separate driver
+	StarfiveClock.cpp
+	StarfiveReset.cpp
+
 	kernel_interface.cpp
 	DwmacDriver.cpp
 	DwmacNetDevice.cpp
