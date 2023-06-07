@@ -214,3 +214,86 @@ DwmacDriver::MdioWrite(uint32 addr, uint32 reg, uint32 value)
 
 	return B_OK;
 }
+
+
+status_t
+DwmacDriver::InitDma()
+{
+	fTxDescCnt = 16;
+	fRxDescCnt = 16;
+
+	size_t dmaAreaSize = 0;
+	size_t descsOfs = dmaAreaSize;
+	dmaAreaSize += fTxDescCnt*sizeof(DwmacDesc);
+	dmaAreaSize += fRxDescCnt*sizeof(DwmacDesc);
+	dmaAreaSize = ROUNDUP(dmaAreaSize, dmaMinAlign);
+	size_t buffersOfs = dmaAreaSize;
+	dmaAreaSize += fTxDescCnt*dwmacMaxPacketSize;
+	dmaAreaSize += fRxDescCnt*dwmacMaxPacketSize;
+	dmaAreaSize = ROUNDUP(dmaAreaSize, B_PAGE_SIZE);
+
+	fDmaArea.SetTo(create_area(
+		"DWMAC DMA",
+		&fDmaAdr,
+		B_ANY_ADDRESS,
+		dmaAreaSize,
+		B_32_BIT_CONTIGUOUS,
+		B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA));
+	CHECK_RET(fDmaArea.Get());
+
+	physical_entry pe;
+	CHECK_RET(get_memory_map(fDmaAdr, dmaAreaSize, &pe, 1));
+	fDmaPhysAdr = pe.address;
+
+	fDescs   = (DwmacDesc*)((uint8*)fDmaAdr + descsOfs);
+	fBuffers =              (uint8*)fDmaAdr + buffersOfs;
+
+	return B_OK;
+}
+
+
+status_t
+DwmacDriver::Send(phys_addr_t data, size_t size)
+{
+	uint32 descIdx = fTxDescIdx;
+	DwmacDesc* desc = GetTxDesc(fTxDescIdx);
+	fTxDescIdx = (fTxDescIdx + 1) % fTxDescCnt;
+
+	desc->des0 = data;
+	desc->des1 = 0;
+	desc->des2 = size;
+	memory_full_barrier();
+	desc->des3.val = DwmacDescDes3{
+		.length = (uint32)size,
+		.ld = true,
+		.fd = true,
+		.own = true
+	}.val;
+
+	fRegs->dma.channels[0].txEndAddr = ToPhysDmaAdr(GetTxDesc(fTxDescIdx));
+
+	return descIdx;
+}
+
+
+status_t
+DwmacDriver::Recv(phys_addr_t data, size_t size)
+{
+	uint32 descIdx = fRxDescIdx;
+	DwmacDesc* desc = GetTxDesc(fRxDescIdx);
+
+	desc->des0 = 0;
+	memory_full_barrier();
+	desc->des0 = data;
+	desc->des1 = 0;
+	desc->des2 = 0;
+	memory_full_barrier();
+	desc->des3.val = DwmacDescDes3{
+		.buf1v = true,
+		.own = true
+	}.val;
+	fRegs->dma.channels[0].rxEndAddr = ToPhysDmaAdr(desc);
+	fRxDescIdx = (fRxDescIdx + 1) % fRxDescCnt;
+
+	return descIdx;
+}

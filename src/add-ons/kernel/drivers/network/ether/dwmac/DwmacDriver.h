@@ -2,6 +2,7 @@
 
 #include <device_manager.h>
 
+#include <kernel.h>
 #include <lock.h>
 #include <util/AVLTree.h>
 
@@ -15,6 +16,12 @@
 
 
 class DwmacNetDevice;
+
+
+enum {
+	dmaMinAlign = 32,
+	dwmacMaxPacketSize = ROUNDUP(1568, dmaMinAlign)
+};
 
 
 class DwmacDriver {
@@ -66,6 +73,9 @@ public:
 	status_t MdioRead(uint32 addr, uint32 reg, uint32& value);
 	status_t MdioWrite(uint32 addr, uint32 reg, uint32 value);
 
+	status_t Send(phys_addr_t data, size_t size);
+	status_t Recv(phys_addr_t data, size_t size);
+
 private:
 	device_node* fNode {};
 	int32 fId = -1;
@@ -74,7 +84,26 @@ private:
 	AreaDeleter fRegsArea;
 	DwmacRegs* fRegs {};
 
+	AreaDeleter fDmaArea;
+	void* fDmaAdr {};
+	phys_addr_t fDmaPhysAdr {};
+
+	DwmacDesc* fDescs {};
+	uint32 fTxDescCnt {};
+	uint32 fRxDescCnt {};
+	uint32 fTxDescIdx {};
+	uint32 fRxDescIdx {};
+	void* fBuffers {};
+
 	inline status_t InitDriverInt(device_node* node);
+
+	status_t InitDma();
+
+	phys_addr_t ToPhysDmaAdr(void* adr) {return ((uint8*)adr - (uint8*)fDmaAdr) + fDmaPhysAdr;}
+	DwmacDesc* GetTxDesc(uint32 idx) {return &fDescs[idx];}
+	DwmacDesc* GetRxDesc(uint32 idx) {return &fDescs[fTxDescCnt + idx];}
+	void* GetTxBuffer(uint32 idx) {return (uint8*)fBuffers + dwmacMaxPacketSize*idx;}
+	void* GetRxBuffer(uint32 idx) {return (uint8*)fBuffers + dwmacMaxPacketSize*(fTxDescCnt + idx);}
 };
 
 class DwmacDevice {

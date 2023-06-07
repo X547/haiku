@@ -418,3 +418,25 @@ struct DwmacRegs {
 static_assert(offsetof(DwmacRegs, mac) == 0x0000);
 static_assert(offsetof(DwmacRegs, mtl) == 0x0d00);
 static_assert(offsetof(DwmacRegs, dma) == 0x1000);
+
+
+union DwmacDescDes3 {
+	struct {
+		uint32 length: 15;
+		uint32 unknown1: 9;
+		uint32 buf1v: 1;
+		uint32 unknown2: 3;
+		uint32 ld: 1;
+		uint32 fd: 1;
+		uint32 unknown3: 1;
+		uint32 own: 1;
+	};
+	uint32 val;
+};
+
+struct DwmacDesc {
+	uint32 des0;
+	uint32 des1;
+	uint32 des2;
+	DwmacDescDes3 des3;
+};
