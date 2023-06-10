@@ -539,8 +539,8 @@ Device::InitEndpoints(int32 interfaceIndex)
 				// We should have a companion descriptor for this device.
 				// Let's find it: it'll be the "i"th one.
 				size_t k = 0;
-				for (size_t j = 0; j < interfaceInfo->generic_count; j++) {
-					usb_descriptor* desc = interfaceInfo->generic[j];
+				for (size_t l = 0; l < interfaceInfo->generic_count; l++) {
+					usb_descriptor* desc = interfaceInfo->generic[l];
 					if (desc->endpoint.descriptor_type
 							!= USB_DESCRIPTOR_ENDPOINT_SS_COMPANION) {
 						continue;
