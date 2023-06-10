@@ -1493,7 +1493,7 @@ Device *
 XHCI::AllocateDevice(Hub *parent, int8 hubAddress, uint8 hubPort,
 	usb_speed speed)
 {
-	TRACE("AllocateDevice hubAddress %d hubPort %d speed %d\n", hubAddress,
+	TRACE_ALWAYS("AllocateDevice hubAddress %d hubPort %d speed %d\n", hubAddress,
 		hubPort, speed);
 
 	uint8 slot = XHCI_MAX_SLOTS;
@@ -1555,7 +1555,7 @@ XHCI::AllocateDevice(Hub *parent, int8 hubAddress, uint8 hubPort,
 	// else we have to rely on value reported by the Hub Explore thread
 	if (route == 0) {
 		GetPortSpeed(hubPort - 1, &speed);
-		TRACE("speed updated %d\n", speed);
+		TRACE_ALWAYS("speed updated %d\n", speed);
 	}
 
 	// add the speed
