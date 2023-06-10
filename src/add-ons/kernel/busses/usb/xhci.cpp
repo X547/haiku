@@ -2275,6 +2275,12 @@ XHCI::GetPortSpeed(uint8 index, usb_speed* speed)
 	if (index >= fPortCount)
 		return B_BAD_INDEX;
 
+	// !!!
+	if (index == 0) {
+		*speed = USB_SPEED_HIGHSPEED;
+		return B_OK;
+	}
+
 	uint32 portStatus = ReadOpReg(XHCI_PORTSC(index));
 
 	switch (PS_SPEED_GET(portStatus)) {
