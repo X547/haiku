@@ -553,7 +553,7 @@ Device::InitEndpoints(int32 interfaceIndex)
 				}
 				if (comp_descr == NULL) {
 					TRACE_ERROR("SuperSpeed device without an endpoint companion "
-						"descriptor!");
+						"descriptor!\n");
 				}
 			}
 
