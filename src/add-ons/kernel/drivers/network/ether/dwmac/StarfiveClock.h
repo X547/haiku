@@ -35,4 +35,7 @@ public:
 
 	bool IsEnabled(uint32 id);
 	status_t SetEnabled(uint32 id, bool doEnable);
+
+	uint64 GetRate(uint32 id);
+	status_t SetRate(uint32 id, uint64 rate);
 };

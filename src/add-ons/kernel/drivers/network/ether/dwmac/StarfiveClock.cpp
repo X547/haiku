@@ -54,6 +54,18 @@ status_t StarfiveClock::SetEnabled(uint32 id, bool doEnable)
 	return B_OK;
 }
 
+uint64 StarfiveClock::GetRate(uint32 id)
+{
+	// TODO: implement
+	return 0;
+}
+
+status_t StarfiveClock::SetRate(uint32 id, uint64 rate)
+{
+	// TODO: implement
+	return ENOSYS;
+}
+
 bool StarfiveClock::GetRegs(uint32 id, StarfiveClockRegs volatile*& res)
 {
 	switch (id) {

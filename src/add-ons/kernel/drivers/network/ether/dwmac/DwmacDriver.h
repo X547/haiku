@@ -1,10 +1,12 @@
 #pragma once
 
 #include <device_manager.h>
+#include <stdlib.h>
 
 #include <kernel.h>
 #include <lock.h>
 #include <util/AVLTree.h>
+#include <util/iovec_support.h>
 
 #include <AutoDeleterOS.h>
 
@@ -73,8 +75,8 @@ public:
 	status_t MdioRead(uint32 addr, uint32 reg, uint32& value);
 	status_t MdioWrite(uint32 addr, uint32 reg, uint32 value);
 
-	status_t Send(phys_addr_t data, size_t size);
-	status_t Recv(phys_addr_t data, size_t size);
+	status_t Send(generic_io_vec* vector, size_t vectorCount);
+	status_t Recv(generic_io_vec* vector, size_t vectorCount);
 
 private:
 	device_node* fNode {};
@@ -83,6 +85,9 @@ private:
 	DwmacNetDevice* fNetDevice {};
 	AreaDeleter fRegsArea;
 	DwmacRegs* fRegs {};
+
+	uint32 fClkTx {};
+	uint32 fClkRmiiRtx {};
 
 	AreaDeleter fDmaArea;
 	void* fDmaAdr {};
@@ -96,6 +101,9 @@ private:
 	void* fBuffers {};
 
 	inline status_t InitDriverInt(device_node* node);
+
+	status_t StartClocks();
+	status_t StartResets();
 
 	status_t InitDma();
 

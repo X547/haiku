@@ -1,6 +1,8 @@
 #include "DwmacDriver.h"
 #include "DwmacNetDevice.h"
 #include "kernel_interface.h"
+#include "StarfiveClock.h"
+#include "StarfiveReset.h"
 
 #include <bus/FDT.h>
 
@@ -17,6 +19,19 @@
 
 
 DwmacRoster DwmacRoster::sInstance;
+
+
+template<typename Cond> static status_t
+WaitForCond(Cond cond, int32 attempts, bigtime_t retryInterval)
+{
+	for (; attempts > 0; attempts--) {
+		if (cond())
+			return B_OK;
+
+		snooze(retryInterval);
+	}
+	return B_TIMED_OUT;
+}
 
 
 float
@@ -139,11 +154,22 @@ DwmacDriver::RegisterChildDevices()
 status_t
 DwmacDriver::Start()
 {
-	//StartClocks();
-	//StartResets();
+	StarfiveClock clock;
+
+	CHECK_RET(StartClocks());
+	CHECK_RET(StartResets());
 	snooze(10);
 
+	CHECK_RET(WaitForCond([&](){return !fRegs->dma.busMode.swr;}, 50000, 1));
 
+	uint64 rate = clock.GetRate(fClkTx);
+	fRegs->mac.usTicCounter = (rate / 1000000) - 1;
+
+	// TODO: init PHY
+
+	// CHECK_RET(AdjustLink());
+
+	DwmacMtlTxOpMode txOpMode = {.val = fRegs->mtl.chan[0].txOpMode.val};
 
 	return B_ERROR;
 }
@@ -159,13 +185,7 @@ DwmacDriver::Stop()
 status_t
 DwmacDriver::MdioWaitIdle()
 {
-	for (uint32 i = 0; i < 1000000; i++) {
-		if (!fRegs->mac.mdioAddr.gb)
-			return B_OK;
-
-		snooze(1);
-	}
-	return B_TIMED_OUT;
+	return WaitForCond([&](){return !fRegs->mac.mdioAddr.gb;}, 1000000, 1);
 }
 
 
@@ -217,10 +237,24 @@ DwmacDriver::MdioWrite(uint32 addr, uint32 reg, uint32 value)
 
 
 status_t
+DwmacDriver::StartClocks()
+{
+	return B_OK;
+}
+
+
+status_t
+DwmacDriver::StartResets()
+{
+	return B_OK;
+}
+
+
+status_t
 DwmacDriver::InitDma()
 {
-	fTxDescCnt = 16;
-	fRxDescCnt = 16;
+	fTxDescCnt = 64;
+	fRxDescCnt = 64;
 
 	size_t dmaAreaSize = 0;
 	size_t descsOfs = dmaAreaSize;
@@ -253,23 +287,29 @@ DwmacDriver::InitDma()
 
 
 status_t
-DwmacDriver::Send(phys_addr_t data, size_t size)
+DwmacDriver::Send(generic_io_vec* vector, size_t vectorCount)
 {
 	uint32 descIdx = fTxDescIdx;
-	DwmacDesc* desc = GetTxDesc(fTxDescIdx);
-	fTxDescIdx = (fTxDescIdx + 1) % fTxDescCnt;
 
-	desc->des0 = data;
-	desc->des1 = 0;
-	desc->des2 = size;
-	memory_full_barrier();
-	desc->des3.val = DwmacDescDes3{
-		.length = (uint32)size,
-		.ld = true,
-		.fd = true,
-		.own = true
-	}.val;
+	size_t totalLen = 0;
+	for (size_t i = 0; i < vectorCount; i++)
+		totalLen += vector[i].length;
 
+	for (size_t i = 0; i < vectorCount; i++) {
+		DwmacDesc* desc = GetTxDesc(fTxDescIdx);
+		fTxDescIdx = (fTxDescIdx + 1) % fTxDescCnt;
+
+		desc->des0 = (uint32)vector[i].base;
+		desc->des1 = (uint32)(vector[i].base >> 32);
+		desc->des2 = (uint32)vector[i].length;
+		memory_full_barrier();
+		desc->des3.val = DwmacDescDes3{
+			.length = (uint32)totalLen,
+			.ld = i == vectorCount - 1,
+			.fd = i == 0,
+			.own = true
+		}.val;
+	}
 	fRegs->dma.channels[0].txEndAddr = ToPhysDmaAdr(GetTxDesc(fTxDescIdx));
 
 	return descIdx;
@@ -277,15 +317,19 @@ DwmacDriver::Send(phys_addr_t data, size_t size)
 
 
 status_t
-DwmacDriver::Recv(phys_addr_t data, size_t size)
+DwmacDriver::Recv(generic_io_vec* vector, size_t vectorCount)
 {
+	if (vectorCount != 1)
+		return B_ERROR;
+
 	uint32 descIdx = fRxDescIdx;
 	DwmacDesc* desc = GetTxDesc(fRxDescIdx);
 
 	desc->des0 = 0;
-	memory_full_barrier();
-	desc->des0 = data;
 	desc->des1 = 0;
+	memory_full_barrier();
+	desc->des0 = (uint32)vector[0].base;
+	desc->des1 = (uint32)(vector[0].base >> 32);
 	desc->des2 = 0;
 	memory_full_barrier();
 	desc->des3.val = DwmacDescDes3{
