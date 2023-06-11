@@ -8,6 +8,7 @@
  */
 
 
+#define TRACE_USB
 #include "usb_private.h"
 
 #include <stdio.h>
