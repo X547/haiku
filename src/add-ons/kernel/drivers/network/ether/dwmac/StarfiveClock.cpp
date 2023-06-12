@@ -70,6 +70,16 @@ bool StarfiveClock::GetRegs(uint32 id, StarfiveClockRegs volatile*& res)
 {
 	switch (id) {
 		case JH7110_NOC_BUS_CLK_STG_AXI:
+		case JH7110_GMAC0_GTXCLK:
+		case JH7110_GMAC0_PTP:
+		case JH7110_GMAC0_GTXC:
+		case JH7110_GMAC1_GTXCLK:
+		case JH7110_GMAC5_CLK_TX:
+		case JH7110_GMAC5_CLK_PTP:
+		case JH7110_GMAC5_CLK_AHB:
+		case JH7110_GMAC5_CLK_AXI:
+		case JH7110_GMAC1_GTXC:
+		case JH7110_GMAC1_RMII_RTX:
 			res = fSys.regs + SYS_OFFSET(id);
 			return true;
 		case JH7110_PCIE0_CLK_TL:
@@ -79,6 +89,12 @@ bool StarfiveClock::GetRegs(uint32 id, StarfiveClockRegs volatile*& res)
 		case JH7110_PCIE1_CLK_AXI_MST0:
 		case JH7110_PCIE1_CLK_APB:
 			res = fStg.regs + STG_OFFSET(id);
+			return true;
+		case JH7110_U0_GMAC5_CLK_TX:
+		case JH7110_U0_GMAC5_CLK_AHB:
+		case JH7110_U0_GMAC5_CLK_AXI:
+		case JH7110_GMAC0_RMII_RTX:
+			res = fSys.regs + AON_OFFSET(id);
 			return true;
 	}
 	return false;
