@@ -300,7 +300,6 @@ FdtGetClock(fdt_device_module_info* fdtModule, fdt_device* fdtDev, const char* n
 	}
 	const uint32* clocks = (const uint32*)prop;
 	int32 clockId = B_BENDIAN_TO_HOST_INT32(clocks[2*index + 1]);
-	dprintf("  clock \"%s\": %" B_PRId32 "\n", name, clockId);
 	return clockId;
 }
 
@@ -327,7 +326,6 @@ FdtGetReset(fdt_device_module_info* fdtModule, fdt_device* fdtDev, const char* n
 	}
 	const uint32* resets = (const uint32*)prop;
 	int32 resetId = B_BENDIAN_TO_HOST_INT32(resets[2*index + 1]);
-	dprintf("  reset \"%s\": %" B_PRId32 "\n", name, resetId);
 	return resetId;
 }
 
