@@ -44,13 +44,8 @@ status_t StarfiveClock::SetEnabled(uint32 id, bool doEnable)
 	if (!GetRegs(id, regs))
 		return ENOENT;
 
-	StarfiveClockRegs regsVal {.val = regs->val};
-	dprintf("clk-gate: readl(%16" B_PRIx64 ") -> %#" B_PRIx32 "\n", (addr_t)regs, regsVal.val);
-	regsVal.enable = doEnable;
-	regs->val = regsVal.val;
-	dprintf("clk-gate: writel(%#" B_PRIx32 ", %16" B_PRIx64 ") -> \n", regsVal.val, (addr_t)regs);
+	regs->enable = doEnable;
 
-	// regs->enable = doEnable;
 	return B_OK;
 }
 

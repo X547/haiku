@@ -62,7 +62,7 @@ bool StarfiveReset::IsAsserted(uint32 id)
 	uint32 mask = 1 << (id % 32);
 	uint32 value = *assertAndStatus.status;
 
-	return (value & mask) != 0;
+	return (value & mask) == 0;
 }
 
 status_t StarfiveReset::SetAsserted(uint32 id, bool doAssert)
@@ -75,7 +75,6 @@ status_t StarfiveReset::SetAsserted(uint32 id, bool doAssert)
 	uint32 done = 0;
 
 	uint32 value = *assertAndStatus.assert;
-	dprintf("reset: readl(%16" B_PRIx64 ") -> %#" B_PRIx32 "\n", (addr_t)assertAndStatus.assert, value);
 	if (doAssert) {
 		value |= mask;
 	} else {
@@ -84,7 +83,6 @@ status_t StarfiveReset::SetAsserted(uint32 id, bool doAssert)
 	}
 
 	*assertAndStatus.assert = value;
-	dprintf("reset: writel(%#" B_PRIx32 ", %16" B_PRIx64 ")\n", value, (addr_t)assertAndStatus.assert);
 
 	uint32 attempts = 10000;
 	do {
