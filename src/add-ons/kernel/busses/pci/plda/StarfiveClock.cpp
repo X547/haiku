@@ -6,12 +6,6 @@
 #include <KernelExport.h>
 
 
-#define SYS_OFFSET(id) ((id))
-#define STG_OFFSET(id) (((id) - JH7110_CLK_SYS_REG_END))
-#define AON_OFFSET(id) (((id) - JH7110_CLK_STG_REG_END))
-#define VOUT_OFFSET(id) (((id) - JH7110_CLK_VOUT_START))
-
-
 StarfiveClock::MmioRange::MmioRange(phys_addr_t physAdr, size_t size):
 	size(size)
 {
@@ -51,18 +45,17 @@ status_t StarfiveClock::SetEnabled(uint32 id, bool doEnable)
 
 bool StarfiveClock::GetRegs(uint32 id, StarfiveClockRegs volatile*& res)
 {
-	switch (id) {
-		case JH7110_NOC_BUS_CLK_STG_AXI:
-			res = fSys.regs + SYS_OFFSET(id);
-			return true;
-		case JH7110_PCIE0_CLK_TL:
-		case JH7110_PCIE0_CLK_AXI_MST0:
-		case JH7110_PCIE0_CLK_APB:
-		case JH7110_PCIE1_CLK_TL:
-		case JH7110_PCIE1_CLK_AXI_MST0:
-		case JH7110_PCIE1_CLK_APB:
-			res = fStg.regs + STG_OFFSET(id);
-			return true;
+	if (id < JH7110_CLK_SYS_REG_END) {
+			res = fStg.regs + id;
+		return true;
+	}
+	if (id < JH7110_CLK_STG_REG_END) {
+			res = fStg.regs + (id - JH7110_CLK_SYS_REG_END);
+		return true;
+	}
+	if (id < JH7110_CLK_REG_END) {
+			res = fStg.regs + (id - JH7110_CLK_STG_REG_END);
+		return true;
 	}
 	return false;
 }
