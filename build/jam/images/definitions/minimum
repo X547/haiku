@@ -126,6 +126,7 @@ SYSTEM_SERVERS = [ FFilterByBuildFeatures
 SYSTEM_NETWORK_DEVICES =
 	ethernet
 	loopback
+	tun
 ;
 
 SYSTEM_NETWORK_DATALINK_PROTOCOLS =
