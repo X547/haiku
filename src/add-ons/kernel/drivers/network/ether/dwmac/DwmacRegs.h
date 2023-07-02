@@ -69,7 +69,7 @@ union DwmacTxqPrtyMap0 {
 enum class DwmacRxqCtrl0Rxq0en: uint32 {
 	notEnabled = 0,
 	enabledAv = 1,
-	enabledDsb = 2,
+	enabledDcb = 2,
 };
 
 union DwmacRxqCtrl0 {
@@ -222,19 +222,55 @@ static_assert(offsetof(DwmacMacRegs, timestampStatus)    == 0xb20);
 static_assert(sizeof  (DwmacMacRegs)                     == 0xd00);
 
 
+enum class DwmacMtlTxOpModeTxqen: uint32 {
+	enabled = 2,
+};
+
 union DwmacMtlTxOpMode {
+	union {
+		uint32 ftq: 1; // 0
+		uint32 tsf: 1; // 1
+		DwmacMtlTxOpModeTxqen txqen: 2; // 2
+		uint32 unknown1: 12;
+		uint32 tqs: 9; // 16
+		uint32 unknown2: 7;
+	};
 	uint32 val;
 };
 
 union DwmacMtlTxDebug {
+	union {
+		uint32 unknown1: 1;
+		uint32 trcsts: 2; // 1
+		uint32 unknown2: 1;
+		uint32 txqsts: 1; // 4
+		uint32 unknown3: 27;
+	};
 	uint32 val;
 };
 
 union DwmacMtlRxOpMode {
+	union {
+		uint32 unknown1: 5;
+		uint32 rsf: 1; // 5
+		uint32 unknown2: 1;
+		uint32 ehfc: 1; // 7
+		uint32 rfa: 6; // 8
+		uint32 rfd: 6; // 14
+		uint32 rqs: 10; // 20
+		uint32 unknown3: 2;
+	};
 	uint32 val;
 };
 
 union DwmacMtlRxDebug {
+	union {
+		uint32 unknown1: 4;
+		uint32 rxqsts: 2; // 4
+		uint32 unknown2: 10;
+		uint32 prxq: 15; // 16
+		uint32 unknown3: 1;
+	};
 	uint32 val;
 };
 
