@@ -29,7 +29,7 @@ StarfiveClock::StarfiveClock():
 {
 }
 
-bool StarfiveClock::IsEnabled(uint32 id)
+bool StarfiveClock::IsEnabled(int32 id)
 {
 	StarfiveClockRegs volatile* regs {};
 	if (!GetRegs(id, regs))
@@ -38,7 +38,7 @@ bool StarfiveClock::IsEnabled(uint32 id)
 	return regs->enable;
 }
 
-status_t StarfiveClock::SetEnabled(uint32 id, bool doEnable)
+status_t StarfiveClock::SetEnabled(int32 id, bool doEnable)
 {
 	StarfiveClockRegs volatile* regs {};
 	if (!GetRegs(id, regs))
@@ -49,19 +49,31 @@ status_t StarfiveClock::SetEnabled(uint32 id, bool doEnable)
 	return B_OK;
 }
 
-uint64 StarfiveClock::GetRate(uint32 id)
+int64 StarfiveClock::GetRate(int32 id)
 {
 	// TODO: implement
-	return 0;
+	return -1;
 }
 
-status_t StarfiveClock::SetRate(uint32 id, uint64 rate)
+status_t StarfiveClock::SetRate(int32 id, int64 rate)
 {
 	// TODO: implement
 	return ENOSYS;
 }
 
-bool StarfiveClock::GetRegs(uint32 id, StarfiveClockRegs volatile*& res)
+int32 StarfiveClock::GetParent(int32 id)
+{
+	// TODO: implement
+	return -1;
+}
+
+status_t StarfiveClock::SetParent(int32 id, int32 parentId)
+{
+	// TODO: implement
+	return ENOSYS;
+}
+
+bool StarfiveClock::GetRegs(int32 id, StarfiveClockRegs volatile*& res)
 {
 	switch (id) {
 		case JH7110_NOC_BUS_CLK_STG_AXI:

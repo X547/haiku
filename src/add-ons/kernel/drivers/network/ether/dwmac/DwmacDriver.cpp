@@ -170,6 +170,28 @@ DwmacDriver::Start()
 	// CHECK_RET(AdjustLink());
 
 	DwmacMtlTxOpMode txOpMode = {.val = fRegs->mtl.chan[0].txOpMode.val};
+	txOpMode.tsf = true;
+	txOpMode.txqen = DwmacMtlTxOpModeTxqen::enabled;
+	fRegs->mtl.chan[0].txOpMode.val = txOpMode.val;
+
+	fRegs->mtl.chan[0].txqWeight = 0x10;
+	fRegs->mtl.chan[0].rxOpMode.rsf = true;
+
+	DwmacHwFeature1 macHwFeature1 {.val = fRegs->mac.hwFeature1.val};
+	uint32 tqs = (128 << macHwFeature1.txFifoSize) / 256 - 1;
+	uint32 rqs = (128 << macHwFeature1.rxFifoSize) / 256 - 1;
+
+	fRegs->mtl.chan[0].txOpMode.tqs = tqs;
+	fRegs->mtl.chan[0].rxOpMode.rqs = rqs;
+
+	if (rqs >= ((4096 / 256) - 1)) {
+		// TODO
+	}
+
+	fRegs->mac.rxqCtrl0.rxq0en = DwmacRxqCtrl0Rxq0en::enabledDcb;
+	fRegs->mac.rxqCtrl1 = 0x00100000;
+	fRegs->mac.packetFilter = 0x1;
+	fRegs->mac.qxTxFlowCtrl[0].pt = 0xffff;
 
 	return B_ERROR;
 }

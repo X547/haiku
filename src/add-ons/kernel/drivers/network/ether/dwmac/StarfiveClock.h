@@ -28,17 +28,17 @@ private:
 	MmioRange fStg;
 	MmioRange fAon;
 
-	bool GetRegs(uint32 id, StarfiveClockRegs volatile*& res);
+	bool GetRegs(int32 id, StarfiveClockRegs volatile*& res);
 
 public:
 	StarfiveClock();
 
-	bool IsEnabled(uint32 id);
-	status_t SetEnabled(uint32 id, bool doEnable);
+	bool IsEnabled(int32 id);
+	status_t SetEnabled(int32 id, bool doEnable);
 
-	uint64 GetRate(uint32 id);
-	status_t SetRate(uint32 id, uint64 rate /* Hz */);
+	int64 GetRate(int32 id);
+	status_t SetRate(int32 id, int64 rate /* Hz */);
 
-	uint32 GetParent(uint32 id);
-	status_t SetParent(uint32 id, uint32 parentId);
+	int32 GetParent(int32 id);
+	status_t SetParent(int32 id, int32 parentId);
 };
