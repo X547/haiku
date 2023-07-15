@@ -11,6 +11,8 @@ libicon = static_library(
 		'message/Defines.cpp',
 		'message/MessageImporter.cpp',
 		'shape/PathContainer.cpp',
+		'shape/PathSourceShape.cpp',
+		'shape/ReferenceImage.cpp',
 		'shape/Shape.cpp',
 		'shape/ShapeContainer.cpp',
 		'shape/VectorPath.cpp',

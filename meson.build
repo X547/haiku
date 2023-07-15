@@ -6,13 +6,18 @@ project(
 
 cpp = meson.get_compiler('cpp')
 
+# disable some warnings
+add_project_arguments('-Wno-non-c-typedef-for-linkage', language: 'cpp')
+add_project_arguments('-Wno-return-type-c-linkage', language: 'cpp')
+add_project_arguments('-Wno-multichar', language: ['c', 'cpp'])
+add_project_arguments('-Wno-register', language: ['c', 'cpp'])
+
 add_project_arguments([
 	'-DARCH_x86_64',
 	'-D__HAIKU_PRIMARY_PACKAGING_ARCH="x86_64"',
 	'-DHAIKU_DISTRO_COMPATIBILITY_OFFICIAL',
 	'-DHAIKU_TARGET_PLATFORM_HAIKU',
 	'-DHAIKU_REGULAR_BUILD',
-	'-Wno-register',
 ], language: ['c', 'cpp'])
 
 hdr_base = include_directories([
