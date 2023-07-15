@@ -10,8 +10,8 @@
 #include <SupportDefs.h>
 
 
-const float B_SIZE_UNSET		= -2;
-const float B_SIZE_UNLIMITED	= 1024 * 1024 * 1024;
+const int32 B_SIZE_UNSET		= -2;
+const int32 B_SIZE_UNLIMITED	= 1024 * 1024 * 1024;
 
 
 class BSize {
