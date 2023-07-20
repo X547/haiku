@@ -10,15 +10,12 @@ libicon = static_library(
 		'flat_icon/PathCommandQueue.cpp',
 		'message/Defines.cpp',
 		'message/MessageImporter.cpp',
-		'shape/PathContainer.cpp',
 		'shape/PathSourceShape.cpp',
 		'shape/ReferenceImage.cpp',
 		'shape/Shape.cpp',
-		'shape/ShapeContainer.cpp',
 		'shape/VectorPath.cpp',
 		'style/GradientTransformable.cpp',
 		'style/Style.cpp',
-		'style/StyleContainer.cpp',
 		'transformable/Transformable.cpp',
 		'transformer/AffineTransformer.cpp',
 		'transformer/ContourTransformer.cpp',
@@ -31,6 +28,7 @@ libicon = static_library(
 	include_directories: [
 		include_directories(
 			'flat_icon',
+			'generic',
 			'message',
 			'shape',
 			'style',
