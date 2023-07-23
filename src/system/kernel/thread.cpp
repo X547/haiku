@@ -1104,15 +1104,8 @@ undertaker(void* /*args*/)
 		// wait for a thread to bury
 		InterruptsSpinLocker locker(sUndertakerLock);
 
-		while (sUndertakerEntries.IsEmpty()) {
-			ConditionVariableEntry conditionEntry;
-			sUndertakerCondition.Add(&conditionEntry);
-			locker.Unlock();
-
-			conditionEntry.Wait();
-
-			locker.Lock();
-		}
+ 		while (sUndertakerEntries.IsEmpty())
+			sUndertakerCondition.Wait(&sUndertakerLock);
 
 		UndertakerEntry* _entry = sUndertakerEntries.RemoveHead();
 		locker.Unlock();
