@@ -324,6 +324,20 @@ ConditionVariable::Wait(recursive_lock* lock, uint32 flags, bigtime_t timeout)
 }
 
 
+status_t
+ConditionVariable::Wait(spinlock* lock, uint32 flags, bigtime_t timeout)
+{
+	ConditionVariableEntry entry;
+	Add(&entry);
+	release_spinlock(lock);
+	enable_interrupts();
+	status_t res = entry.Wait(flags, timeout);
+	disable_interrupts();
+	acquire_spinlock(lock);
+	return res;
+}
+
+
 /*static*/ void
 ConditionVariable::NotifyOne(const void* object, status_t result)
 {
