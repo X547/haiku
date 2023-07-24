@@ -13,6 +13,7 @@
 
 #include <AutoDeleterOS.h>
 #include <lock.h>
+#include <util/Bitmap.h>
 
 
 #define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
@@ -182,7 +183,8 @@ private:
 private:
 			PciDbiRegs volatile* fDbiRegs {};
 
-			uint32				fAllocatedMsiIrqs[1];
+			Bitmap				fAllocatedMsiIrqs;
+			int32				fMaxMsiCount {};
 			phys_addr_t			fMsiPhysAddr {};
 			long				fMsiStartIrq {};
 			uint64				fMsiData {};

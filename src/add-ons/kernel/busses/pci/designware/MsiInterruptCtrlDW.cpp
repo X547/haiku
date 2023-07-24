@@ -17,6 +17,10 @@ MsiInterruptCtrlDW::Init(PciDbiRegs volatile* dbiRegs, int32 msiIrq)
 
 	fDbiRegs = dbiRegs;
 
+	// TODO: Detect actually supported maximum interrupt count (at least 32, but can be bigger).
+	fMaxMsiCount = 32;
+	CHECK_RET(fAllocatedMsiIrqs.Resize(fMaxMsiCount));
+
 	physical_entry pe;
 	status_t result = get_memory_map(&fMsiData, sizeof(fMsiData), &pe, 1);
 	if (result != B_OK) {
@@ -55,21 +59,21 @@ MsiInterruptCtrlDW::Init(PciDbiRegs volatile* dbiRegs, int32 msiIrq)
 status_t
 MsiInterruptCtrlDW::AllocateVectors(uint8 count, uint8& startVector, uint64& address, uint16& data)
 {
-	if (count != 1)
+	if (count < 1)
 		return B_ERROR;
 
-	for (int i = 0; i < 32; i++) {
-		if (((1 << i) & fAllocatedMsiIrqs[0]) == 0) {
-			fAllocatedMsiIrqs[0] |= (1 << i);
-			fDbiRegs->msiIntr[0].mask &= ~(1 << i);
+	ssize_t index = fAllocatedMsiIrqs.GetLowestContiguousClear(count);
+	if (index < 0)
+		return B_ERROR;
 
-			startVector = fMsiStartIrq + i;
-			address = fMsiPhysAddr;
-			data = i;
-			return B_OK;
-		}
-	}
-	return B_ERROR;
+	fAllocatedMsiIrqs.SetRange(index, count);
+	for (ssize_t i = index; i < index + count; i++)
+		fDbiRegs->msiIntr[i / 32].mask &= ~(1 << i);
+
+	startVector = fMsiStartIrq + index;
+	address = fMsiPhysAddr;
+	data = index;
+	return B_OK;
 }
 
 
@@ -77,14 +81,11 @@ void
 MsiInterruptCtrlDW::FreeVectors(uint8 count, uint8 startVector)
 {
 	int32 irq = (int32)startVector - fMsiStartIrq;
-	while (count > 0) {
-		if (irq >= 0 && irq < 32 && ((1 << irq) & fAllocatedMsiIrqs[0]) != 0) {
-			fDbiRegs->msiIntr[0].mask |= (1 << (uint32)irq);
-			fAllocatedMsiIrqs[0] &= ~(1 << (uint32)irq);
-		}
-		irq++;
-		count--;
-	}
+
+	for (ssize_t i = irq; i < irq + count; i++)
+		fDbiRegs->msiIntr[i / 32].mask |= (1 << (uint32)i);
+
+	fAllocatedMsiIrqs.ClearRange(irq, count);
 }
 
 
