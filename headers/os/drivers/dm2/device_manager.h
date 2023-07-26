@@ -1,10 +1,45 @@
 #pragma once
 
 #include <module.h>
+#include <TypeConstants.h>
 
 class DeviceNode;
 class DeviceDriver;
 class BusDriver;
+
+
+/* standard device node attributes */
+
+#define B_DEVICE_PRETTY_NAME		"device/pretty name"		/* string */
+#define B_DEVICE_MAPPING			"device/mapping"			/* string */
+#define B_DEVICE_BUS				"device/bus"				/* string */
+#define B_DEVICE_FIXED_CHILD		"device/fixed child"		/* string */
+#define B_DEVICE_FLAGS				"device/flags"				/* uint32 */
+
+#define B_DEVICE_VENDOR_ID			"device/vendor"				/* uint16 */
+#define B_DEVICE_ID					"device/id"					/* uint16 */
+#define B_DEVICE_TYPE				"device/type"
+	/* uint16, PCI base class */
+#define B_DEVICE_SUB_TYPE			"device/subtype"
+	/* uint16, PCI sub type */
+#define B_DEVICE_INTERFACE			"device/interface"
+	/* uint16, PCI class API */
+
+#define B_DEVICE_UNIQUE_ID			"device/unique id"			/* string */
+
+/* device flags */
+#define B_FIND_CHILD_ON_DEMAND		0x01
+#define B_FIND_MULTIPLE_CHILDREN	0x02
+#define B_KEEP_DRIVER_LOADED		0x04
+
+/* DMA attributes */
+#define B_DMA_LOW_ADDRESS			"dma/low_address"
+#define B_DMA_HIGH_ADDRESS			"dma/high_address"
+#define B_DMA_ALIGNMENT				"dma/alignment"
+#define B_DMA_BOUNDARY				"dma/boundary"
+#define B_DMA_MAX_TRANSFER_BLOCKS	"dma/max_transfer_blocks"
+#define B_DMA_MAX_SEGMENT_BLOCKS	"dma/max_segment_blocks"
+#define B_DMA_MAX_SEGMENT_COUNT		"dma/max_segment_count"
 
 
 /* attribute of a device node */
@@ -89,8 +124,9 @@ class BusDriver {
 public:
 	virtual void Free() {}
 	virtual const device_attr* Attributes() const = 0;
-	virtual void* QueryInterface(const char* name) const {return NULL;}
+	virtual void* QueryInterface(const char* name) {return NULL;}
 	virtual void DriverChanged() {}
+	virtual status_t CreateChildNode(DeviceNode** outNode) {return ENOSYS;};
 
 protected:
 	~BusDriver() = default;

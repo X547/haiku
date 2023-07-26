@@ -11,17 +11,10 @@
 
 #include <dm2/bus/FDT.h>
 
+#include <AutoDeleterDM2.h>
+
 
 #define VIRTIO_MMIO_DRIVER_MODULE_NAME "busses/virtio/virtio_mmio/driver/v1"
-
-
-struct DeviceNodePutter : MethodDeleter<DeviceNode, int32, &DeviceNode::ReleaseReference>
-{
-	typedef MethodDeleter<DeviceNode, int32, &DeviceNode::ReleaseReference> Base;
-
-	DeviceNodePutter() : Base() {}
-	DeviceNodePutter(DeviceNode* object) : Base(object) {}
-};
 
 
 status_t VirtioMmioDeviceDriver::Probe(DeviceNode* node, DeviceDriver** outDriver)

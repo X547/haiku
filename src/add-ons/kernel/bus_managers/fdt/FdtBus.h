@@ -1,0 +1,90 @@
+#pragma once
+
+#include <dm2/bus/FDT.h>
+
+#include <HashMap.h>
+#include <util/Vector.h>
+
+
+//#define TRACE_FDT
+#ifdef TRACE_FDT
+#define TRACE(x...) dprintf(x)
+#else
+#define TRACE(x...)
+#endif
+
+
+#define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
+
+
+class FdtBusImpl: public DeviceDriver, public FdtBus {
+public:
+	FdtBusImpl(DeviceNode* node): fNode(node) {}
+	virtual ~FdtBusImpl() = default;
+
+	// DeviceDriver
+	static status_t Probe(DeviceNode* node, DeviceDriver** driver);
+	void Free() final;
+	void* QueryInterface(const char* name) final;
+	status_t RegisterChildDevices() final;
+
+	// FdtBus
+	DeviceNode* NodeByPhandle(int phandle) final;
+
+private:
+	DeviceNode* fNode;
+	HashMap<HashKey32<int32>, DeviceNode*> fPhandles;
+
+	void Traverse(int &node, int &depth, DeviceNode* parentDev);
+	status_t RegisterNode(int node, DeviceNode* parentDev, DeviceNode*& curDev);
+};
+
+
+class FdtDeviceImpl: public BusDriver, public FdtDevice {
+public:
+	FdtDeviceImpl(DeviceNode* busNode): fBusNode(busNode) {}
+	virtual ~FdtDeviceImpl() = default;
+
+	status_t Init(DeviceNode* node);
+
+	// BusDriver
+	void Free() final;
+	const device_attr* Attributes() const final;
+	void* QueryInterface(const char* name) final;
+
+	// FdtDevice
+	DeviceNode* GetBus() final;
+	const char* GetName() final;
+	const void* GetProp(const char* name, int* len) final;
+	bool GetReg(uint32 ord, uint64* regs, uint64* len) final;
+	bool GetInterrupt(uint32 ord, DeviceNode** interruptController, uint64* interrupt) final;
+	FdtInterruptMap* GetInterruptMap() final;
+
+private:
+	DeviceNode* fNode {};
+	DeviceNode* fBusNode {};
+	Vector<device_attr> fAttrs;
+
+	int GetFdtNode();
+};
+
+
+class FdtInterruptMapImpl: public FdtInterruptMap {
+public:
+	virtual ~FdtInterruptMapImpl() = default;
+
+	void Print() final;
+	uint32 Lookup(uint32 childAddr, uint32 childIrq) final;
+};
+
+
+class FdtRootDriver: public DeviceDriver {
+public:
+	static status_t Probe(DeviceNode* node, DeviceDriver** driver);
+
+	virtual ~FdtRootDriver() = default;
+
+	void Free() final;
+	void* QueryInterface(const char* name) {return NULL;}
+	status_t RegisterChildDevices() {return B_OK;}
+};

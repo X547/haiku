@@ -19,7 +19,7 @@ local earlyFDTHelpers =
 ;
 
 KernelAddon fdt :
-	fdt_module.cpp
+	FdtBus.cpp
 	$(libFDTSources)
 	;
 
