@@ -41,8 +41,8 @@ protected:
 
 class FdtInterruptMap {
 public:
-	virtual void Print();
-	virtual uint32 Lookup(uint32 childAddr, uint32 childIrq);
+	virtual void Print() = 0;
+	virtual uint32 Lookup(uint32 childAddr, uint32 childIrq) = 0;
 
 protected:
 	~FdtInterruptMap() = default;

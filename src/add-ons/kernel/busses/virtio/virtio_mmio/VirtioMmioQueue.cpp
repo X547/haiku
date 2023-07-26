@@ -1,18 +1,15 @@
 /*
- * Copyright 2021, Haiku, Inc. All rights reserved.
+ * Copyright 2021-2023, Haiku, Inc. All rights reserved.
  * Distributed under the terms of the MIT License.
  */
 
 
-#include "VirtioDevice.h"
+#include "VirtioMmioDevice.h"
 
-#include <malloc.h>
 #include <string.h>
 #include <new>
 
-#include <KernelExport.h>
 #include <kernel.h>
-#include <debug.h>
 
 
 static inline void
@@ -23,27 +20,16 @@ SetLowHi(vuint32 &low, vuint32 &hi, uint64 val)
 }
 
 
-// #pragma mark - VirtioQueue
-
-
-VirtioQueue::VirtioQueue(VirtioDevice *dev, int32 id)
+VirtioMmioQueue::VirtioMmioQueue(VirtioMmioDevice *dev, int32 id)
 	:
 	fDev(dev),
-	fId(id),
-	fAllocatedDescs(0),
-	fQueueHandler(NULL),
-	fQueueHandlerCookie(NULL)
-{
-}
-
-
-VirtioQueue::~VirtioQueue()
+	fId(id)
 {
 }
 
 
 status_t
-VirtioQueue::Init()
+VirtioMmioQueue::Init()
 {
 	fDev->fRegs->queueSel = fId;
 	TRACE("queueNumMax: %d\n", fDev->fRegs->queueNumMax);
@@ -88,9 +74,9 @@ VirtioQueue::Init()
 	fUsed  = (VirtioUsed*) (queueMem + usedOffset);
 
 	if (fDev->fRegs->version >= 2) {
-		phys_addr_t descsPhys = (addr_t)fDescs - (addr_t)queueMem + pe.address;
-		phys_addr_t availPhys = (addr_t)fAvail - (addr_t)queueMem + pe.address;
-		phys_addr_t usedPhys  = (addr_t)fUsed  - (addr_t)queueMem + pe.address;
+		phys_addr_t descsPhys = pe.address + descsOffset;
+		phys_addr_t availPhys = pe.address + availOffset;
+		phys_addr_t usedPhys  = pe.address + usedOffset;
 
 		SetLowHi(fDev->fRegs->queueDescLow,  fDev->fRegs->queueDescHi,  descsPhys);
 		SetLowHi(fDev->fRegs->queueAvailLow, fDev->fRegs->queueAvailHi, availPhys);
@@ -118,7 +104,7 @@ VirtioQueue::Init()
 
 
 int32
-VirtioQueue::AllocDesc()
+VirtioMmioQueue::AllocDesc()
 {
 	int32 idx = fAllocatedDescs.GetLowestClear();
 	if (idx < 0)
@@ -130,14 +116,43 @@ VirtioQueue::AllocDesc()
 
 
 void
-VirtioQueue::FreeDesc(int32 idx)
+VirtioMmioQueue::FreeDesc(int32 idx)
 {
 	fAllocatedDescs.Clear(idx);
 }
 
 
+// #pragma mark - Public driver interface
+
 status_t
-VirtioQueue::Enqueue(const physical_entry* vector,
+VirtioMmioQueue::SetupInterrupt(virtio_callback_func handler, void* cookie)
+{
+	fQueueHandler = handler;
+	fQueueHandlerCookie = cookie;
+	fQueueHandlerRef.SetTo((handler == NULL) ? NULL : &fDev->fIrqHandler);
+
+	return B_OK;
+}
+
+
+status_t
+VirtioMmioQueue::Request(const physical_entry* readEntry, const physical_entry* writtenEntry, void* cookie)
+{
+	physical_entry vector[2];
+	physical_entry* vectorEnd = vector;
+
+	if (readEntry != NULL)
+		*vectorEnd++ = *readEntry;
+
+	if (writtenEntry != NULL)
+		*vectorEnd++ = *writtenEntry;
+
+	return RequestV(vector, (readEntry != NULL) ? 1 : 0, (writtenEntry != NULL) ? 1 : 0, cookie);
+}
+
+
+status_t
+VirtioMmioQueue::RequestV(const physical_entry* vector,
 	size_t readVectorCount, size_t writtenVectorCount,
 	void* cookie)
 {
@@ -193,7 +208,29 @@ VirtioQueue::Enqueue(const physical_entry* vector,
 
 
 bool
-VirtioQueue::Dequeue(void** _cookie, uint32* _usedLength)
+VirtioMmioQueue::IsFull()
+{
+	panic("not implemented");
+	return false;
+}
+
+
+bool
+VirtioMmioQueue::IsEmpty()
+{
+	return fUsed->idx == fLastUsed;
+}
+
+
+uint16
+VirtioMmioQueue::Size()
+{
+	return fQueueLen;
+}
+
+
+bool
+VirtioMmioQueue::Dequeue(void** _cookie, uint32* _usedLength)
 {
 	fDev->fRegs->queueSel = fId;
 
@@ -218,92 +255,4 @@ VirtioQueue::Dequeue(void** _cookie, uint32* _usedLength)
 	fLastUsed++;
 
 	return true;
-}
-
-
-// #pragma mark - VirtioIrqHandler
-
-
-VirtioIrqHandler::VirtioIrqHandler(VirtioDevice* dev)
-	:
-	fDev(dev)
-{
-	fReferenceCount = 0;
-}
-
-
-void
-VirtioIrqHandler::FirstReferenceAcquired()
-{
-	install_io_interrupt_handler(fDev->fIrq, Handle, fDev, 0);
-}
-
-
-void
-VirtioIrqHandler::LastReferenceReleased()
-{
-	remove_io_interrupt_handler(fDev->fIrq, Handle, fDev);
-}
-
-
-int32
-VirtioIrqHandler::Handle(void* data)
-{
-	// TRACE("VirtioIrqHandler::Handle(%p)\n", data);
-	VirtioDevice* dev = (VirtioDevice*)data;
-
-	if ((kVirtioIntQueue & dev->fRegs->interruptStatus) != 0) {
-		for (int32 i = 0; i < dev->fQueueCnt; i++) {
-			VirtioQueue* queue = dev->fQueues[i].Get();
-			if (queue->fUsed->idx != queue->fLastUsed
-				&& queue->fQueueHandler != NULL) {
-				queue->fQueueHandler(dev->fConfigHandlerCookie,
-					queue->fQueueHandlerCookie);
-				}
-		}
-		dev->fRegs->interruptAck = kVirtioIntQueue;
-	}
-
-	if ((kVirtioIntConfig & dev->fRegs->interruptStatus) != 0) {
-		if (dev->fConfigHandler != NULL)
-			dev->fConfigHandler(dev->fConfigHandlerCookie);
-
-		dev->fRegs->interruptAck = kVirtioIntConfig;
-	}
-
-	return B_HANDLED_INTERRUPT;
-}
-
-
-// #pragma mark - VirtioDevice
-
-
-VirtioDevice::VirtioDevice()
-	:
-	fRegs(NULL),
-	fQueueCnt(0),
-	fIrqHandler(this),
-	fConfigHandler(NULL),
-	fConfigHandlerCookie(NULL)
-{
-}
-
-
-status_t
-VirtioDevice::Init(phys_addr_t regs, size_t regsLen, int32 irq, int32 queueCnt)
-{
-	fRegsArea.SetTo(map_physical_memory("Virtio MMIO",
-		regs, regsLen, B_ANY_KERNEL_ADDRESS,
-		B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA,
-		(void**)&fRegs));
-
-	if (!fRegsArea.IsSet())
-		return fRegsArea.Get();
-
-	fIrq = irq;
-
-	// Reset
-	fRegs->status = 0;
-
-	return B_OK;
 }
