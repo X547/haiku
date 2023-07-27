@@ -45,7 +45,7 @@ public:
 	FdtDeviceImpl(DeviceNode* busNode): fBusNode(busNode) {}
 	virtual ~FdtDeviceImpl() = default;
 
-	status_t Init(DeviceNode* node);
+	status_t Init(DeviceNode* devNode, int node);
 
 	// BusDriver
 	void Free() final;
@@ -75,16 +75,17 @@ public:
 
 	void Print() final;
 	uint32 Lookup(uint32 childAddr, uint32 childIrq) final;
-};
 
+private:
+	struct MapEntry {
+		uint32_t childAddr;
+		uint32_t childIrq;
+		uint32_t parentIrqCtrl;
+		uint32_t parentIrq;
+	};
 
-class FdtRootDriver: public DeviceDriver {
-public:
-	static status_t Probe(DeviceNode* node, DeviceDriver** driver);
+	uint32_t fChildAddrMask;
+	uint32_t fChildIrqMask;
 
-	virtual ~FdtRootDriver() = default;
-
-	void Free() final;
-	void* QueryInterface(const char* name) {return NULL;}
-	status_t RegisterChildDevices() {return B_OK;}
+	Vector<MapEntry> fInterruptMap;
 };

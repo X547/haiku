@@ -6,6 +6,8 @@
 class DeviceNode;
 class DeviceDriver;
 class BusDriver;
+class DevFsNode;
+class DevFsNodeDesc;
 
 
 /* standard device node attributes */
@@ -15,15 +17,6 @@ class BusDriver;
 #define B_DEVICE_BUS				"device/bus"				/* string */
 #define B_DEVICE_FIXED_CHILD		"device/fixed child"		/* string */
 #define B_DEVICE_FLAGS				"device/flags"				/* uint32 */
-
-#define B_DEVICE_VENDOR_ID			"device/vendor"				/* uint16 */
-#define B_DEVICE_ID					"device/id"					/* uint16 */
-#define B_DEVICE_TYPE				"device/type"
-	/* uint16, PCI base class */
-#define B_DEVICE_SUB_TYPE			"device/subtype"
-	/* uint16, PCI sub type */
-#define B_DEVICE_INTERFACE			"device/interface"
-	/* uint16, PCI class API */
 
 #define B_DEVICE_UNIQUE_ID			"device/unique id"			/* string */
 
@@ -64,7 +57,6 @@ struct device_manager_info {
 	module_info info;
 
 	DeviceNode *(*get_root_node)();
-	status_t (*register_node)(DeviceNode* parent, BusDriver* driver, DeviceNode** node);
 };
 
 
@@ -96,12 +88,33 @@ public:
 
 	template<typename Iface>
 	inline Iface* QueryBusInterface();
+	template<typename Iface>
+	inline Iface* QueryDriverInterface();
+	
+	virtual status_t InstallListener(DeviceNodeListener* listener) = 0;
+	virtual status_t UninstallListener(DeviceNodeListener* listener) = 0;
 
 	virtual status_t RegisterNode(BusDriver* driver, DeviceNode** node) = 0;
 	virtual status_t UnregisterNode(DeviceNode* node) = 0;
 
+	virtual status_t RegisterDevFsNode(const char* path, DevFsNode* driver) = 0;
+	virtual status_t UnregisterDevFsNode(const char* path) = 0;
+
 protected:
 	~DeviceNode() = default;
+};
+
+
+class DeviceNodeListener {
+public:
+	virtual void NodeUnregistered() {}
+	virtual void DriverAttached() {}
+	virtual void DriverDetached() {}
+
+protected:
+	~DeviceNodeListener() = default;
+	
+	void* fPrivate{};
 };
 
 
@@ -122,6 +135,9 @@ protected:
 // interface provided for each device node publiched by bus driver
 class BusDriver {
 public:
+	// Called by DeviceNode::RegisterNode. DeviceNode::RegisterNode will fail if this method fails.
+	virtual status_t InitDriver(DeviceNode* node) {return B_OK;}
+
 	virtual void Free() {}
 	virtual const device_attr* Attributes() const = 0;
 	virtual void* QueryInterface(const char* name) {return NULL;}
@@ -133,9 +149,63 @@ protected:
 };
 
 
+class DevFsNode {
+public:
+	virtual void Free() {}
+	virtual status_t Open(const char *path, int openMode, DevFsNodeDesc **outDesc) = 0;
+
+protected:
+	~DevFsNode() = default;
+};
+
+
+class DevFsNodeDesc {
+public:
+	virtual void Free() {}
+	virtual status_t Close() {return B_OK;}
+	virtual status_t Read(off_t pos, void *buffer, size_t *_length) {return ENOSYS;}
+	virtual status_t Write(off_t pos, const void *buffer, size_t *_length) {return ENOSYS;}
+	virtual status_t IO(io_request *request) {return ENOSYS;}
+	virtual status_t Control(uint32 op, void *buffer, size_t length) {return ENOSYS;}
+	virtual status_t Select(uint8 event, selectsync *sync) {return ENOSYS;}
+	virtual status_t Deselect(uint8 event, selectsync *sync) {return ENOSYS;}
+
+protected:
+	~DevFsNode() = default;
+};
+
+
 template<typename Iface>
 inline Iface*
 DeviceNode::QueryBusInterface()
 {
 	return (Iface*)QueryBusInterface(Iface::ifaceName);
+}
+
+
+template<typename Iface>
+inline Iface*
+DeviceNode::QueryDriverInterface()
+{
+	return (Iface*)QueryDriverInterface(Iface::ifaceName);
+}
+
+
+inline status_t
+FindAttrUint32(const char* name, uint32* outValue) const
+{
+	const void* value {};
+	status_t res = FindAttr(name, B_UINT32_TYPE, 0, value);
+	if (res < B_OK)
+		return res;
+
+	*outValue = *(const uint32*)value;
+	return res;
+}
+
+
+inline status_t
+FindAttrString(const char* name, const char** outValue) const
+{
+	return FindAttr(name, B_STRING_TYPE, 0, (const void**)value);
 }

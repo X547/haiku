@@ -97,6 +97,14 @@ protected:
 };
 
 /* Attributes of PCI device nodes */
+#define B_PCI_DEVICE_VENDOR_ID			"pci/vendor"				/* uint16 */
+#define B_PCI_DEVICE_ID					"pci/id"					/* uint16 */
+#define B_PCI_DEVICE_TYPE				"pci/type"
+	/* uint16, PCI base class */
+#define B_PCI_DEVICE_SUB_TYPE			"pci/subtype"
+	/* uint16, PCI sub type */
+#define B_PCI_DEVICE_INTERFACE			"pci/interface"
+	/* uint16, PCI class API */
 #define B_PCI_DEVICE_DOMAIN		"pci/domain"		/* uint32 */
 #define B_PCI_DEVICE_BUS		"pci/bus"			/* uint8 */
 #define B_PCI_DEVICE_DEVICE		"pci/device"		/* uint8 */

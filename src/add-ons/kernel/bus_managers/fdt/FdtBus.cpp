@@ -16,6 +16,9 @@ extern "C" {
 };
 
 
+#define FDT_BUS_DRIVER_MODULE_NAME "bus_managers/fdt/driver/v1"
+
+
 #define GIC_INTERRUPT_CELL_TYPE     0
 #define GIC_INTERRUPT_CELL_ID       1
 #define GIC_INTERRUPT_CELL_FLAGS    2
@@ -146,7 +149,10 @@ FdtBusImpl::QueryInterface(const char* name)
 status_t
 FdtBusImpl::RegisterChildDevices()
 {
-	// TODO: implement
+	int node = -1, depth = -1;
+	node = fdt_next_node(gFDT, node, &depth);
+	Traverse(node, depth, fNode);
+
 	return B_OK;
 }
 
@@ -182,8 +188,8 @@ FdtBusImpl::RegisterNode(int node, DeviceNode* parentDev, DeviceNode*& curDev)
 		return B_NO_MEMORY;
 	}
 
-	CHECK_RET(fNode->RegisterNode(static_cast<BusDriver*>(fdtDev.Get()), &curDev));
-	CHECK_RET(fdtDev->Init(curDev)); // TODO: call UnregisterNode on error
+	CHECK_RET(parentDev->RegisterNode(static_cast<BusDriver*>(fdtDev.Get()), &curDev));
+	CHECK_RET(fdtDev->Init(curDev, node)); // TODO: call UnregisterNode on error
 
 	prop = fdt_getprop(gFDT, node, "phandle", &propLen);
 
@@ -196,13 +202,10 @@ FdtBusImpl::RegisterNode(int node, DeviceNode* parentDev, DeviceNode*& curDev)
 
 // #pragma mark - FdtDeviceImpl
 
-
 status_t
-FdtDeviceImpl::Init(DeviceNode* devNode)
+FdtDeviceImpl::Init(DeviceNode* devNode, int node)
 {
 	fNode = devNode;
-
-	int node = GetFdtNode();
 
 	const void* prop; int propLen;
 	int nameLen = 0;
@@ -248,10 +251,11 @@ FdtDeviceImpl::Free()
 	delete this;
 }
 
+
 const device_attr*
 FdtDeviceImpl::Attributes() const
 {
-	return NULL;
+	return &fAttrs[0];
 }
 
 
@@ -424,3 +428,17 @@ FdtInterruptMapImpl::Lookup(uint32 childAddr, uint32 childIrq)
 	// TODO: implement
 	return 0;
 }
+
+
+static driver_module_info sFdtBusDriver = {
+	.info = {
+		.name = FDT_BUS_DRIVER_MODULE_NAME,
+	},
+	.probe = FdtBusImpl::Probe
+};
+
+
+module_info* modules[] = {
+	(module_info* )&sFdtBusDriver,
+	NULL
+};
