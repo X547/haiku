@@ -3,11 +3,15 @@
 #include <module.h>
 #include <TypeConstants.h>
 
+typedef struct IORequest io_request;
+struct selectsync;
+
 class DeviceNode;
+class DeviceNodeListener;
 class DeviceDriver;
 class BusDriver;
 class DevFsNode;
-class DevFsNodeDesc;
+class DevFsNodeHandle;
 
 
 /* standard device node attributes */
@@ -74,14 +78,14 @@ public:
 	virtual int32 ReleaseReference() = 0;
 
 	virtual DeviceNode* GetParent() const = 0;
-	virtual status_t GetNextChildNode(const device_attr *attrs, DeviceNode **node) const = 0;
-	virtual status_t FindChildNode(const device_attr *attrs, DeviceNode **node) const = 0;
+	virtual status_t GetNextChildNode(const device_attr* attrs, DeviceNode** node) const = 0;
+	virtual status_t FindChildNode(const device_attr* attrs, DeviceNode** node) const = 0;
 
 	virtual status_t GetNextAttr(device_attr** attr) const = 0;
 	virtual status_t FindAttr(const char* name, type_code type, int32 index, const void** value) const = 0;
 
-	inline status_t FindAttrUint32(const char* name, uint32* outValue) const {return B_ERROR; /* TODO */}
-	inline status_t FindAttrString(const char* name, const char** outValue) const {return B_ERROR; /* TODO */}
+	inline status_t FindAttrUint32(const char* name, uint32* outValue) const;
+	inline status_t FindAttrString(const char* name, const char** outValue) const;
 
 	virtual void* QueryBusInterface(const char* ifaceName) = 0;
 	virtual void* QueryDriverInterface(const char* ifaceName) = 0;
@@ -90,7 +94,7 @@ public:
 	inline Iface* QueryBusInterface();
 	template<typename Iface>
 	inline Iface* QueryDriverInterface();
-	
+
 	virtual status_t InstallListener(DeviceNodeListener* listener) = 0;
 	virtual status_t UninstallListener(DeviceNodeListener* listener) = 0;
 
@@ -113,7 +117,7 @@ public:
 
 protected:
 	~DeviceNodeListener() = default;
-	
+
 	void* fPrivate{};
 };
 
@@ -152,26 +156,38 @@ protected:
 class DevFsNode {
 public:
 	virtual void Free() {}
-	virtual status_t Open(const char *path, int openMode, DevFsNodeDesc **outDesc) = 0;
+	virtual status_t Open(const char* path, int openMode, DevFsNodeHandle** outHandle) = 0;
 
 protected:
 	~DevFsNode() = default;
 };
 
 
-class DevFsNodeDesc {
+class DevFsNodeHandle {
 public:
+	union Capabilities {
+		struct {
+			uint32 read: 1;
+			uint32 write: 1;
+			uint32 io: 1;
+			uint32 select: 1;
+			uint32 unused: 28;
+		};
+		uint32 val;
+	};
+
 	virtual void Free() {}
+	virtual Capabilities GetCapabilities() {return {};}
 	virtual status_t Close() {return B_OK;}
-	virtual status_t Read(off_t pos, void *buffer, size_t *_length) {return ENOSYS;}
-	virtual status_t Write(off_t pos, const void *buffer, size_t *_length) {return ENOSYS;}
-	virtual status_t IO(io_request *request) {return ENOSYS;}
-	virtual status_t Control(uint32 op, void *buffer, size_t length) {return ENOSYS;}
-	virtual status_t Select(uint8 event, selectsync *sync) {return ENOSYS;}
-	virtual status_t Deselect(uint8 event, selectsync *sync) {return ENOSYS;}
+	virtual status_t Read(off_t pos, void* buffer, size_t* _length) {return ENOSYS;}
+	virtual status_t Write(off_t pos, const void* buffer, size_t* _length) {return ENOSYS;}
+	virtual status_t IO(io_request* request) {return ENOSYS;}
+	virtual status_t Control(uint32 op, void* buffer, size_t length) {return ENOSYS;}
+	virtual status_t Select(uint8 event, selectsync* sync) {return ENOSYS;}
+	virtual status_t Deselect(uint8 event, selectsync* sync) {return ENOSYS;}
 
 protected:
-	~DevFsNode() = default;
+	~DevFsNodeHandle() = default;
 };
 
 
@@ -192,10 +208,10 @@ DeviceNode::QueryDriverInterface()
 
 
 inline status_t
-FindAttrUint32(const char* name, uint32* outValue) const
+DeviceNode::FindAttrUint32(const char* name, uint32* outValue) const
 {
 	const void* value {};
-	status_t res = FindAttr(name, B_UINT32_TYPE, 0, value);
+	status_t res = FindAttr(name, B_UINT32_TYPE, 0, &value);
 	if (res < B_OK)
 		return res;
 
@@ -205,7 +221,7 @@ FindAttrUint32(const char* name, uint32* outValue) const
 
 
 inline status_t
-FindAttrString(const char* name, const char** outValue) const
+DeviceNode::FindAttrString(const char* name, const char** outValue) const
 {
-	return FindAttr(name, B_STRING_TYPE, 0, (const void**)value);
+	return FindAttr(name, B_STRING_TYPE, 0, (const void**)outValue);
 }

@@ -4,4 +4,6 @@ UsePrivateKernelHeaders ;
 UsePrivateHeaders shared ;
 
 KernelAddon device_manager2 :
-	device_manager.cpp ;
+	compile_check.cpp
+	device_manager.cpp
+;
