@@ -7,11 +7,11 @@ KernelAddon dprintf :
 	;
 
 KernelAddon null :
-	null.c
+	null.cpp
 	;
 
 KernelAddon zero :
-	zero.c
+	zero.cpp
 	;
 
 KernelAddon console :
