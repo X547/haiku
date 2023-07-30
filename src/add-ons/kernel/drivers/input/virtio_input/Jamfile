@@ -4,6 +4,8 @@ UsePrivateKernelHeaders ;
 UsePrivateHeaders drivers virtio input ;
 SubDirHdrs $(HAIKU_TOP) src system kernel device_manager ;
 
+SubDirC++Flags -fvisibility=hidden ;
+
 KernelAddon virtio_input :
 	virtio_input.cpp
 ;

@@ -158,6 +158,12 @@ DeviceNodeImpl::~DeviceNodeImpl()
 		delete wrapper;
 	}
 
+	if (fDeviceDriver != NULL) {
+		put_module(&fDriverModuleName[0]);
+		fDeviceDriver = NULL;
+		fDriverModuleName.Unset();
+	}
+
 	if (fBusDriver != NULL)
 		fBusDriver->Free();
 }
@@ -407,7 +413,7 @@ DeviceNodeImpl::Probe()
 	for (int32 i = 0; i < candidates.Count(); i++) {
 		const char* candidate = candidates[i].module;
 		status_t res = ProbeDriver(candidate);
-		if (res >= B_OK)
+		if (res >= B_OK && !fState.multipleDrivers)
 			return B_OK;
 	}
 
