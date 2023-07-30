@@ -188,7 +188,6 @@ protected:
 
 class DevFsNodeHandle {
 public:
-
 	virtual void Free() {}
 	virtual status_t Close() {return B_OK;}
 	virtual status_t Read(off_t pos, void* buffer, size_t* _length) {return ENOSYS;}

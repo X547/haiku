@@ -10,14 +10,37 @@
 #include <new>
 
 #include <dm2/bus/FDT.h>
+#include <dm2/bus/ACPI.h>
 
 #include <AutoDeleterDM2.h>
+#include <acpi.h>
 
 
 #define VIRTIO_MMIO_DRIVER_MODULE_NAME "busses/virtio/virtio_mmio/driver/v1"
 
 
-status_t VirtioMmioDeviceDriver::Probe(DeviceNode* node, DeviceDriver** outDriver)
+struct virtio_memory_range {
+	uint64 base;
+	uint64 length;
+};
+
+
+static acpi_status
+virtio_crs_find_address(acpi_resource *res, void *context)
+{
+	virtio_memory_range &range = *((virtio_memory_range *)context);
+
+	if (res->type == ACPI_RESOURCE_TYPE_FIXED_MEMORY32) {
+		range.base = res->data.fixed_memory32.address;
+		range.length = res->data.fixed_memory32.address_length;
+	}
+
+	return B_OK;
+}
+
+
+status_t
+VirtioMmioDeviceDriver::Probe(DeviceNode* node, DeviceDriver** outDriver)
 {
 	ObjectDeleter<VirtioMmioDeviceDriver> driver(new(std::nothrow) VirtioMmioDeviceDriver(node));
 	if (!driver.IsSet())
@@ -39,6 +62,7 @@ VirtioMmioDeviceDriver::Init()
 	uint64 interrupt = 0;
 
 	FdtDevice* fdtDev = fNode->QueryBusInterface<FdtDevice>();
+	AcpiDevice* acpiDev = fNode->QueryBusInterface<AcpiDevice>();
 	if (fdtDev != NULL) {
 		// initialize virtio device from FDT
 		for (uint32 i = 0; fdtDev->GetReg(i, &regs, &regsLen); i++) {
@@ -55,11 +79,15 @@ VirtioMmioDeviceDriver::Init()
 			ERROR("  no interrupts\n");
 			return B_ERROR;
 		}
+	} else if (acpiDev != NULL) {
+		// initialize virtio device from ACPI
+		virtio_memory_range range = { 0, 0 };
+		acpiDev->WalkResources((char *)"_CRS", virtio_crs_find_address, &range);
+		regs = range.base;
+		regsLen = range.length;
 	} else {
 		return B_ERROR;
 	}
-
-	// TODO: initialize virtio device from ACPI
 
 	ObjectDeleter<VirtioMmioBusDriver> busDriver(new(std::nothrow) VirtioMmioBusDriver(fDevice));
 	if (!busDriver.IsSet())

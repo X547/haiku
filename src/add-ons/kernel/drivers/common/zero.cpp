@@ -71,7 +71,6 @@ ZeroDevFsNode::Write(off_t pos, const void* buffer, size_t* _length)
 }
 
 
-
 // #pragma mark - ZeroDriver
 
 status_t

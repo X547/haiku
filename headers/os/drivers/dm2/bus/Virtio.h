@@ -30,20 +30,15 @@
 
 #define VIRTIO_VIRTQUEUES_MAX_COUNT	8
 
-#define VIRTIO_CONFIG_STATUS_RESET	0x00
-#define VIRTIO_CONFIG_STATUS_ACK	0x01
-#define VIRTIO_CONFIG_STATUS_DRIVER	0x02
+#define VIRTIO_CONFIG_STATUS_RESET		0x00
+#define VIRTIO_CONFIG_STATUS_ACK		0x01
+#define VIRTIO_CONFIG_STATUS_DRIVER		0x02
 #define VIRTIO_CONFIG_STATUS_DRIVER_OK	0x04
-#define VIRTIO_CONFIG_STATUS_FAILED	0x80
+#define VIRTIO_CONFIG_STATUS_FAILED		0x80
 
 // attributes:
-
-// node type
-#define VIRTIO_BUS_TYPE_NAME "bus/virtio/v1"
-// device type (uint16)
-#define VIRTIO_DEVICE_TYPE_ITEM "virtio/type"
-// alignment (uint16)
-#define VIRTIO_VRING_ALIGNMENT_ITEM "virtio/vring_alignment"
+#define VIRTIO_DEVICE_TYPE_ITEM		"virtio/type"				/* uint16, device type */
+#define VIRTIO_VRING_ALIGNMENT_ITEM "virtio/vring_alignment"	/* uint16, alignment */
 
 
 // callback function for requests

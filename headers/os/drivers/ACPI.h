@@ -6,7 +6,6 @@
 #define _ACPI_H
 
 
-#include <device_manager.h>
 #include <KernelExport.h>
 
 
@@ -310,58 +309,6 @@ enum {
 	ACPI_POWER_STATE_HIBERNATE,
 	ACPI_POWER_STATE_OFF
 };
-
-
-#define ACPI_DEVICE_ADDR_ITEM	"acpi/addr"
-#define ACPI_DEVICE_CID_ITEM	"acpi/cid"
-#define ACPI_DEVICE_HANDLE_ITEM	"acpi/handle"
-#define ACPI_DEVICE_HID_ITEM	"acpi/hid"
-#define ACPI_DEVICE_PATH_ITEM	"acpi/path"
-#define ACPI_DEVICE_TYPE_ITEM	"acpi/type"
-#define ACPI_DEVICE_UID_ITEM	"acpi/uid"
-
-
-typedef struct acpi_device_cookie *acpi_device;
-
-//	Interface to one ACPI device.
-typedef struct acpi_device_module_info {
-	driver_module_info info;
-
-	/* Notify Handler */
-
-	status_t	(*install_notify_handler)(acpi_device device,
-					uint32 handlerType, acpi_notify_handler handler,
-					void *context);
-	status_t	(*remove_notify_handler)(acpi_device device,
-					uint32 handlerType, acpi_notify_handler handler);
-
-	/* Address Space Handler */
-	status_t	(*install_address_space_handler)(acpi_device device,
-					uint32 spaceId,
-					acpi_adr_space_handler handler,
-					acpi_adr_space_setup setup,	void *data);
-	status_t	(*remove_address_space_handler)(acpi_device device,
-					uint32 spaceId,
-					acpi_adr_space_handler handler);
-
-	/* Namespace Access */
-	uint32		(*get_object_type)(acpi_device device);
-	status_t	(*get_object)(acpi_device device, const char *path,
-					acpi_object_type **_returnValue);
-	status_t	(*walk_namespace)(acpi_device device,
-					uint32 objectType, uint32 maxDepth,
-					acpi_walk_callback descendingCallback,
-					acpi_walk_callback ascendingCallback,
-					void* context, void** returnValue);
-
-	/* Control method execution and data acquisition */
-	status_t	(*evaluate_method)(acpi_device device, const char *method,
-					acpi_objects *args, acpi_data *returnValue);
-
-	/* Resource Management */
-	status_t	(*walk_resources)(acpi_device device, char *method,
-					acpi_walk_resources_callback callback, void* context);
-} acpi_device_module_info;
 
 
 #endif	/* _ACPI_H */

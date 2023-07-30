@@ -10,6 +10,29 @@ DriverRoster DriverRoster::sInstance;
 
 
 status_t
+DriverModuleInfo::Init(DriverAddonInfo* addon, const char* name)
+{
+	fName.SetTo(strdup(name));
+	if (!fName.IsSet())
+		return B_NO_MEMORY;
+
+	fAddon = addon;
+	return B_OK;
+}
+
+
+status_t
+DriverAddonInfo::Init(const char* path, const KMessage& msg)
+{
+	fPath.SetTo(strdup(path));
+	if (!fPath.IsSet())
+		return B_NO_MEMORY;
+
+	return B_OK;
+}
+
+
+status_t
 DriverRoster::Init()
 {
 	return B_OK;

@@ -4,19 +4,7 @@
 
 #include <KernelExport.h>
 
-#include <AutoDeleter.h>
-
-
-#define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
-
-
-struct BusDriverDeleter : MethodDeleter<BusDriver, void, &BusDriver::Free>
-{
-	typedef MethodDeleter<BusDriver, void, &BusDriver::Free> Base;
-
-	BusDriverDeleter() : Base() {}
-	BusDriverDeleter(BusDriver* object) : Base(object) {}
-};
+#include "Utils.h"
 
 
 status_t

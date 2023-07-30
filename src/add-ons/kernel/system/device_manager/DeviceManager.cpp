@@ -4,13 +4,13 @@
 
 #include <Referenceable.h>
 
-#include <AutoDeleter.h>
 #include <ScopeExit.h>
 #include <HashMap.h>
 #include <util/DoublyLinkedList.h>
 
 #include "devfs_private.h"
 
+#include "Utils.h"
 #include "DriverRoster.h"
 #include "RootDevice.h"
 #include "DevFsNodeWrapper.h"
@@ -18,18 +18,6 @@
 
 // TODO: locking
 // TODO: check ownership management
-
-
-#define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
-
-
-struct BusDriverDeleter : MethodDeleter<BusDriver, void, &BusDriver::Free>
-{
-	typedef MethodDeleter<BusDriver, void, &BusDriver::Free> Base;
-
-	BusDriverDeleter() : Base() {}
-	BusDriverDeleter(BusDriver* object) : Base(object) {}
-};
 
 
 class DeviceNodeImpl;
@@ -106,7 +94,7 @@ private:
 
 	BusDriver* fBusDriver {};
 	DeviceDriver* fDeviceDriver {};
-	ArrayDeleter<char> fDriverModuleName;
+	CStringDeleter fDriverModuleName;
 
 	Vector<DevFsNodeWrapper*> fDevFsNodes;
 };
@@ -159,7 +147,7 @@ DeviceNodeImpl::~DeviceNodeImpl()
 	}
 
 	if (fDeviceDriver != NULL) {
-		put_module(&fDriverModuleName[0]);
+		put_module(fDriverModuleName.Get());
 		fDeviceDriver = NULL;
 		fDriverModuleName.Unset();
 	}
@@ -428,11 +416,9 @@ DeviceNodeImpl::ProbeDriver(const char* moduleName, bool isChild)
 	// dprintf("  fState.multipleDrivers: %d\n", fState.multipleDrivers);
 
 	// Allocate memory first to not fail on no memory when driver already initialized.
-	ArrayDeleter<char> driverModuleName(new(std::nothrow) char[strlen(moduleName) + 1]);
+	CStringDeleter driverModuleName(strdup(moduleName));
 	if (!driverModuleName.IsSet())
 		return B_NO_MEMORY;
-
-	strcpy(&driverModuleName[0], moduleName);
 
 	if (fState.multipleDrivers && !isChild) {
 		DeviceNode* childNodeIface;
@@ -573,7 +559,7 @@ DeviceManager::DumpNode(DeviceNodeImpl* node, int32 level)
 
 	Indent(level);
 	const char* name = node->GetName();
-	dprintf("Node(\"%s\"): %s\n", name, node->fDeviceDriver == NULL ? "no driver" : &node->fDriverModuleName[0]);
+	dprintf("Node(\"%s\"): %s\n", name, node->fDeviceDriver == NULL ? "no driver" : node->fDriverModuleName.Get());
 
 	DeviceNodeImpl* childNode = node->ChildNodes().First();
 	for (; childNode != NULL; childNode = node->ChildNodes().GetNext(childNode)) {

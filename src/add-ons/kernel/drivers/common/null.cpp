@@ -68,7 +68,6 @@ NullDevFsNode::Write(off_t pos, const void* buffer, size_t* _length)
 }
 
 
-
 // #pragma mark - NullDriver
 
 status_t

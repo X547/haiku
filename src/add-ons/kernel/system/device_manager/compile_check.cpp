@@ -1,6 +1,7 @@
 // include for compile check
 #include <dm2/device_manager.h>
 
+#include <dm2/bus/ACPI.h>
 #include <dm2/bus/ATA.h>
 #include <dm2/bus/FDT.h>
 #include <dm2/bus/I2C.h>
