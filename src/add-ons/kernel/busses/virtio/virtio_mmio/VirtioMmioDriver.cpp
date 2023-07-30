@@ -34,26 +34,24 @@ VirtioMmioDeviceDriver::Init()
 {
 	TRACE("init_device(%p)\n", fNode);
 
-	DeviceNodePutter parent(fNode->GetParent());
-
 	uint64 regs = 0;
 	uint64 regsLen = 0;
 	uint64 interrupt = 0;
 
-	FdtDevice* parentFdtDev = parent->QueryBusInterface<FdtDevice>();
-	if (parentFdtDev != NULL) {
+	FdtDevice* fdtDev = fNode->QueryBusInterface<FdtDevice>();
+	if (fdtDev != NULL) {
 		// initialize virtio device from FDT
-		for (uint32 i = 0; parentFdtDev->GetReg(i, &regs, &regsLen); i++) {
+		for (uint32 i = 0; fdtDev->GetReg(i, &regs, &regsLen); i++) {
 			TRACE("  reg[%" B_PRIu32 "]: (0x%" B_PRIx64 ", 0x%" B_PRIx64 ")\n",
 				i, regs, regsLen);
 		}
 
-		if (!parentFdtDev->GetReg(0, &regs, &regsLen)) {
+		if (!fdtDev->GetReg(0, &regs, &regsLen)) {
 			ERROR("  no regs\n");
 			return B_ERROR;
 		}
 
-		if (!parentFdtDev->GetInterrupt(0, NULL, &interrupt)) {
+		if (!fdtDev->GetInterrupt(0, NULL, &interrupt)) {
 			ERROR("  no interrupts\n");
 			return B_ERROR;
 		}
@@ -63,7 +61,14 @@ VirtioMmioDeviceDriver::Init()
 
 	// TODO: initialize virtio device from ACPI
 
+	ObjectDeleter<VirtioMmioBusDriver> busDriver(new(std::nothrow) VirtioMmioBusDriver(fDevice));
+	if (!busDriver.IsSet())
+		return B_NO_MEMORY;
+
 	CHECK_RET(fDevice.Init(regs, regsLen, interrupt, 1));
+
+	DeviceNode* childNode {};
+	CHECK_RET(fNode->RegisterNode(busDriver.Detach(), &childNode));
 
 	return B_OK;
 }
@@ -76,8 +81,37 @@ VirtioMmioDeviceDriver::Free()
 }
 
 
+void
+VirtioMmioBusDriver::Free()
+{
+	delete this;
+}
+
+
+status_t
+VirtioMmioBusDriver::InitDriver(DeviceNode* node)
+{
+	fAttrs.Add({ B_DEVICE_PRETTY_NAME,    B_STRING_TYPE, {.string = "Virtio MMIO"} });
+	fAttrs.Add({ B_DEVICE_BUS,            B_STRING_TYPE, {.string = "virtio"} });
+	fAttrs.Add({ "virtio/version",        B_UINT32_TYPE, {.ui32 = fDevice.fRegs->version} });
+	fAttrs.Add({ "virtio/device_id",      B_UINT32_TYPE, {.ui32 = fDevice.fRegs->deviceId} });
+	fAttrs.Add({ VIRTIO_DEVICE_TYPE_ITEM, B_UINT16_TYPE, {.ui16 = (uint16)fDevice.fRegs->deviceId} });
+	fAttrs.Add({ "virtio/vendor_id",      B_UINT32_TYPE, {.ui32 = fDevice.fRegs->vendorId} });
+	fAttrs.Add({});
+
+	return B_OK;
+}
+
+
+const device_attr*
+VirtioMmioBusDriver::Attributes() const
+{
+	return &fAttrs[0];
+}
+
+
 void*
-VirtioMmioDeviceDriver::QueryInterface(const char* name)
+VirtioMmioBusDriver::QueryInterface(const char* name)
 {
 	if (strcmp(name, VirtioDevice::ifaceName) == 0)
 		return static_cast<VirtioDevice*>(&fDevice);

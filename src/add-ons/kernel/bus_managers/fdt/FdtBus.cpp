@@ -132,6 +132,8 @@ FdtBusImpl::Probe(DeviceNode* node, DeviceDriver** outDriver)
 void
 FdtBusImpl::Free()
 {
+	dprintf("FdtBusImpl::Free()\n");
+	dprintf("  fNode: %p\n", fNode);
 	delete this;
 }
 
@@ -178,21 +180,18 @@ FdtBusImpl::Traverse(int &node, int &depth, DeviceNode* parentDev)
 status_t
 FdtBusImpl::RegisterNode(int node, DeviceNode* parentDev, DeviceNode*& curDev)
 {
-	TRACE("%s('%s', %p)\n", __func__, fdt_get_name(gFDT, node, NULL),
-		parentDev);
+	TRACE("%s('%s', %p)\n", __func__, fdt_get_name(gFDT, node, NULL), parentDev);
 
 	const void* prop; int propLen;
 
-	ObjectDeleter<FdtDeviceImpl> fdtDev(new(std::nothrow) FdtDeviceImpl(fNode));
+	ObjectDeleter<FdtDeviceImpl> fdtDev(new(std::nothrow) FdtDeviceImpl(fNode, node));
 	if (!fdtDev.IsSet()) {
 		return B_NO_MEMORY;
 	}
 
-	CHECK_RET(parentDev->RegisterNode(static_cast<BusDriver*>(fdtDev.Get()), &curDev));
-	CHECK_RET(fdtDev->Init(curDev, node)); // TODO: call UnregisterNode on error
+	CHECK_RET(parentDev->RegisterNode(static_cast<BusDriver*>(fdtDev.Detach()), &curDev));
 
 	prop = fdt_getprop(gFDT, node, "phandle", &propLen);
-
 	if (prop != NULL)
 		fPhandles.Put(fdt32_to_cpu(*(uint32_t*)prop), curDev);
 
@@ -203,38 +202,37 @@ FdtBusImpl::RegisterNode(int node, DeviceNode* parentDev, DeviceNode*& curDev)
 // #pragma mark - FdtDeviceImpl
 
 status_t
-FdtDeviceImpl::Init(DeviceNode* devNode, int node)
+FdtDeviceImpl::InitDriver(DeviceNode* devNode)
 {
 	fNode = devNode;
 
 	const void* prop; int propLen;
 	int nameLen = 0;
-	const char *name = fdt_get_name(gFDT, node, &nameLen);
+	const char *name = fdt_get_name(gFDT, fFdtNode, &nameLen);
 
 	if (name == NULL) {
-		dprintf("%s ERROR: fdt_get_name: %s\n", __func__,
-			fdt_strerror(nameLen));
+		dprintf("%s ERROR: fdt_get_name: %s\n", __func__, fdt_strerror(nameLen));
 		return B_ERROR;
 	}
 
 	fAttrs.Add({ B_DEVICE_BUS, B_STRING_TYPE, {.string = "fdt"}});
 	fAttrs.Add({ B_DEVICE_PRETTY_NAME, B_STRING_TYPE,
 		{ .string = (strcmp(name, "") != 0) ? name : "Root" }});
-	fAttrs.Add({ "fdt/node", B_UINT32_TYPE, {.ui32 = (uint32)node}});
-	fAttrs.Add({ "fdt/name", B_STRING_TYPE, {.string = name}});
+	fAttrs.Add({ B_FDT_DEVICE_NODE, B_UINT32_TYPE, {.ui32 = (uint32)fFdtNode}});
+	fAttrs.Add({ B_FDT_DEVICE_NAME, B_STRING_TYPE, {.string = name}});
 
-	prop = fdt_getprop(gFDT, node, "device_type", &propLen);
+	prop = fdt_getprop(gFDT, fFdtNode, "device_type", &propLen);
 	if (prop != NULL)
-		fAttrs.Add({ "fdt/device_type", B_STRING_TYPE, { .string = (const char*)prop }});
+		fAttrs.Add({ B_FDT_DEVICE_TYPE, B_STRING_TYPE, { .string = (const char*)prop }});
 
-	prop = fdt_getprop(gFDT, node, "compatible", &propLen);
+	prop = fdt_getprop(gFDT, fFdtNode, "compatible", &propLen);
 
 	if (prop != NULL) {
 		const char* propStr = (const char*)prop;
 		const char* propEnd = propStr + propLen;
 		while (propEnd - propStr > 0) {
 			int curLen = strlen(propStr);
-			fAttrs.Add({ "fdt/compatible", B_STRING_TYPE, { .string = propStr }});
+			fAttrs.Add({ B_FDT_DEVICE_COMPATIBLE, B_STRING_TYPE, { .string = propStr }});
 			propStr += curLen + 1;
 		}
 	}
@@ -248,6 +246,8 @@ FdtDeviceImpl::Init(DeviceNode* devNode, int node)
 void
 FdtDeviceImpl::Free()
 {
+	dprintf("FdtDeviceImpl::Free()\n");
+	dprintf("  fNode: %p\n", fNode);
 	delete this;
 }
 
@@ -269,16 +269,6 @@ FdtDeviceImpl::QueryInterface(const char* name)
 }
 
 
-int
-FdtDeviceImpl::GetFdtNode()
-{
-	uint32 fdtNode {};
-	ASSERT_ALWAYS(fNode->FindAttrUint32("fdt/node", &fdtNode) >= B_OK);
-
-	return (int)fdtNode;
-}
-
-
 DeviceNode*
 FdtDeviceImpl::GetBus()
 {
@@ -290,31 +280,27 @@ FdtDeviceImpl::GetBus()
 const char*
 FdtDeviceImpl::GetName()
 {
-	int fdtNode = GetFdtNode();
-	return fdt_get_name(gFDT, fdtNode, NULL);
+	return fdt_get_name(gFDT, fFdtNode, NULL);
 }
 
 
 const void*
 FdtDeviceImpl::GetProp(const char* name, int* len)
 {
-	int fdtNode = GetFdtNode();
-	return fdt_getprop(gFDT, fdtNode, name, len);
+	return fdt_getprop(gFDT, fFdtNode, name, len);
 }
 
 
 bool
 FdtDeviceImpl::GetReg(uint32 ord, uint64* regs, uint64* len)
 {
-	int fdtNode = GetFdtNode();
-
 	int propLen;
-	const void* prop = fdt_getprop(gFDT, fdtNode, "reg", &propLen);
+	const void* prop = fdt_getprop(gFDT, fFdtNode, "reg", &propLen);
 	if (prop == NULL)
 		return false;
 
-	uint32 addressCells = fdt_get_address_cells(gFDT, fdtNode);
-	uint32 sizeCells = fdt_get_size_cells(gFDT, fdtNode);
+	uint32 addressCells = fdt_get_address_cells(gFDT, fFdtNode);
+	uint32 sizeCells = fdt_get_size_cells(gFDT, fFdtNode);
 	size_t entrySize = 4 * (addressCells + sizeCells);
 
 	if ((ord + 1) * entrySize > (uint32)propLen)
@@ -351,18 +337,16 @@ FdtDeviceImpl::GetReg(uint32 ord, uint64* regs, uint64* len)
 bool
 FdtDeviceImpl::GetInterrupt(uint32 index, DeviceNode** outInterruptController, uint64* interrupt)
 {
-	int fdtNode = GetFdtNode();
-
 	uint32 interruptParent = 0;
 	uint32 interruptNumber = 0;
 
 	int propLen;
-	const uint32 *prop = (uint32*)fdt_getprop(gFDT, fdtNode, "interrupts-extended", &propLen);
+	const uint32 *prop = (uint32*)fdt_getprop(gFDT, fFdtNode, "interrupts-extended", &propLen);
 	if (prop == NULL) {
-		interruptParent = fdt_get_interrupt_parent(fdtNode);
+		interruptParent = fdt_get_interrupt_parent(fFdtNode);
 		uint32 interruptCells = fdt_get_interrupt_cells(interruptParent);
 
-		prop = (uint32*)fdt_getprop(gFDT, (int)fdtNode, "interrupts", &propLen);
+		prop = (uint32*)fdt_getprop(gFDT, (int)fFdtNode, "interrupts", &propLen);
 		if (prop == NULL)
 			return false;
 
@@ -393,8 +377,11 @@ FdtDeviceImpl::GetInterrupt(uint32 index, DeviceNode** outInterruptController, u
 	}
 
 	if (outInterruptController != NULL) {
-		FdtBus* bus = fBusNode->QueryBusInterface<FdtBus>();
+		FdtBus* bus = fBusNode->QueryDriverInterface<FdtBus>();
 		DeviceNode* intCtrlFdtNode = bus->NodeByPhandle(interruptParent);
+		if (intCtrlFdtNode != NULL)
+			intCtrlFdtNode->AcquireReference();
+
 		*outInterruptController = intCtrlFdtNode;
 	}
 
@@ -438,7 +425,7 @@ static driver_module_info sFdtBusDriver = {
 };
 
 
-module_info* modules[] = {
+_EXPORT module_info* modules[] = {
 	(module_info* )&sFdtBusDriver,
 	NULL
 };

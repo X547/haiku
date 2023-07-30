@@ -1,0 +1,15 @@
+SubDir HAIKU_TOP src add-ons kernel system device_manager ;
+
+UsePrivateKernelHeaders ;
+UsePrivateHeaders shared ;
+SubDirHdrs $(HAIKU_TOP) src system kernel device_manager ;
+
+SubDirC++Flags -fvisibility=hidden ;
+
+KernelAddon device_manager :
+	compile_check.cpp
+	DeviceManager.cpp
+	DriverRoster.cpp
+	RootDevice.cpp
+	DevFsNodeWrapper.cpp
+;

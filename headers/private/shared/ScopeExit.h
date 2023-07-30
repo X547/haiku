@@ -40,4 +40,37 @@ private:
 };
 
 
+template<typename F>
+class DetachableScopeExit
+{
+public:
+	explicit DetachableScopeExit(F&& fn) : fFn(fn)
+	{
+	}
+
+	~DetachableScopeExit()
+	{
+		if (!fDetached)
+			fFn();
+	}
+
+	DetachableScopeExit(DetachableScopeExit&& other) : fFn(std::move(other.fFn))
+	{
+	}
+
+	void Detach()
+	{
+		fDetached = true;
+	}
+
+private:
+	DetachableScopeExit(const DetachableScopeExit&);
+	DetachableScopeExit& operator=(const DetachableScopeExit&);
+
+private:
+	F fFn;
+	bool fDetached = false;
+};
+
+
 #endif // _SCOPE_EXIT_H

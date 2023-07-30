@@ -49,4 +49,12 @@ protected:
 };
 
 
+/* Attributes of FDT device nodes */
+
+#define B_FDT_DEVICE_NODE		"fdt/node"			/* uint32 */
+#define B_FDT_DEVICE_NAME		"fdt/name"			/* string */
+#define B_FDT_DEVICE_TYPE		"fdt/device_type"	/* string */
+#define B_FDT_DEVICE_COMPATIBLE	"fdt/compatible"	/* string */
+
+
 #endif // _DRIVERS_BUS_FDT_H

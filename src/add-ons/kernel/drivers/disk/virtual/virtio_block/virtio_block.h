@@ -37,7 +37,6 @@ public:
 	virtual ~VirtioBlockDevFsNodeHandle() = default;
 
 	void Free() final;
-	Capabilities GetCapabilities() final {return {.io = true};}
 	status_t IO(io_request *request) final;
 	status_t Control(uint32 op, void *buffer, size_t length) final;
 
@@ -51,6 +50,7 @@ public:
 	VirtioBlockDevFsNode(VirtioBlockDriver& driver): fDriver(driver) {}
 	virtual ~VirtioBlockDevFsNode() = default;
 
+	Capabilities GetCapabilities() const final {return {.io = true, .control = true};}
 	status_t Open(const char* path, int openMode, DevFsNodeHandle **outHandle) final;
 
 private:

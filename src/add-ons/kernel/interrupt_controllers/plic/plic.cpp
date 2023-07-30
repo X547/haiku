@@ -4,24 +4,28 @@
  */
 #include <KernelExport.h>
 #include <arch/generic/generic_int.h>
-#include <bus/FDT.h>
+
+#include <new>
+
+#include <dm2/device_manager.h>
+#include <dm2/bus/FDT.h>
+#include <dm2/device/InterruptController.h>
 
 #include <AutoDeleterOS.h>
-#include <AutoDeleterDrivers.h>
-#include <interrupt_controller.h>
+#include <AutoDeleterDM2.h>
+
+#include <cpu.h>
+#include <smp.h>
 
 #include <Plic.h>
 
 #define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
 
-#define PLIC_MODULE_NAME "interrupt_controllers/plic/driver_v1"
+#define PLIC_MODULE_NAME "interrupt_controllers/plic/driver/v1"
 
 
-static device_manager_info *sDeviceManager;
-
-
-class PlicInterruptController: public InterruptSource {
+class PlicInterruptController: public DeviceDriver, public InterruptSource, public InterruptControllerDevice {
 private:
 	AreaDeleter fRegsArea;
 	PlicRegs volatile* fRegs {};
@@ -29,7 +33,7 @@ private:
 	uint32 fPlicContexts[SMP_MAX_CPUS] {};
 	uint32 fPendingContexts[NUM_IO_VECTORS] {};
 
-	inline status_t InitDriverInt(device_node* node);
+	status_t Init(DeviceNode* node);
 
 	static int32 HandleInterrupt(void* arg);
 	inline int32 HandleInterruptInt();
@@ -37,13 +41,15 @@ private:
 public:
 	virtual ~PlicInterruptController() = default;
 
-	static float SupportsDevice(device_node* parent);
-	static status_t RegisterDevice(device_node* parent);
-	static status_t InitDriver(device_node* node, PlicInterruptController*& driver);
-	void UninitDriver();
+	// DeviceDriver
+	static status_t Probe(DeviceNode* node, DeviceDriver** driver);
+	void Free() final;
+	void* QueryInterface(const char* name) final;
 
-	status_t GetVector(uint64 irq, long& vector);
+	// InterruptControllerDevice
+	status_t GetVector(uint64 irq, long* vector) final;
 
+	// InterruptSource
 	void EnableIoInterrupt(int irq) final;
 	void DisableIoInterrupt(int irq) final;
 	void ConfigureIoInterrupt(int irq, uint32 config) final {}
@@ -52,75 +58,31 @@ public:
 };
 
 
-float
-PlicInterruptController::SupportsDevice(device_node* parent)
-{
-	const char* bus;
-	status_t status = sDeviceManager->get_attr_string(parent, B_DEVICE_BUS, &bus, false);
-	if (status < B_OK)
-		return -1.0f;
-
-	if (strcmp(bus, "fdt") != 0)
-		return 0.0f;
-
-	const char* compatible;
-	status = sDeviceManager->get_attr_string(parent, "fdt/compatible", &compatible, false);
-	if (status < B_OK)
-		return -1.0f;
-
-	if (strcmp(compatible, "riscv,plic0") != 0
-		&& strcmp(compatible, "sifive,fu540-c000-plic") != 0
-		&& strcmp(compatible, "sifive,plic-1.0.0") != 0)
-		return 0.0f;
-
-	return 1.0f;
-}
-
-
 status_t
-PlicInterruptController::RegisterDevice(device_node* parent)
-{
-	device_attr attrs[] = {
-		{ B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {string: "PLIC"} },
-		{}
-	};
-
-	return sDeviceManager->register_node(parent, PLIC_MODULE_NAME, attrs, NULL, NULL);
-}
-
-
-status_t
-PlicInterruptController::InitDriver(device_node* node, PlicInterruptController*& outDriver)
+PlicInterruptController::Probe(DeviceNode* node, DeviceDriver** outDriver)
 {
 	ObjectDeleter<PlicInterruptController> driver(new(std::nothrow) PlicInterruptController());
 	if (!driver.IsSet())
 		return B_NO_MEMORY;
-	CHECK_RET(driver->InitDriverInt(node));
-	outDriver = driver.Detach();
+
+	CHECK_RET(driver->Init(node));
+	*outDriver = driver.Detach();
 	return B_OK;
 }
 
 
 status_t
-PlicInterruptController::InitDriverInt(device_node* node)
+PlicInterruptController::Init(DeviceNode* node)
 {
 	dprintf("PlicInterruptController::InitDriver\n");
 
-	DeviceNodePutter<&sDeviceManager> fdtNode(sDeviceManager->get_parent_node(node));
-
-	const char* bus;
-	CHECK_RET(sDeviceManager->get_attr_string(fdtNode.Get(), B_DEVICE_BUS, &bus, false));
-	if (strcmp(bus, "fdt") != 0)
+	FdtDevice* fdtDev = node->QueryBusInterface<FdtDevice>();
+	if (fdtDev == NULL)
 		return B_ERROR;
-
-	fdt_device_module_info *fdtModule;
-	fdt_device* fdtDev;
-	CHECK_RET(sDeviceManager->get_driver(fdtNode.Get(), (driver_module_info**)&fdtModule,
-		(void**)&fdtDev));
 
 	const void* prop;
 	int propLen;
-	prop = fdtModule->get_prop(fdtDev, "riscv,ndev", &propLen);
+	prop = fdtDev->GetProp("riscv,ndev", &propLen);
 	if (prop == NULL || propLen != 4)
 		return B_ERROR;
 
@@ -129,17 +91,18 @@ PlicInterruptController::InitDriverInt(device_node* node)
 
 	int32 cpuCount = smp_get_num_cpus();
 	uint32 cookie = 0;
-	device_node* hartIntcNode;
+	DeviceNode* hartIntcNode;
 	uint64 cause;
-	while (fdtModule->get_interrupt(fdtDev, cookie, &hartIntcNode, &cause)) {
+	while (fdtDev->GetInterrupt(cookie, &hartIntcNode, &cause)) {
 		uint32 plicContext = cookie++;
-		device_node* hartNode = sDeviceManager->get_parent_node(hartIntcNode);
-		DeviceNodePutter<&sDeviceManager> hartNodePutter(hartNode);
-		fdt_device* hartDev;
-		CHECK_RET(sDeviceManager->get_driver(hartNode, NULL, (void**)&hartDev));
+
+		DeviceNodePutter hartIntcNodePutter(hartIntcNode);
+		DeviceNodePutter hartNode(hartIntcNode->GetParent());
+		FdtDevice* hartFdtDev = hartNode->QueryBusInterface<FdtDevice>();
+
 		const void* prop;
 		int propLen;
-		prop = fdtModule->get_prop(hartDev, "reg", &propLen);
+		prop = hartFdtDev->GetProp("reg", &propLen);
 		if (prop == NULL || propLen != 4)
 			return B_ERROR;
 
@@ -160,7 +123,7 @@ PlicInterruptController::InitDriverInt(device_node* node)
 
 	uint64 regs = 0;
 	uint64 regsLen = 0;
-	if (!fdtModule->get_reg(fdtDev, 0, &regs, &regsLen))
+	if (!fdtDev->GetReg(0, &regs, &regsLen))
 		return B_ERROR;
 
 	fRegsArea.SetTo(map_physical_memory("PLIC MMIO", regs, regsLen, B_ANY_KERNEL_ADDRESS,
@@ -182,9 +145,9 @@ PlicInterruptController::InitDriverInt(device_node* node)
 
 
 void
-PlicInterruptController::UninitDriver()
+PlicInterruptController::Free()
 {
-	dprintf("PlicInterruptController::UninitDriver\n");
+	dprintf("PlicInterruptController::Free\n");
 
 	// mask interrupts
 	for (uint32 irq = 1; irq < fIrqCount + 1; irq++)
@@ -196,13 +159,24 @@ PlicInterruptController::UninitDriver()
 }
 
 
+void*
+PlicInterruptController::QueryInterface(const char* name)
+{
+	if (strcmp(name, InterruptControllerDevice::ifaceName) == 0)
+		return static_cast<InterruptControllerDevice*>(this);
+
+	return NULL;
+
+}
+
+
 status_t
-PlicInterruptController::GetVector(uint64 irq, long& vector)
+PlicInterruptController::GetVector(uint64 irq, long* vector)
 {
 	if (irq < 1 || irq >= fIrqCount + 1)
 		return B_BAD_INDEX;
 
-	vector = irq;
+	*vector = irq;
 	return B_OK;
 }
 
@@ -266,32 +240,15 @@ PlicInterruptController::AssignToCpu(int32 irq, int32 cpu)
 }
 
 
-static interrupt_controller_module_info sControllerModuleInfo = {
-	{
-		{
-			.name = PLIC_MODULE_NAME,
-		},
-		.supports_device = PlicInterruptController::SupportsDevice,
-		.register_device = PlicInterruptController::RegisterDevice,
-		.init_driver = [](device_node* node, void** driverCookie) {
-			return PlicInterruptController::InitDriver(node,
-				*(PlicInterruptController**)driverCookie);
-		},
-		.uninit_driver = [](void* driverCookie) {
-			return static_cast<PlicInterruptController*>(driverCookie)->UninitDriver();
-		},
+static driver_module_info sControllerModuleInfo = {
+	.info = {
+		.name = PLIC_MODULE_NAME,
 	},
-	.get_vector = [](void* cookie, uint64 irq, long* vector) {
-		return static_cast<PlicInterruptController*>(cookie)->GetVector(irq, *vector);
-	},
+	.probe = PlicInterruptController::Probe
 };
 
-_EXPORT module_dependency module_dependencies[] = {
-	{ B_DEVICE_MANAGER_MODULE_NAME, (module_info **)&sDeviceManager },
-	{}
-};
 
-_EXPORT module_info *modules[] = {
-	(module_info *)&sControllerModuleInfo,
+_EXPORT module_info* modules[] = {
+	(module_info* )&sControllerModuleInfo,
 	NULL
 };

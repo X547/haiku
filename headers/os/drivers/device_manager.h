@@ -1,3 +1,5 @@
+#error "old device manager must not be used"
+
 /*
  * Copyright 2004-2008, Haiku Inc. All Rights Reserved.
  * Distributed under the terms of the MIT license.

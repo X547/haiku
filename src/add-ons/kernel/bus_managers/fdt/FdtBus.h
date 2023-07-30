@@ -42,12 +42,11 @@ private:
 
 class FdtDeviceImpl: public BusDriver, public FdtDevice {
 public:
-	FdtDeviceImpl(DeviceNode* busNode): fBusNode(busNode) {}
+	FdtDeviceImpl(DeviceNode* busNode, int fdtNode): fBusNode(busNode), fFdtNode(fdtNode) {}
 	virtual ~FdtDeviceImpl() = default;
 
-	status_t Init(DeviceNode* devNode, int node);
-
 	// BusDriver
+	status_t InitDriver(DeviceNode* node) final;
 	void Free() final;
 	const device_attr* Attributes() const final;
 	void* QueryInterface(const char* name) final;
@@ -63,6 +62,7 @@ public:
 private:
 	DeviceNode* fNode {};
 	DeviceNode* fBusNode {};
+	int fFdtNode = -1;
 	Vector<device_attr> fAttrs;
 
 	int GetFdtNode();

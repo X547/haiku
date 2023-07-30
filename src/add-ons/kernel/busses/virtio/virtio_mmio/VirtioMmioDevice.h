@@ -12,6 +12,7 @@
 #include <Referenceable.h>
 #include <util/AutoLock.h>
 #include <util/Bitmap.h>
+#include <util/Vector.h>
 
 #include <dm2/bus/Virtio.h>
 
@@ -102,6 +103,7 @@ private:
 
 	friend class VirtioMmioQueue;
 	friend class VirtioIrqHandler;
+	friend class VirtioMmioBusDriver; // !!!
 
 public:
 	VirtioMmioDevice();
@@ -128,7 +130,6 @@ public:
 	virtual ~VirtioMmioDeviceDriver() = default;
 
 	virtual void Free();
-	virtual void* QueryInterface(const char* name);
 
 private:
 	DeviceNode* fNode {};
@@ -136,6 +137,22 @@ private:
 
 	VirtioMmioDeviceDriver(DeviceNode* node): fNode(node) {}
 	status_t Init();
+};
+
+
+class VirtioMmioBusDriver: public BusDriver {
+public:
+	VirtioMmioBusDriver(VirtioMmioDevice& device): fDevice(device) {}
+	virtual ~VirtioMmioBusDriver() = default;
+
+	void Free() final;
+	status_t InitDriver(DeviceNode* node) final;
+	const device_attr* Attributes() const final;
+	void* QueryInterface(const char* name) final;
+
+private:
+	VirtioMmioDevice& fDevice;
+	Vector<device_attr> fAttrs;
 };
 
 

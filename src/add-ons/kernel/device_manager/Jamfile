@@ -1,9 +1,0 @@
-SubDir HAIKU_TOP src add-ons kernel device_manager ;
-
-UsePrivateKernelHeaders ;
-UsePrivateHeaders shared ;
-
-KernelAddon device_manager2 :
-	compile_check.cpp
-	device_manager.cpp
-;

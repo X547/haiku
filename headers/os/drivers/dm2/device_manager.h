@@ -60,8 +60,14 @@ typedef struct {
 struct device_manager_info {
 	module_info info;
 
+	// TODO: Maybe not need if node monitor can gracefully handle FS mount.
+	status_t (*file_system_mounted)();
+
 	DeviceNode *(*get_root_node)();
 };
+
+
+#define B_DEVICE_MANAGER_MODULE_NAME "system/device_manager/v2"
 
 
 // interface exposed by driver add-on
@@ -70,6 +76,9 @@ struct driver_module_info {
 
 	status_t (*probe)(DeviceNode* node, DeviceDriver** driver);
 };
+
+
+#define B_DEVICE_MANAGER_DRIVER_MODULE_SUFFIX "driver/v1"
 
 
 class DeviceNode {
@@ -84,8 +93,10 @@ public:
 	virtual status_t GetNextAttr(device_attr** attr) const = 0;
 	virtual status_t FindAttr(const char* name, type_code type, int32 index, const void** value) const = 0;
 
-	inline status_t FindAttrUint32(const char* name, uint32* outValue) const;
-	inline status_t FindAttrString(const char* name, const char** outValue) const;
+	inline status_t FindAttrUint16(const char* name, uint16* outValue, bool recursive = false) const;
+	inline status_t FindAttrUint32(const char* name, uint32* outValue, bool recursive = false) const;
+	inline status_t FindAttrUint64(const char* name, uint64* outValue, bool recursive = false) const;
+	inline status_t FindAttrString(const char* name, const char** outValue, bool recursive = false) const;
 
 	virtual void* QueryBusInterface(const char* ifaceName) = 0;
 	virtual void* QueryDriverInterface(const char* ifaceName) = 0;
@@ -139,10 +150,9 @@ protected:
 // interface provided for each device node publiched by bus driver
 class BusDriver {
 public:
+	virtual void Free() {}
 	// Called by DeviceNode::RegisterNode. DeviceNode::RegisterNode will fail if this method fails.
 	virtual status_t InitDriver(DeviceNode* node) {return B_OK;}
-
-	virtual void Free() {}
 	virtual const device_attr* Attributes() const = 0;
 	virtual void* QueryInterface(const char* name) {return NULL;}
 	virtual void DriverChanged() {}
@@ -155,7 +165,20 @@ protected:
 
 class DevFsNode {
 public:
+	union Capabilities {
+		struct {
+			uint32 read: 1;
+			uint32 write: 1;
+			uint32 io: 1;
+			uint32 control: 1;
+			uint32 select: 1;
+			uint32 unused: 27;
+		};
+		uint32 val;
+	};
+
 	virtual void Free() {}
+	virtual Capabilities GetCapabilities() const {return {};}
 	virtual status_t Open(const char* path, int openMode, DevFsNodeHandle** outHandle) = 0;
 
 protected:
@@ -165,19 +188,8 @@ protected:
 
 class DevFsNodeHandle {
 public:
-	union Capabilities {
-		struct {
-			uint32 read: 1;
-			uint32 write: 1;
-			uint32 io: 1;
-			uint32 select: 1;
-			uint32 unused: 28;
-		};
-		uint32 val;
-	};
 
 	virtual void Free() {}
-	virtual Capabilities GetCapabilities() {return {};}
 	virtual status_t Close() {return B_OK;}
 	virtual status_t Read(off_t pos, void* buffer, size_t* _length) {return ENOSYS;}
 	virtual status_t Write(off_t pos, const void* buffer, size_t* _length) {return ENOSYS;}
@@ -208,8 +220,27 @@ DeviceNode::QueryDriverInterface()
 
 
 inline status_t
-DeviceNode::FindAttrUint32(const char* name, uint32* outValue) const
+DeviceNode::FindAttrUint16(const char* name, uint16* outValue, bool recursive) const
 {
+	// TODO: implement recursive
+	(void)recursive;
+
+	const void* value {};
+	status_t res = FindAttr(name, B_UINT16_TYPE, 0, &value);
+	if (res < B_OK)
+		return res;
+
+	*outValue = *(const uint16*)value;
+	return res;
+}
+
+
+inline status_t
+DeviceNode::FindAttrUint32(const char* name, uint32* outValue, bool recursive) const
+{
+	// TODO: implement recursive
+	(void)recursive;
+
 	const void* value {};
 	status_t res = FindAttr(name, B_UINT32_TYPE, 0, &value);
 	if (res < B_OK)
@@ -221,7 +252,31 @@ DeviceNode::FindAttrUint32(const char* name, uint32* outValue) const
 
 
 inline status_t
-DeviceNode::FindAttrString(const char* name, const char** outValue) const
+DeviceNode::FindAttrUint64(const char* name, uint64* outValue, bool recursive) const
 {
-	return FindAttr(name, B_STRING_TYPE, 0, (const void**)outValue);
+	// TODO: implement recursive
+	(void)recursive;
+
+	const void* value {};
+	status_t res = FindAttr(name, B_UINT64_TYPE, 0, &value);
+	if (res < B_OK)
+		return res;
+
+	*outValue = *(const uint64*)value;
+	return res;
+}
+
+
+inline status_t
+DeviceNode::FindAttrString(const char* name, const char** outValue, bool recursive) const
+{
+	(void)recursive;
+
+	const void* value {};
+	status_t res = FindAttr(name, B_STRING_TYPE, 0, &value);
+	if (res < B_OK)
+		return res;
+
+	*outValue = *(const char**)value;
+	return res;
 }

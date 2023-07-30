@@ -1,34 +1,28 @@
 /*
+ * Copyright 2009-2010, Ingo Weinhold, ingo_weinhold@gmx.de.
  * Copyright 2008-2009, Axel Dörfler, axeld@pinc-software.de.
  * Distributed under the terms of the MIT License.
  */
-#ifndef BASE_DEVICE_H
-#define BASE_DEVICE_H
+#ifndef ABSTRACT_MODULE_DEVICE_H
+#define ABSTRACT_MODULE_DEVICE_H
 
 
-#include <TypeConstants.h>
-#include <Drivers.h>
+#include "BaseDevice.h"
 
-
-typedef struct IORequest io_request;
-struct selectsync;
+#include <dm2/device_manager.h>
 
 
 namespace BPrivate {
 
 
-class BaseDevice {
+class DevFsNodeWrapper : public BaseDevice {
 public:
-							BaseDevice();
-	virtual					~BaseDevice();
+							DevFsNodeWrapper(DevFsNode* devFsNode);
+	virtual					~DevFsNodeWrapper() = default;
 
-			void			SetID(ino_t id)	{ fID = id; }
-			ino_t			ID() const		{ return fID; }
+	DevFsNode*				GetDevFsNode() {return fDevFsNode;}
 
-	virtual	status_t		InitDevice();
-	virtual	void			UninitDevice();
-
-	virtual void			Removed();
+	virtual	status_t		InitDevice() {return B_OK;}
 
 	virtual	bool			HasSelect() const;
 	virtual	bool			HasDeselect() const;
@@ -37,7 +31,7 @@ public:
 	virtual	bool			HasIO() const;
 
 	virtual	status_t		Open(const char* path, int openMode,
-								void** _cookie) = 0;
+								void** _cookie);
 	virtual	status_t		Read(void* cookie, off_t pos, void* buffer,
 								size_t* _length);
 	virtual	status_t		Write(void* cookie, off_t pos, const void* buffer,
@@ -49,18 +43,23 @@ public:
 	virtual	status_t		Deselect(void* cookie, uint8 event,
 								selectsync* sync);
 
-	virtual	status_t		Close(void* cookie) = 0;
-	virtual	status_t		Free(void* cookie) = 0;
+	virtual	status_t		Close(void* cookie);
+	virtual	status_t		Free(void* cookie);
 
 protected:
-	ino_t					fID;
+			status_t 		_DoIO(void* cookie, off_t pos,
+								void* buffer, size_t* _length, bool isWrite);
+
+protected:
+	DevFsNode*				fDevFsNode;
+	DevFsNode::Capabilities	fCapabilities;
 };
 
 
 } // namespace BPrivate
 
 
-using BPrivate::BaseDevice;
+using BPrivate::DevFsNodeWrapper;
 
 
-#endif	// BASE_DEVICE_H
+#endif	// ABSTRACT_MODULE_DEVICE_H

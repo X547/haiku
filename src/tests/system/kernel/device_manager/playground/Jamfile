@@ -3,7 +3,7 @@ SubDir HAIKU_TOP src tests system kernel device_manager playground ;
 UseHeaders $(HAIKU_PRIVATE_KERNEL_HEADERS) : true ;
 UsePrivateHeaders shared ;
 
-SimpleTest device_manager :
+SimpleTest <tests>device_manager :
 	device_manager.cpp
 
 	bus.cpp

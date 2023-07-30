@@ -11,14 +11,13 @@
 #include <dm2/bus/USB.h>
 #include <dm2/bus/Virtio.h>
 
-// TODO: stub
-
 
 void DeviceNodeQueryTest(DeviceNode* node)
 {
 	I2cDevice* i2cDev = node->QueryBusInterface<I2cDevice>();
-	I2cBus* i2cBus = node->QueryBusInterface<I2cBus>();
+	I2cBus*    i2cBus = node->QueryDriverInterface<I2cBus>();
 
 	PciDevice* pciDev = node->QueryBusInterface<PciDevice>();
+	FdtBus*    fdtBus = node->QueryDriverInterface<FdtBus>();
 	FdtDevice* fdtDev = node->QueryBusInterface<FdtDevice>();
 }

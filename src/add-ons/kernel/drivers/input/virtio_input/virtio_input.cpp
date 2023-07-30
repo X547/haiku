@@ -1,30 +1,25 @@
 /*
  * Copyright 2013, Jérôme Duval, korli@users.berlios.de.
- * Copyright 2021, Haiku, Inc. All rights reserved.
+ * Copyright 2021-2023, Haiku, Inc. All rights reserved.
  * Distributed under the terms of the MIT License.
  */
 
 
-#include <virtio.h>
-#include <virtio_defs.h>
-
 #include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
 #include <new>
 
-#include <kernel.h>
-#include <fs/devfs.h>
-#include <int.h>
-
-#include <util/AutoLock.h>
-#include <condition_variable.h>
-#include <virtio_input_driver.h>
+#include <dm2/device_manager.h>
+#include <dm2/bus/Virtio.h>
 
 #include <AutoDeleter.h>
 #include <AutoDeleterOS.h>
-#include <AutoDeleterDrivers.h>
-#include <debug.h>
+
+#include <util/AutoLock.h>
+#include <condition_variable.h>
+#include <kernel.h>
+
+#include <virtio_defs.h>
+#include <virtio_input_driver.h>
 
 
 //#define TRACE_VIRTIO_INPUT
@@ -36,9 +31,12 @@
 #define ERROR(x...)			dprintf("virtio_input: " x)
 #define CALLED() 			TRACE("CALLED %s\n", __PRETTY_FUNCTION__)
 
-#define VIRTIO_INPUT_DRIVER_MODULE_NAME "drivers/input/virtio_input/driver_v1"
-#define VIRTIO_INPUT_DEVICE_MODULE_NAME "drivers/input/virtio_input/device_v1"
-#define VIRTIO_INPUT_DEVICE_ID_GENERATOR "virtio_input/device_id"
+#define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
+
+#define VIRTIO_INPUT_DRIVER_MODULE_NAME "drivers/input/virtio_input/driver/v1"
+
+
+class VirtioInputDriver;
 
 
 struct Packet {
@@ -75,26 +73,60 @@ public:
 };
 
 
-struct VirtioInputDevice {
-	device_node* node {};
+class VirtioInputDevFsNodeHandle: public DevFsNodeHandle {
+public:
+	VirtioInputDevFsNodeHandle(VirtioInputDriver& driver): fDriver(driver) {}
+	virtual ~VirtioInputDevFsNodeHandle() = default;
 
-	mutex virtioQueueLock = MUTEX_INITIALIZER("virtioQueue");
-	virtio_device virtioDevice {};
-	virtio_device_interface* virtio {};
-	virtio_queue virtioQueue {};
+	void Free() final;
+	status_t Control(uint32 op, void* buffer, size_t length) final;
 
-	uint32 features {};
-
-	PacketQueue packetQueue;
+private:
+	VirtioInputDriver& fDriver;
 };
 
 
-struct VirtioInputHandle {
-	VirtioInputDevice* info;
+class VirtioInputDevFsNode: public DevFsNode {
+public:
+	VirtioInputDevFsNode(VirtioInputDriver& driver): fDriver(driver) {}
+	virtual ~VirtioInputDevFsNode() = default;
+
+	Capabilities GetCapabilities() const final {return {.control = true};}
+	status_t Open(const char* path, int openMode, DevFsNodeHandle** outHandle) final;
+
+private:
+	VirtioInputDriver& fDriver;
 };
 
 
-device_manager_info* gDeviceManager;
+class VirtioInputDriver: public DeviceDriver {
+public:
+	VirtioInputDriver(DeviceNode* node): fNode(node), fDevFsNode(*this) {}
+	virtual ~VirtioInputDriver() = default;
+
+	static status_t Probe(DeviceNode* node, DeviceDriver** driver);
+	void Free() final;
+	status_t RegisterChildDevices() final;
+
+private:
+	status_t Init();
+	static void InterruptCallback(void* driverCookie, void* cookie);
+
+private:
+	friend class VirtioInputDevFsNodeHandle;
+
+	DeviceNode* fNode {};
+	VirtioInputDevFsNode fDevFsNode;
+
+	mutex fVirtioQueueLock = MUTEX_INITIALIZER("virtioQueue");
+	VirtioDevice* fVirtioDevice {};
+	VirtioQueue* fVirtioQueue {};
+
+	uint32 fFeatures {};
+
+	PacketQueue fPacketQueue;
+};
+
 
 #ifdef TRACE_VIRTIO_INPUT
 static void
@@ -187,19 +219,7 @@ WriteInputPacket(const VirtioInputPacket &pkt)
 #endif
 
 
-static void
-virtio_input_callback(void* driverCookie, void* cookie)
-{
-	CALLED();
-	VirtioInputDevice* dev = (VirtioInputDevice*)cookie;
-
-	Packet* pkt;
-	while (dev->virtio->queue_dequeue(dev->virtioQueue, (void**)&pkt, NULL))
-		dev->packetQueue.Write(pkt);
-}
-
-
-// #pragma mark -- PacketQueue
+// #pragma mark - PacketQueue
 
 status_t PacketQueue::Init(uint32 count)
 {
@@ -285,128 +305,17 @@ PacketQueue::Read(Packet*& pkt)
 }
 
 
-//	#pragma mark - device module API
+// #pragma mark - VirtioInputDevFsNodeHandle
+
+void VirtioInputDevFsNodeHandle::Free()
+{
+	delete this;
+}
 
 
-static status_t
-virtio_input_init_device(void* _info, void** _cookie)
+status_t VirtioInputDevFsNodeHandle::Control(uint32 op, void* buffer, size_t length)
 {
 	CALLED();
-	VirtioInputDevice* info = (VirtioInputDevice*)_info;
-
-	DeviceNodePutter<&gDeviceManager> parent(
-		gDeviceManager->get_parent_node(info->node));
-
-	gDeviceManager->get_driver(parent.Get(),
-		(driver_module_info **)&info->virtio,
-		(void **)&info->virtioDevice);
-
-	info->virtio->negotiate_features(info->virtioDevice, 0,
-		&info->features, NULL);
-
-	status_t status = B_OK;
-/*
-	status = info->virtio->read_device_config(
-		info->virtio_device, 0, &info->config,
-		sizeof(struct virtio_blk_config));
-	if (status != B_OK)
-		return status;
-*/
-
-	info->packetQueue.Init(8);
-
-	status = info->virtio->alloc_queues(info->virtioDevice, 1, &info->virtioQueue);
-	if (status != B_OK) {
-		ERROR("queue allocation failed (%s)\n", strerror(status));
-		return status;
-	}
-	TRACE("  queue: %p\n", info->virtio_queue);
-
-	status = info->virtio->queue_setup_interrupt(info->virtioQueue, virtio_input_callback, info);
-	if (status < B_OK)
-		return status;
-
-	for (uint32 i = 0; i < info->packetQueue.PacketCount(); i++) {
-		Packet* pkt = info->packetQueue.PacketAt(i);
-		physical_entry pe = info->packetQueue.PacketPhysEntry(pkt);
-		info->virtio->queue_request(info->virtioQueue, NULL, &pe, pkt);
-	}
-
-	*_cookie = info;
-	return B_OK;
-}
-
-
-static void
-virtio_input_uninit_device(void* _cookie)
-{
-	CALLED();
-	VirtioInputDevice* info = (VirtioInputDevice*)_cookie;
-	(void)info;
-}
-
-
-static status_t
-virtio_input_open(void* _info, const char* path, int openMode, void** _cookie)
-{
-	CALLED();
-	VirtioInputDevice* info = (VirtioInputDevice*)_info;
-
-	ObjectDeleter<VirtioInputHandle>
-		handle(new(std::nothrow) (VirtioInputHandle));
-
-	if (!handle.IsSet())
-		return B_NO_MEMORY;
-
-	handle->info = info;
-
-	*_cookie = handle.Detach();
-	return B_OK;
-}
-
-
-static status_t
-virtio_input_close(void* cookie)
-{
-	CALLED();
-	return B_OK;
-}
-
-
-static status_t
-virtio_input_free(void* cookie)
-{
-	CALLED();
-	ObjectDeleter<VirtioInputHandle> handle((VirtioInputHandle*)cookie);
-	return B_OK;
-}
-
-
-static status_t
-virtio_input_read(void* cookie, off_t pos, void* buffer, size_t* _length)
-{
-	return B_ERROR;
-}
-
-
-static status_t
-virtio_input_write(void* cookie, off_t pos, const void* buffer,
-	size_t* _length)
-{
-	*_length = 0;
-	return B_ERROR;
-}
-
-
-static status_t
-virtio_input_control(void* cookie, uint32 op, void* buffer, size_t length)
-{
-	CALLED();
-
-	VirtioInputHandle* handle = (VirtioInputHandle*)cookie;
-	VirtioInputDevice* info = handle->info;
-	(void)info;
-
 	TRACE("control(op = %" B_PRIu32 ")\n", op);
 
 	switch (op) {
@@ -416,16 +325,16 @@ virtio_input_control(void* cookie, uint32 op, void* buffer, size_t length)
 				return B_BAD_VALUE;
 
 			Packet* pkt;
-			status_t res = info->packetQueue.Read(pkt);
+			status_t res = fDriver.fPacketQueue.Read(pkt);
 			if (res < B_OK)
 				return res;
 
 			res = user_memcpy(buffer, pkt, sizeof(VirtioInputPacket));
 
-			physical_entry pe = info->packetQueue.PacketPhysEntry(pkt);
-			mutex_lock(&info->virtioQueueLock);
-			info->virtio->queue_request(info->virtioQueue, NULL, &pe, pkt);
-			mutex_unlock(&info->virtioQueueLock);
+			physical_entry pe = fDriver.fPacketQueue.PacketPhysEntry(pkt);
+			mutex_lock(&fDriver.fVirtioQueueLock);
+			fDriver.fVirtioQueue->Request(NULL, &pe, pkt);
+			mutex_unlock(&fDriver.fVirtioQueueLock);
 
 			if (res < B_OK)
 				return res;
@@ -438,140 +347,104 @@ virtio_input_control(void* cookie, uint32 op, void* buffer, size_t length)
 }
 
 
-//	#pragma mark - driver module API
+// #pragma mark - VirtioInputDevFsNode
 
-
-static float
-virtio_input_supports_device(device_node *parent)
+status_t
+VirtioInputDevFsNode::Open(const char* path, int openMode, DevFsNodeHandle** outHandle)
 {
-	CALLED();
-
-	const char *bus;
-	uint16 deviceType;
-
-	// make sure parent is really the Virtio bus manager
-	if (gDeviceManager->get_attr_string(parent, B_DEVICE_BUS, &bus, false))
-		return -1;
-
-	if (strcmp(bus, "virtio"))
-		return 0.0;
-
-	// check whether it's really a Virtio input device
-	if (gDeviceManager->get_attr_uint16(parent, VIRTIO_DEVICE_TYPE_ITEM,
-			&deviceType, true) != B_OK || deviceType != kVirtioDevInput)
-		return 0.0;
-
-	TRACE("Virtio input device found!\n");
-
-	return 0.6;
-}
-
-
-static status_t
-virtio_input_register_device(device_node *node)
-{
-	CALLED();
-
-	device_attr attrs[] = {
-		{ B_DEVICE_PRETTY_NAME, B_STRING_TYPE, { .string = "VirtIO input" }},
-		{ NULL }
-	};
-
-	return gDeviceManager->register_node(node, VIRTIO_INPUT_DRIVER_MODULE_NAME,
-		attrs, NULL, NULL);
-}
-
-
-static status_t
-virtio_input_init_driver(device_node *node, void **cookie)
-{
-	CALLED();
-
-	ObjectDeleter<VirtioInputDevice> info(new(std::nothrow) VirtioInputDevice());
-
-	if (!info.IsSet())
+	ObjectDeleter<VirtioInputDevFsNodeHandle> handle(new(std::nothrow) VirtioInputDevFsNodeHandle(fDriver));
+	if (!handle.IsSet())
 		return B_NO_MEMORY;
 
-	info->node = node;
-
-	*cookie = info.Detach();
+	*outHandle = handle.Detach();
 	return B_OK;
 }
 
 
-static void
-virtio_input_uninit_driver(void *_cookie)
+// #pragma mark - VirtioInputDriver
+
+status_t
+VirtioInputDriver::Probe(DeviceNode* node, DeviceDriver** outDriver)
 {
-	CALLED();
-	ObjectDeleter<VirtioInputDevice> info((VirtioInputDevice*)_cookie);
+	ObjectDeleter<VirtioInputDriver> driver(new(std::nothrow) VirtioInputDriver(node));
+	if (!driver.IsSet())
+		return B_NO_MEMORY;
+
+	CHECK_RET(driver->Init());
+	*outDriver = driver.Detach();
+	return B_OK;
 }
 
 
-static status_t
-virtio_input_register_child_devices(void* _cookie)
+void
+VirtioInputDriver::Free()
+{
+	delete this;
+}
+
+
+status_t
+VirtioInputDriver::Init()
 {
 	CALLED();
-	VirtioInputDevice* info = (VirtioInputDevice*)_cookie;
-	status_t status;
 
-	int32 id = gDeviceManager->create_id(VIRTIO_INPUT_DEVICE_ID_GENERATOR);
-	if (id < 0)
-		return id;
+	fVirtioDevice = fNode->QueryBusInterface<VirtioDevice>();
+
+	fVirtioDevice->NegotiateFeatures(0, &fFeatures, NULL);
+
+	fPacketQueue.Init(8);
+
+	CHECK_RET(fVirtioDevice->AllocQueues(1, &fVirtioQueue));
+	CHECK_RET(fVirtioQueue->SetupInterrupt(InterruptCallback, this));
+
+	for (uint32 i = 0; i < fPacketQueue.PacketCount(); i++) {
+		Packet* pkt = fPacketQueue.PacketAt(i);
+		physical_entry pe = fPacketQueue.PacketPhysEntry(pkt);
+		fVirtioQueue->Request(NULL, &pe, pkt);
+	}
+
+	return B_OK;
+}
+
+
+void
+VirtioInputDriver::InterruptCallback(void* driverCookie, void* cookie)
+{
+	CALLED();
+	VirtioInputDriver* drv = (VirtioInputDriver*)cookie;
+
+	Packet* pkt;
+	while (drv->fVirtioQueue->Dequeue((void**)&pkt, NULL))
+		drv->fPacketQueue.Write(pkt);
+}
+
+
+status_t
+VirtioInputDriver::RegisterChildDevices()
+{
+	CALLED();
+
+	static int32 lastId = 0;
+	int32 id = lastId++;
 
 	char name[64];
 	snprintf(name, sizeof(name), "input/virtio/%" B_PRId32 "/raw", id);
 
-	status = gDeviceManager->publish_device(info->node, name,
-		VIRTIO_INPUT_DEVICE_MODULE_NAME);
+	CHECK_RET(fNode->RegisterDevFsNode(name, &fDevFsNode));
 
-	if (status < B_OK) {
-		ERROR("publish_device error: 0x%" B_PRIx32 "(%s) \n", status,
-			strerror(status));
-	}
-
-	return status;
+	return B_OK;
 }
 
 
-//	#pragma mark -
-
-
-module_dependency module_dependencies[] = {
-	{ B_DEVICE_MANAGER_MODULE_NAME, (module_info**)&gDeviceManager },
-	{ NULL }
-};
-
-
-struct device_module_info sVirtioInputDevice = {
-	.info = {
-		.name = VIRTIO_INPUT_DEVICE_MODULE_NAME,
-	},
-
-	.init_device = virtio_input_init_device,
-	.uninit_device = virtio_input_uninit_device,
-
-	.open = virtio_input_open,
-	.close = virtio_input_close,
-	.free = virtio_input_free,
-	.read = virtio_input_read,
-	.write = virtio_input_write,
-	.control = virtio_input_control,
-};
-
-struct driver_module_info sVirtioInputDriver = {
+static driver_module_info sVirtioInputModuleInfo = {
 	.info = {
 		.name = VIRTIO_INPUT_DRIVER_MODULE_NAME,
 	},
-
-	.supports_device = virtio_input_supports_device,
-	.register_device = virtio_input_register_device,
-	.init_driver = virtio_input_init_driver,
-	.uninit_driver = virtio_input_uninit_driver,
-	.register_child_devices = virtio_input_register_child_devices,
+	.probe = VirtioInputDriver::Probe
 };
 
-module_info* modules[] = {
-	(module_info*)&sVirtioInputDriver,
-	(module_info*)&sVirtioInputDevice,
+
+_EXPORT module_info* modules[] = {
+	(module_info* )&sVirtioInputModuleInfo,
 	NULL
 };

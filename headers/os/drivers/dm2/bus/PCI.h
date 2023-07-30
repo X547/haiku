@@ -14,34 +14,34 @@ class PciDevice {
 public:
 	static inline const char ifaceName[] = "bus_managers/pci/device";
 
-	virtual uint8	read_io_8(addr_t mappedIOAddress) = 0;
-	virtual void	write_io_8(addr_t mappedIOAddress,uint8 value) = 0;
-	virtual uint16	read_io_16(addr_t mappedIOAddress) = 0;
-	virtual void	write_io_16(addr_t mappedIOAddress,uint16 value) = 0;
-	virtual uint32	read_io_32(addr_t mappedIOAddress) = 0;
-	virtual void	write_io_32(addr_t mappedIOAddress,uint32 value) = 0;
+	virtual uint8		ReadIo8(addr_t mappedIOAddress) = 0;
+	virtual void		WriteIo8(addr_t mappedIOAddress, uint8 value) = 0;
+	virtual uint16		ReadIo16(addr_t mappedIOAddress) = 0;
+	virtual void		WriteIo16(addr_t mappedIOAddress, uint16 value) = 0;
+	virtual uint32		ReadIo32(addr_t mappedIOAddress) = 0;
+	virtual void		WriteIo32(addr_t mappedIOAddress, uint32 value) = 0;
 
-	virtual phys_addr_t	ram_address(phys_addr_t physicalAddress) = 0;
+	virtual phys_addr_t RamAddress(phys_addr_t physicalAddress) = 0;
 
-	virtual uint32	read_pci_config(uint16 offset, uint8 size) = 0;
-	virtual void	write_pci_config(uint16 offset, uint8 size, uint32 value) = 0;
-	virtual status_t find_pci_capability(uint8 capID, uint8 *offset) = 0;
-	virtual void 	get_pci_info(struct pci_info *info) = 0;
-	virtual status_t find_pci_extended_capability(uint16 capID, uint16 *offset) = 0;
-	virtual uint8	get_powerstate() = 0;
-	virtual void	set_powerstate(uint8 state) = 0;
+	virtual uint32		ReadPciConfig(uint16 offset, uint8 size) = 0;
+	virtual void		WritePciConfig(uint16 offset, uint8 size, uint32 value) = 0;
+	virtual status_t	FindPciCapability(uint8 capID, uint8* offset) = 0;
+	virtual void		GetPciInfo(struct pci_info* info) = 0;
+	virtual status_t	FindPciExtendedCapability(uint16 capID, uint16* offset) = 0;
+	virtual uint8 		GetPowerstate() = 0;
+	virtual void 		SetPowerstate(uint8 state) = 0;
 
 	// MSI/MSI-X
-	virtual uint8	get_msi_count() = 0;
-	virtual status_t configure_msi(uint8 count, uint8 *startVector) = 0;
-	virtual status_t unconfigure_msi() = 0;
+	virtual uint8		GetMsiCount() = 0;
+	virtual status_t	ConfigureMsi(uint8 count, uint8* startVector) = 0;
+	virtual status_t	UnconfigureMsi() = 0;
 
-	virtual status_t enable_msi() = 0;
-	virtual status_t disable_msi() = 0;
+	virtual status_t	EnableMsi() = 0;
+	virtual status_t	DisableMsi() = 0;
 
-	virtual uint8	get_msix_count() = 0;
-	virtual status_t configure_msix(uint8 count, uint8 *startVector) = 0;
-	virtual status_t enable_msix() = 0;
+	virtual uint8		GetMsixCount() = 0;
+	virtual status_t	ConfigureMsix(uint8 count, uint8* startVector) = 0;
+	virtual status_t	EnableMsix() = 0;
 
 protected:
 	~PciDevice() = default;
@@ -68,43 +68,29 @@ typedef struct pci_resource_range {
 
 class PciController {
 public:
-	// read PCI config space
-	virtual status_t read_pci_config(
-				uint8 bus, uint8 device, uint8 function,
-				uint16 offset, uint8 size, uint32 *value);
+	virtual status_t ReadPciConfig(uint8 bus, uint8 device, uint8 function, uint16 offset, uint8 size, uint32* value) = 0;
+	virtual status_t WritePciConfig(uint8 bus, uint8 device, uint8 function, uint16 offset, uint8 size, uint32 value) = 0;
 
-	// write PCI config space
-	virtual status_t write_pci_config(
-				uint8 bus, uint8 device, uint8 function,
-				uint16 offset, uint8 size, uint32 value);
+	virtual status_t GetMaxBusDevices(int32* count) = 0;
 
-	virtual status_t get_max_bus_devices(int32 *count);
+	virtual status_t ReadPciIrq(uint8 bus, uint8 device, uint8 function, uint8 pin, uint8* irq) = 0;
+	virtual status_t WritePciIrq(uint8 bus, uint8 device, uint8 function, uint8 pin, uint8 irq) = 0;
 
-	virtual status_t read_pci_irq(
-				uint8 bus, uint8 device, uint8 function,
-				uint8 pin, uint8 *irq);
+	virtual status_t GetRange(uint32 index, pci_resource_range* range) = 0;
 
-	virtual status_t write_pci_irq(
-				uint8 bus, uint8 device, uint8 function,
-				uint8 pin, uint8 irq);
-
-	virtual status_t get_range(uint32 index, pci_resource_range *range);
-
-	virtual status_t finalize();
+	virtual status_t Finalize() = 0;
 
 protected:
 	~PciController() = default;
 };
 
 /* Attributes of PCI device nodes */
-#define B_PCI_DEVICE_VENDOR_ID			"pci/vendor"				/* uint16 */
-#define B_PCI_DEVICE_ID					"pci/id"					/* uint16 */
-#define B_PCI_DEVICE_TYPE				"pci/type"
-	/* uint16, PCI base class */
-#define B_PCI_DEVICE_SUB_TYPE			"pci/subtype"
-	/* uint16, PCI sub type */
-#define B_PCI_DEVICE_INTERFACE			"pci/interface"
-	/* uint16, PCI class API */
+#define B_PCI_DEVICE_VENDOR_ID	"pci/vendor"		/* uint16 */
+#define B_PCI_DEVICE_ID			"pci/id"			/* uint16 */
+#define B_PCI_DEVICE_TYPE		"pci/type"			/* uint16, PCI base class */
+#define B_PCI_DEVICE_SUB_TYPE	"pci/subtype"		/* uint16, PCI sub type */
+#define B_PCI_DEVICE_INTERFACE	"pci/interface"		/* uint16, PCI class API */
+
 #define B_PCI_DEVICE_DOMAIN		"pci/domain"		/* uint32 */
 #define B_PCI_DEVICE_BUS		"pci/bus"			/* uint8 */
 #define B_PCI_DEVICE_DEVICE		"pci/device"		/* uint8 */

@@ -99,8 +99,7 @@ status_t VirtioBlockDriver::Init()
 
 	fSemCb.SetTo(create_sem(0, "virtio_block_cb"));
 
-	DeviceNodePutter parent(fNode->GetParent());
-	fVirtioDevice = parent->QueryBusInterface<VirtioDevice>();
+	fVirtioDevice = fNode->QueryBusInterface<VirtioDevice>();
 
 	fVirtioDevice->NegotiateFeatures(
 		VIRTIO_BLK_F_BARRIER | VIRTIO_BLK_F_SIZE_MAX
@@ -145,8 +144,8 @@ VirtioBlockDriver::RegisterChildDevices()
 {
 	CALLED();
 
-	static int32 id = 0;
-	id++;
+	static int32 lastId = 0;
+	int32 id = lastId++;
 
 	char name[64];
 	snprintf(name, sizeof(name), "disk/virtual/virtio_block/%" B_PRId32 "/raw", id);
