@@ -95,8 +95,8 @@ DriverRoster::Lookup(DeviceNode* node, LookupResultArray& result)
 				}
 			}
 		} else if (strcmp(bus, "root") == 0) {
-			result.PushBack(LookupResult{.score = 1.0f, .module = "drivers/common/null/driver/v1"});
-			result.PushBack(LookupResult{.score = 1.0f, .module = "drivers/common/zero/driver/v1"});
+			result.PushBack(LookupResult{.score = 1.0f, .module = "drivers/null/driver/v1"});
+			result.PushBack(LookupResult{.score = 1.0f, .module = "drivers/zero/driver/v1"});
 			result.PushBack(LookupResult{.score = 1.0f, .module = "bus_managers/fdt/driver/v1"});
 			result.PushBack(LookupResult{.score = 1.0f, .module = "bus_managers/random/driver/v1"});
 		} else if (strcmp(bus, "generic") == 0) {

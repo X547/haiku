@@ -2,6 +2,7 @@
 
 #include <dm2/device_manager.h>
 
+#include <util/AVLTree.h>
 #include <util/DoublyLinkedList.h>
 #include <util/Vector.h>
 
@@ -29,16 +30,40 @@ private:
 
 
 class DriverModuleInfo {
+private:
+	struct NameNodeDef {
+		typedef const char* Key;
+		typedef DriverModuleInfo Value;
+
+		inline AVLTreeNode* GetAVLTreeNode(Value* value) const
+		{
+			return &value->fNameNode;
+		}
+
+		inline Value* GetValue(AVLTreeNode* node) const
+		{
+			return &ContainerOf(*node, &DriverModuleInfo::fNameNode);
+		}
+
+		inline int Compare(const Key& a, const Value* b) const
+		{
+			return strcmp(a, b->fName.Get());
+		}
+
+		inline int Compare(const Value* a, const Value* b) const
+		{
+			return strcmp(a->fName.Get(), b->fName.Get());
+		}
+	};
+
+public:
+	typedef AVLTree<NameNodeDef> NameMap;
+
 public:
 	status_t Init(DriverAddonInfo* addon, const char* name);
 
 private:
-	DoublyLinkedListLink<DriverModuleInfo> fLink;
-
-public:
-	typedef DoublyLinkedList<
-		DriverModuleInfo, DoublyLinkedListMemberGetLink<DriverModuleInfo, &DriverModuleInfo::fLink>
-	> List;
+	AVLTreeNode fNameNode;
 
 private:
 	DriverAddonInfo* fAddon {};
@@ -47,21 +72,44 @@ private:
 
 
 class DriverAddonInfo {
+private:
+	struct PathNodeDef {
+		typedef const char* Key;
+		typedef DriverAddonInfo Value;
+
+		inline AVLTreeNode* GetAVLTreeNode(Value* value) const
+		{
+			return &value->fPathNode;
+		}
+
+		inline Value* GetValue(AVLTreeNode* node) const
+		{
+			return &ContainerOf(*node, &DriverAddonInfo::fPathNode);
+		}
+
+		inline int Compare(const Key& a, const Value* b) const
+		{
+			return strcmp(a, b->fPath.Get());
+		}
+
+		inline int Compare(const Value* a, const Value* b) const
+		{
+			return strcmp(a->fPath.Get(), b->fPath.Get());
+		}
+	};
+
+public:
+	typedef AVLTree<PathNodeDef> PathMap;
+
 public:
 	status_t Init(const char* path, const KMessage& msg);
 
 private:
-	DoublyLinkedListLink<DriverAddonInfo> fLink;
-
-public:
-	typedef DoublyLinkedList<
-		DriverAddonInfo, DoublyLinkedListMemberGetLink<DriverAddonInfo, &DriverAddonInfo::fLink>
-	> List;
+	AVLTreeNode fPathNode;
 
 private:
 	CStringDeleter fPath;
-	// TODO: AVL by module name
-	DriverModuleInfo::List fModules;
+	DriverModuleInfo::NameMap fModules;
 	DriverCompatInfo fCompatInfo;
 };
 
@@ -84,6 +132,5 @@ public:
 private:
 	static DriverRoster sInstance;
 
-	// TODO: AVL by add-on path
-	DriverAddonInfo::List fDriverAddons;
+	DriverAddonInfo::PathMap fDriverAddons;
 };

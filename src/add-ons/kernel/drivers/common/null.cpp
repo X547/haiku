@@ -7,7 +7,7 @@
 
 #define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
-#define NULL_DRIVER_MODULE_NAME "drivers/common/null/driver/v1"
+#define NULL_DRIVER_MODULE_NAME "drivers/null/driver/v1"
 
 
 class NullDriver;
