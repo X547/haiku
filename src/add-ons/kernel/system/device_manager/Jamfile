@@ -10,6 +10,7 @@ KernelAddon device_manager :
 	compile_check.cpp
 	DeviceManager.cpp
 	DriverRoster.cpp
+	CompatInfoData.cpp
 	RootDevice.cpp
 	DevFsNodeWrapper.cpp
 ;
