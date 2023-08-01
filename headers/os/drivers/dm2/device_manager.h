@@ -147,7 +147,7 @@ protected:
 };
 
 
-// interface provided for each device node publiched by bus driver
+// interface provided for each device node published by bus driver
 class BusDriver {
 public:
 	virtual void Free() {}

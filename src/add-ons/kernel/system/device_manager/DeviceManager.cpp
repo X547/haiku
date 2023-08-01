@@ -55,6 +55,7 @@ public:
 	status_t Register(DeviceNodeImpl* parent, BusDriver* driver);
 	status_t Probe();
 	status_t ProbeDriver(const char* moduleName, bool isChild = false);
+	void UnsetDeviceDriver();
 
 private:
 	void SetProbe(bool doProbe);
@@ -146,11 +147,7 @@ DeviceNodeImpl::~DeviceNodeImpl()
 		delete wrapper;
 	}
 
-	if (fDeviceDriver != NULL) {
-		put_module(fDriverModuleName.Get());
-		fDeviceDriver = NULL;
-		fDriverModuleName.Unset();
-	}
+	UnsetDeviceDriver();
 
 	if (fBusDriver != NULL)
 		fBusDriver->Free();
@@ -265,9 +262,11 @@ DeviceNodeImpl::RegisterNode(BusDriver* driver, DeviceNode** outNode)
 		return B_NO_MEMORY;
 
 	CHECK_RET(node->Register(this, driver));
+	// dprintf("DeviceNodeImpl::RegisterNode() -> %p\n", node.Get());
 
-	*outNode = node.Detach();
-	// dprintf("DeviceNodeImpl::RegisterNode() -> %p\n", *outNode);
+	if (outNode != NULL)
+		*outNode = node.Detach();
+
 	return B_OK;
 }
 
@@ -293,6 +292,7 @@ DeviceNodeImpl::UnregisterNode(DeviceNode* nodeIface)
 
 	node->fBusDriver->Free();
 	node->fBusDriver = NULL;
+	node->ReleaseReference();
 
 	return B_OK;
 }
@@ -446,6 +446,17 @@ DeviceNodeImpl::ProbeDriver(const char* moduleName, bool isChild)
 	fDriverModuleName.SetTo(driverModuleName.Detach());
 
 	return B_OK;
+}
+
+
+void DeviceNodeImpl::UnsetDeviceDriver()
+{
+	if (fDeviceDriver != NULL) {
+		fDeviceDriver->Free();
+		fDeviceDriver = NULL;
+		put_module(fDriverModuleName.Get());
+		fDriverModuleName.Unset();
+	}
 }
 
 

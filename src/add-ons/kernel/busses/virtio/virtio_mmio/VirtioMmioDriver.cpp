@@ -95,8 +95,7 @@ VirtioMmioDeviceDriver::Init()
 
 	CHECK_RET(fDevice.Init(regs, regsLen, interrupt, 1));
 
-	DeviceNode* childNode {};
-	CHECK_RET(fNode->RegisterNode(busDriver.Detach(), &childNode));
+	CHECK_RET(fNode->RegisterNode(busDriver.Detach(), NULL));
 
 	return B_OK;
 }
