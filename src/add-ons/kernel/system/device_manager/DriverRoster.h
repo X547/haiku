@@ -4,12 +4,12 @@
 
 #include <util/AVLTree.h>
 #include <util/DoublyLinkedList.h>
+#include <util/KMessage.h>
 #include <util/Vector.h>
 
 #include "Utils.h"
 
 
-class KMessage;
 class DriverModuleInfo;
 class DriverAddonInfo;
 
@@ -21,10 +21,17 @@ private:
 	typedef DoublyLinkedList<
 		DriverCompatInfo, DoublyLinkedListMemberGetLink<DriverCompatInfo, &DriverCompatInfo::fLink>
 	> List;
+public:
+	~DriverCompatInfo();
+	status_t Init(DriverAddonInfo* addonInfo, const KMessage& msg);
 
+	bool Match(DeviceNode* node);
+
+private:
 	DriverModuleInfo* fModuleInfo {}; // owned by DriverAddonInfo
 	float fScore = -1;
-	ArrayDeleter<device_attr> fAttrs;
+	KMessage fAttrs;
+	DriverCompatInfo* fParentInfo {};
 	List fChildInfos;
 };
 
@@ -63,10 +70,8 @@ public:
 	status_t Init(DriverAddonInfo* addon, const char* name);
 
 private:
-	AVLTreeNode fNameNode;
-
-private:
 	DriverAddonInfo* fAddon {};
+	AVLTreeNode fNameNode;
 	CStringDeleter fName;
 };
 
@@ -102,12 +107,14 @@ public:
 	typedef AVLTree<PathNodeDef> PathMap;
 
 public:
+	~DriverAddonInfo();
 	status_t Init(const char* path, const KMessage& msg);
+	status_t AddModule(const char* name, DriverModuleInfo*& outModule);
+
+	const char* GetPath() const {return fPath.Get();}
 
 private:
 	AVLTreeNode fPathNode;
-
-private:
 	CStringDeleter fPath;
 	DriverModuleInfo::NameMap fModules;
 	DriverCompatInfo fCompatInfo;
@@ -122,12 +129,15 @@ public:
 	};
 	typedef Vector<LookupResult> LookupResultArray;
 
-
 public:
 	static DriverRoster& Instance() {return sInstance;}
 	status_t Init();
 
 	void Lookup(DeviceNode* node, LookupResultArray& result);
+
+private:
+	void LookupFixed(DeviceNode* node, LookupResultArray& result);
+	status_t RegisterDriverAddon(DriverAddonInfo* driverAddon);
 
 private:
 	static DriverRoster sInstance;
