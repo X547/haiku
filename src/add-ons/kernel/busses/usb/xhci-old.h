@@ -1,43 +1,24 @@
-#pragma once
+/*
+ * Copyright 2011-2019, Haiku Inc. All rights reserved.
+ * Distributed under the terms of the MIT License.
+ *
+ * Authors:
+ *		Augustin Cavalier <waddlesplash>
+ *		Michael Lotz <mmlr@mlotz.ch>
+ *		Jian Chiang <j.jian.chiang@gmail.com>
+ *		Jérôme Duval <jerome.duval@gmail.com>
+ */
+#ifndef XHCI_H
+#define XHCI_H
 
 
-#include <dm2/bus/USB.h>
-#include <dm2/bus/PCI.h>
-
-#include <lock.h>
-#include <util/iovec_support.h>
-
-#include "usbspec_private.h"
+#include "usb_private.h"
 #include "xhci_hardware.h"
 
 
-/*
-#define TRACE_OUTPUT(x, y, z...) \
-	{ \
-		dprintf("usb %s%s %" B_PRId32 ": ", y, (x)->TypeName(), (x)->USBID()); \
-		dprintf(z); \
-	}
-*/
-
-#define TRACE_OUTPUT(x, y, z...) ;
-
-//#define TRACE_USB
-#ifdef TRACE_USB
-#define TRACE(x...)					TRACE_OUTPUT(this, "", x)
-#define TRACE_STATIC(x, y...)		TRACE_OUTPUT(x, "", y)
-#define TRACE_MODULE(x...)			dprintf("usb " USB_MODULE_NAME ": " x)
-#else
-#define TRACE(x...)					/* nothing */
-#define TRACE_STATIC(x, y...)		/* nothing */
-#define TRACE_MODULE(x...)			/* nothing */
-#endif
-
-#define TRACE_ALWAYS(x...)			TRACE_OUTPUT(this, "", x)
-#define TRACE_ERROR(x...)			TRACE_OUTPUT(this, "error ", x)
-#define TRACE_MODULE_ALWAYS(x...)	dprintf("usb " USB_MODULE_NAME ": " x)
-#define TRACE_MODULE_ERROR(x...)	dprintf("usb " USB_MODULE_NAME ": " x)
-
-
+struct pci_info;
+struct pci_device_module_info;
+struct pci_device;
 struct xhci_td;
 struct xhci_device;
 struct xhci_endpoint;
@@ -61,7 +42,7 @@ typedef struct xhci_td {
 	size_t		buffer_size;
 	uint32		buffer_count;
 
-	UsbBusTransfer*	transfer;
+	Transfer*	transfer;
 	uint8		trb_completion_code;
 	int32		td_transferred;
 	int32		trb_left;
@@ -106,30 +87,33 @@ typedef struct xhci_device {
 } xhci_device;
 
 
-class XHCI: public UsbHostController {
+class XHCI : public BusManager {
 public:
-	virtual ~XHCI() = default;
+	static	status_t			AddTo(Stack *stack);
 
-	void			SetBusManager(UsbBusManager* busManager) final;
+								XHCI(pci_info *info, pci_device_module_info* pci, pci_device* device, Stack *stack,
+									device_node* node);
+								~XHCI();
 
-	UsbBusDevice*	AllocateDevice(UsbBusHub* parent,
-								int8 hubAddress, uint8 hubPort,
-								usb_speed speed) final;
-	void			FreeDevice(UsbBusDevice* device) final;
+	virtual	const char *		TypeName() const { return "xhci"; }
 
-	status_t		Start() final;
-	status_t		Stop() final;
+			status_t			Start();
+	virtual	status_t			SubmitTransfer(Transfer *transfer);
+			status_t			SubmitControlRequest(Transfer *transfer);
+			status_t			SubmitNormalRequest(Transfer *transfer);
+	virtual	status_t			CancelQueuedTransfers(Pipe *pipe, bool force);
 
-	status_t		StartDebugTransfer(UsbBusTransfer* transfer) final;
-	status_t		CheckDebugTransfer(UsbBusTransfer* transfer) final;
-	void			CancelDebugTransfer(UsbBusTransfer* transfer) final;
+	virtual	status_t			StartDebugTransfer(Transfer *transfer);
+	virtual	status_t			CheckDebugTransfer(Transfer *transfer);
+	virtual	void				CancelDebugTransfer(Transfer *transfer);
 
-	status_t		SubmitTransfer(UsbBusTransfer* transfer) final;
-	status_t		CancelQueuedTransfers(UsbBusPipe* pipe, bool force) final;
+	virtual	status_t			NotifyPipeChange(Pipe *pipe,
+									usb_change change);
 
-	status_t		NotifyPipeChange(UsbBusPipe* pipe, usb_change change) final;
-
-	const char*		TypeName() const final { return "xhci"; }
+	virtual	Device *			AllocateDevice(Hub *parent,
+									int8 hubAddress, uint8 hubPort,
+									usb_speed speed);
+	virtual	void				FreeDevice(Device *device);
 
 			// Port operations for root hub
 			uint8				PortCount() const { return fPortCount; }
@@ -141,11 +125,6 @@ public:
 			status_t			GetPortSpeed(uint8 index, usb_speed *speed);
 
 private:
-	inline	bool				Lock() { return fBusManager->Lock(); }
-	inline	void				Unlock() { return fBusManager->Unlock(); }
-
-			status_t			Init();
-
 			// Controller resets
 			status_t			ControllerReset();
 			status_t			ControllerHalt();
@@ -165,8 +144,8 @@ private:
 									uint16 bytesPerInterval);
 			uint8				_GetEndpointState(xhci_endpoint* ep);
 
-			status_t			_InsertEndpointForPipe(UsbBusPipe *pipe);
-			status_t			_RemoveEndpointForPipe(UsbBusPipe *pipe);
+			status_t			_InsertEndpointForPipe(Pipe *pipe);
+			status_t			_RemoveEndpointForPipe(Pipe *pipe);
 
 			// Event management
 	static	int32				EventThread(void *data);
@@ -244,33 +223,31 @@ private:
 
 			void				_SwitchIntelPorts();
 
-
 private:
-			UsbBusManager*		fBusManager {};
-
 			area_id				fRegisterArea;
-			uint8*				fRegisters;
+			uint8 *				fRegisters;
 			uint32				fCapabilityRegisterOffset;
 			uint32				fOperationalRegisterOffset;
 			uint32				fRuntimeRegisterOffset;
 			uint32				fDoorbellRegisterOffset;
 
-			pci_info*			fPCIInfo;
-			PciDevice*			fDevice;
+			pci_info *			fPCIInfo;
+			pci_device_module_info* fPci;
+			pci_device*			fDevice;
 
-			UsbStack*			fStack;
+			Stack *				fStack;
 			uint8				fIRQ;
 			bool				fUseMSI;
 
 			area_id				fErstArea;
-			xhci_erst_element*	fErst;
-			xhci_trb*			fEventRing;
-			xhci_trb*			fCmdRing;
+			xhci_erst_element *	fErst;
+			xhci_trb *			fEventRing;
+			xhci_trb *			fCmdRing;
 			uint64				fCmdAddr;
 			uint32				fCmdResult[2];
 
 			area_id				fDcbaArea;
-			struct xhci_device_context_array* fDcba;
+			struct xhci_device_context_array * fDcba;
 
 			spinlock			fSpinlock;
 
@@ -278,7 +255,7 @@ private:
 			bool				fStopThreads;
 
 			// Root Hub
-			XHCIRootHub*		fRootHub;
+			XHCIRootHub *		fRootHub;
 
 			// Port management
 			uint8				fPortCount;
@@ -288,7 +265,7 @@ private:
 			// Scratchpad
 			uint32				fScratchpadCount;
 			area_id				fScratchpadArea[XHCI_MAX_SCRATCHPADS];
-			void*				fScratchpad[XHCI_MAX_SCRATCHPADS];
+			void *				fScratchpad[XHCI_MAX_SCRATCHPADS];
 
 			// Devices
 			struct xhci_device	fDevices[XHCI_MAX_DEVICES];
@@ -296,7 +273,7 @@ private:
 
 			// Transfers
 			mutex				fFinishedLock;
-			xhci_td*			fFinishedHead;
+			xhci_td	*			fFinishedHead;
 			sem_id				fFinishTransfersSem;
 			thread_id			fFinishThread;
 
@@ -311,3 +288,16 @@ private:
 
 			uint32				fExitLatMax;
 };
+
+
+class XHCIRootHub : public Hub {
+public:
+									XHCIRootHub(Object *rootObject,
+										int8 deviceAddress);
+
+static	status_t					ProcessTransfer(XHCI *ehci,
+										Transfer *transfer);
+};
+
+
+#endif // !XHCI_H

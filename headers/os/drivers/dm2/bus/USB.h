@@ -120,6 +120,13 @@ public:
 	/* Cancel all pending async requests in a device control pipe */
 	virtual status_t	CancelQueuedRequests() = 0;
 
+protected:
+	~UsbDevice() = default;
+};
+
+
+class UsbHub: public UsbDevice {
+public:
 	/*
 	 * Hub interaction - These commands are only valid when used with a hub
 	 * device handle. Use reset_port to trigger a reset of the port with index
@@ -132,7 +139,7 @@ public:
 	virtual status_t	DisablePort(uint8 portIndex) = 0;
 
 protected:
-	~UsbDevice() = default;
+	~UsbHub() = default;
 };
 
 
@@ -197,4 +204,158 @@ protected:
 };
 
 
-// TODO: host controller interface
+// Host controller interface
+
+// !!!
+struct usb_isochronous_data;
+struct generic_io_vec;
+
+
+typedef enum {
+	USB_SPEED_LOWSPEED = 0,
+	USB_SPEED_FULLSPEED,
+	USB_SPEED_HIGHSPEED,
+	USB_SPEED_SUPERSPEED,
+	USB_SPEED_MAX = USB_SPEED_SUPERSPEED
+} usb_speed;
+
+
+typedef enum {
+	USB_CHANGE_CREATED = 0,
+	USB_CHANGE_DESTROYED,
+	USB_CHANGE_PIPE_POLICY_CHANGED
+} usb_change;
+
+
+#define USB_OBJECT_NONE					0x00000000
+#define USB_OBJECT_PIPE					0x00000001
+#define USB_OBJECT_CONTROL_PIPE			0x00000002
+#define USB_OBJECT_INTERRUPT_PIPE		0x00000004
+#define USB_OBJECT_BULK_PIPE			0x00000008
+#define USB_OBJECT_ISO_PIPE				0x00000010
+#define USB_OBJECT_INTERFACE			0x00000020
+#define USB_OBJECT_DEVICE				0x00000040
+#define USB_OBJECT_HUB					0x00000080
+
+class UsbStack {
+public:
+	virtual status_t	AllocateChunk(void **logicalAddress,
+							phys_addr_t *physicalAddress,
+							size_t size) = 0;
+	virtual status_t	FreeChunk(void *logicalAddress,
+							phys_addr_t physicalAddress,
+							size_t size) = 0;
+
+protected:
+	~UsbStack() = default;
+};
+
+class UsbBusObject {
+public:
+	virtual	uint32 Type() const = 0;
+	virtual UsbBusObject* Parent() const = 0;
+
+protected:
+	~UsbBusObject() = default;
+};
+
+
+class UsbBusDevice: public UsbBusObject {
+public:
+	virtual usb_speed Speed() const = 0;
+
+	virtual void SetControllerCookie(void *cookie) = 0;
+	virtual void* ControllerCookie() const = 0;
+
+protected:
+	~UsbBusDevice() = default;
+};
+
+
+class UsbBusHub {
+public:
+
+protected:
+	~UsbBusHub() = default;
+};
+
+
+class UsbBusPipe: public UsbBusObject {
+public:
+	enum pipeDirection { In, Out, Default };
+
+	virtual int8 DeviceAddress() const = 0;
+	virtual usb_speed Speed() const = 0;
+	virtual pipeDirection Direction() const = 0;
+	virtual uint8 EndpointAddress() const = 0;
+	virtual size_t MaxPacketSize() const = 0;
+	virtual uint8 Interval() const = 0;
+	virtual uint8 MaxBurst() const = 0;
+	virtual uint16 BytesPerInterval() const;
+
+	virtual void SetControllerCookie(void *cookie) = 0;
+	virtual void* ControllerCookie() const = 0;
+
+protected:
+	~UsbBusPipe() = default;
+};
+
+
+class UsbBusTransfer {
+public:
+	virtual void Free() = 0;
+	virtual UsbBusPipe* TransferPipe() const = 0;
+	virtual size_t FragmentLength() const = 0;
+	virtual usb_isochronous_data* IsochronousData() const = 0;
+	virtual size_t DataLength() const = 0;
+	virtual status_t PrepareKernelAccess() = 0;
+	virtual generic_io_vec*	Vector() = 0;
+	virtual size_t VectorCount() const = 0;
+	virtual bool IsPhysical() const = 0;
+	virtual bool IsFragmented() const = 0;
+	virtual void AdvanceByFragment(size_t actualLength) = 0;
+	virtual void Finished(uint32 status, size_t actualLength) = 0;
+
+protected:
+	~UsbBusTransfer() = default;
+};
+
+
+class UsbBusManager {
+public:
+	virtual bool Lock() = 0;
+	virtual void Unlock() = 0;
+
+	virtual UsbBusObject* RootObject() const = 0;
+
+protected:
+	~UsbBusManager() = default;
+};
+
+
+class UsbHostController {
+public:
+	virtual void			SetBusManager(UsbBusManager* busManager) = 0;
+
+	virtual	UsbBusDevice*	AllocateDevice(UsbBusHub* parent,
+								int8 hubAddress, uint8 hubPort,
+								usb_speed speed) = 0;
+	virtual void			FreeDevice(UsbBusDevice* device) = 0;
+
+	virtual	status_t		Start() = 0;
+	virtual	status_t		Stop() = 0;
+
+	virtual	status_t		StartDebugTransfer(UsbBusTransfer* transfer) = 0;
+	virtual	status_t		CheckDebugTransfer(UsbBusTransfer* transfer) = 0;
+	virtual	void			CancelDebugTransfer(UsbBusTransfer* transfer) = 0;
+
+	virtual	status_t		SubmitTransfer(UsbBusTransfer* transfer) = 0;
+	virtual	status_t		CancelQueuedTransfers(UsbBusPipe* pipe, bool force) = 0;
+
+	virtual	status_t		NotifyPipeChange(UsbBusPipe* pipe, usb_change change) = 0;
+
+	virtual	const char*		TypeName() const = 0;
+
+protected:
+	~UsbHostController() = default;
+};
