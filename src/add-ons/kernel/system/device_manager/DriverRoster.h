@@ -1,6 +1,6 @@
 #pragma once
 
-#include <dm2/device_manager.h>
+#include "DeviceManager.h"
 
 #include <util/AVLTree.h>
 #include <util/DoublyLinkedList.h>
@@ -14,6 +14,13 @@ class DriverModuleInfo;
 class DriverAddonInfo;
 
 
+struct LookupResult {
+	float score;
+	const char* module; /* TODO: string ownership? */
+};
+typedef Vector<LookupResult> LookupResultArray;
+
+
 class DriverCompatInfo {
 private:
 	DoublyLinkedListLink<DriverCompatInfo> fLink;
@@ -21,11 +28,20 @@ private:
 	typedef DoublyLinkedList<
 		DriverCompatInfo, DoublyLinkedListMemberGetLink<DriverCompatInfo, &DriverCompatInfo::fLink>
 	> List;
+
+	struct MatchContext {
+		DriverModuleInfo* moduleInfo {};
+		float score = -1;
+	};
+
 public:
 	~DriverCompatInfo();
 	status_t Init(DriverAddonInfo* addonInfo, const KMessage& msg);
 
-	bool Match(DeviceNode* node);
+	void Match(DeviceNode* node, LookupResultArray& results);
+
+private:
+	void Match(DeviceNode* node, MatchContext ctx, LookupResultArray& results);
 
 private:
 	DriverModuleInfo* fModuleInfo {}; // owned by DriverAddonInfo
@@ -54,12 +70,12 @@ private:
 
 		inline int Compare(const Key& a, const Value* b) const
 		{
-			return strcmp(a, b->fName.Get());
+			return strcmp(a, b->GetName());
 		}
 
 		inline int Compare(const Value* a, const Value* b) const
 		{
-			return strcmp(a->fName.Get(), b->fName.Get());
+			return strcmp(a->GetName(), b->GetName());
 		}
 	};
 
@@ -68,6 +84,8 @@ public:
 
 public:
 	status_t Init(DriverAddonInfo* addon, const char* name);
+
+	const char* GetName() const {return fName.Get();}
 
 private:
 	DriverAddonInfo* fAddon {};
@@ -94,12 +112,12 @@ private:
 
 		inline int Compare(const Key& a, const Value* b) const
 		{
-			return strcmp(a, b->fPath.Get());
+			return strcmp(a, b->GetPath());
 		}
 
 		inline int Compare(const Value* a, const Value* b) const
 		{
-			return strcmp(a->fPath.Get(), b->fPath.Get());
+			return strcmp(a->GetPath(), b->GetPath());
 		}
 	};
 
@@ -114,6 +132,8 @@ public:
 	const char* GetPath() const {return fPath.Get();}
 
 private:
+	friend class DriverRoster;
+
 	AVLTreeNode fPathNode;
 	CStringDeleter fPath;
 	DriverModuleInfo::NameMap fModules;
@@ -123,17 +143,13 @@ private:
 
 class DriverRoster {
 public:
-	struct LookupResult {
-		float score;
-		const char* module;
-	};
-	typedef Vector<LookupResult> LookupResultArray;
-
-public:
 	static DriverRoster& Instance() {return sInstance;}
 	status_t Init();
 
 	void Lookup(DeviceNode* node, LookupResultArray& result);
+
+	void RegisterDeviceNode(DeviceNodeImpl* node);
+	void UnregisterDeviceNode(DeviceNodeImpl* node);
 
 private:
 	void LookupFixed(DeviceNode* node, LookupResultArray& result);
@@ -142,5 +158,6 @@ private:
 private:
 	static DriverRoster sInstance;
 
+	DeviceNodeImpl::RosterList fDeviceNodes;
 	DriverAddonInfo::PathMap fDriverAddons;
 };

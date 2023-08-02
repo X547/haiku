@@ -59,6 +59,98 @@ DriverCompatInfo::Init(DriverAddonInfo* addonInfo, const KMessage& msg)
 }
 
 
+static type_code
+NormalizeTypeCode(type_code typeCode) {
+	switch (typeCode) {
+		case B_INT8_TYPE:
+			return B_UINT8_TYPE;
+		case B_INT16_TYPE:
+			return B_UINT16_TYPE;
+		case B_INT32_TYPE:
+			return B_UINT32_TYPE;
+		case B_INT64_TYPE:
+			return B_UINT64_TYPE;
+		default:
+			return typeCode;
+	}
+}
+
+
+static bool
+MatchAttr(DeviceNode* node, const KMessageField& field)
+{
+	dprintf("MatchAttr(\"%s\")\n", field.Name());
+
+	type_code typeCode = NormalizeTypeCode(field.TypeCode());
+
+	int32 i = 0;
+	const void* value;
+	size_t valueSize;
+	while (node->FindAttr(field.Name(), typeCode, i++, &value, &valueSize) >= B_OK) {
+		dprintf("  valueSize: %" B_PRIuSIZE "\n", valueSize);
+		if (typeCode == B_STRING_TYPE)
+			dprintf("  value: \"%s\"\n", (const char*)value);
+
+		for (int32 j = 0; j < field.CountElements(); j++) {
+			int32 fldValueSize;
+			const void* fldValue = field.ElementAt(j, &fldValueSize);
+			dprintf("  fldValueSize: %" B_PRId32 "\n", fldValueSize);
+			if (typeCode == B_STRING_TYPE)
+				dprintf("  fldValue: \"%s\"\n", (const char*)fldValue);
+
+			if (valueSize == (size_t)fldValueSize && memcmp(value, fldValue, valueSize) == 0)
+				return true;
+		}
+	}
+
+	return false;
+}
+
+
+void
+DriverCompatInfo::Match(DeviceNode* node, MatchContext ctx, LookupResultArray& results)
+{
+	dprintf("Match()\n");
+
+	if (fModuleInfo != NULL)
+		ctx.moduleInfo = fModuleInfo;
+
+	if (fScore >= 0.0f)
+		ctx.score = fScore;
+
+	KMessageField field;
+	while (fAttrs.GetNextField(&field) >= B_OK) {
+		if (!MatchAttr(node, field))
+			return;
+	}
+
+	dprintf("MatchAttr() -> true\n");
+	dprintf("fAttrs: "); fAttrs.Dump(dprintf);
+
+	if (fChildInfos.IsEmpty()) {
+		dprintf("results.Add(%g, \"%s\")\n", ctx.score, ctx.moduleInfo->GetName());
+		results.Add({ctx.score, ctx.moduleInfo->GetName() /* TODO: string ownership? */});
+		return;
+	}
+
+	for (
+		DriverCompatInfo* childInfo = fChildInfos.First();
+		childInfo != NULL;
+		childInfo = fChildInfos.GetNext(childInfo)
+	) {
+		childInfo->Match(node, ctx, results);
+	}
+}
+
+
+void
+DriverCompatInfo::Match(DeviceNode* node, LookupResultArray& results)
+{
+	MatchContext ctx;
+	Match(node, ctx, results);
+}
+
+
 status_t
 DriverModuleInfo::Init(DriverAddonInfo* addon, const char* name)
 {
@@ -88,6 +180,7 @@ status_t
 DriverAddonInfo::Init(const char* path, const KMessage& msg)
 {
 	dprintf("DriverAddonInfo::Init(\"%s\")\n", path);
+	msg.Dump(dprintf);
 
 	fPath.SetTo(strdup(path));
 	if (!fPath.IsSet())
@@ -228,5 +321,26 @@ DriverRoster::LookupFixed(DeviceNode* node, LookupResultArray& result)
 void
 DriverRoster::Lookup(DeviceNode* node, LookupResultArray& result)
 {
-	return LookupFixed(node, result);
+	result.MakeEmpty();
+	for (
+		DriverAddonInfo *driverAddon = fDriverAddons.LeftMost();
+		driverAddon != NULL;
+		driverAddon = fDriverAddons.Next(driverAddon)
+	) {
+		driverAddon->fCompatInfo.Match(node, result);
+	}
 }
+
+
+void
+DriverRoster::RegisterDeviceNode(DeviceNodeImpl* node)
+{
+	fDeviceNodes.Insert(node);
+}
+
+
+void DriverRoster::UnregisterDeviceNode(DeviceNodeImpl* node)
+{
+	fDeviceNodes.Remove(node);
+}
+

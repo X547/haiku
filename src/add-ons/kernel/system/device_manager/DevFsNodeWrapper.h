@@ -3,16 +3,11 @@
  * Copyright 2008-2009, Axel Dörfler, axeld@pinc-software.de.
  * Distributed under the terms of the MIT License.
  */
-#ifndef ABSTRACT_MODULE_DEVICE_H
-#define ABSTRACT_MODULE_DEVICE_H
-
+#pragma once
 
 #include "BaseDevice.h"
 
 #include <dm2/device_manager.h>
-
-
-namespace BPrivate {
 
 
 class DevFsNodeWrapper : public BaseDevice {
@@ -54,12 +49,3 @@ protected:
 	DevFsNode*				fDevFsNode;
 	DevFsNode::Capabilities	fCapabilities;
 };
-
-
-} // namespace BPrivate
-
-
-using BPrivate::DevFsNodeWrapper;
-
-
-#endif	// ABSTRACT_MODULE_DEVICE_H

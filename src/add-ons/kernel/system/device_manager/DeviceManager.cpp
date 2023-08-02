@@ -1,16 +1,11 @@
-#include <dm2/device_manager.h>
+#include "DeviceManager.h"
 
 #include <string.h>
 
-#include <Referenceable.h>
-
 #include <ScopeExit.h>
-#include <HashMap.h>
-#include <util/DoublyLinkedList.h>
 
 #include "devfs_private.h"
 
-#include "Utils.h"
 #include "DriverRoster.h"
 #include "RootDevice.h"
 #include "DevFsNodeWrapper.h"
@@ -19,111 +14,6 @@
 // TODO: locking
 // TODO: check ownership management
 
-
-class DeviceNodeImpl;
-
-
-class DeviceNodeImpl: public DeviceNode, public BReferenceable {
-public:
-	DeviceNodeImpl();
-	virtual ~DeviceNodeImpl();
-
-	int32 AcquireReference() final { return BReferenceable::AcquireReference(); }
-	int32 ReleaseReference() final { return BReferenceable::ReleaseReference(); }
-
-	DeviceNode* GetParent() const final;
-	status_t GetNextChildNode(const device_attr* attrs, DeviceNode** node) const final;
-	status_t FindChildNode(const device_attr* attrs, DeviceNode** node) const final;
-
-	status_t GetNextAttr(device_attr** attr) const final;
-	status_t FindAttr(const char* name, type_code type, int32 index, const void** value) const final;
-
-	void* QueryBusInterface(const char* ifaceName) final;
-	void* QueryDriverInterface(const char* ifaceName) final;
-
-	status_t InstallListener(DeviceNodeListener* listener) final;
-	status_t UninstallListener(DeviceNodeListener* listener) final;
-
-	status_t RegisterNode(BusDriver* driver, DeviceNode** node) final;
-	status_t UnregisterNode(DeviceNode* node) final;
-
-	status_t RegisterDevFsNode(const char* path, DevFsNode* driver) final;
-	status_t UnregisterDevFsNode(const char* path) final;
-
-	// Internal interface
-	const char* GetName() const;
-	status_t Register(DeviceNodeImpl* parent, BusDriver* driver);
-	status_t Probe();
-	status_t ProbeDriver(const char* moduleName, bool isChild = false);
-	void UnsetDeviceDriver();
-
-private:
-	void SetProbe(bool doProbe);
-
-private:
-	DoublyLinkedListLink<DeviceNodeImpl> fLink;
-	DoublyLinkedListLink<DeviceNodeImpl> fPendingLink;
-
-public:
-	typedef DoublyLinkedList<
-		DeviceNodeImpl, DoublyLinkedListMemberGetLink<DeviceNodeImpl, &DeviceNodeImpl::fLink>
-	> ChildList;
-	typedef DoublyLinkedList<
-		DeviceNodeImpl, DoublyLinkedListMemberGetLink<DeviceNodeImpl, &DeviceNodeImpl::fPendingLink>
-	> PendingList;
-
-	ChildList& ChildNodes() {return fChildNodes;}
-
-private:
-	friend class DeviceManager;
-
-	union State {
-		struct {
-			uint32 multipleDrivers: 1;
-			uint32 registered: 1;
-			uint32 unregistered: 1;
-			uint32 probePending: 1;
-			uint32 probed: 1;
-			uint32 unused: 27;
-		};
-		uint32 val;
-	};
-
-	State fState {};
-	DeviceNodeImpl* fParent {};
-	ChildList fChildNodes;
-
-	BusDriver* fBusDriver {};
-	DeviceDriver* fDeviceDriver {};
-	CStringDeleter fDriverModuleName;
-
-	Vector<DevFsNodeWrapper*> fDevFsNodes;
-};
-
-
-class DeviceManager {
-public:
-	static DeviceManager& Instance() {return sInstance;}
-
-	status_t Init();
-	status_t FileSystemMounted();
-	DeviceNode* GetRootNode() const;
-	void SetRootNode(DeviceNodeImpl* node);
-
-	DeviceNodeImpl::PendingList& PendingNodes() {return fPendingList;}
-	status_t ProcessPendingNodes();
-
-	void DumpTree();
-
-private:
-	void DumpNode(DeviceNodeImpl* node, int32 level);
-
-private:
-	static DeviceManager sInstance;
-
-	DeviceNodeImpl* fRoot {};
-	DeviceNodeImpl::PendingList fPendingList;
-};
 
 DeviceManager DeviceManager::sInstance;
 
@@ -191,7 +81,7 @@ DeviceNodeImpl::GetNextAttr(device_attr** attr) const
 
 
 status_t
-DeviceNodeImpl::FindAttr(const char* name, type_code type, int32 index, const void** value) const
+DeviceNodeImpl::FindAttr(const char* name, type_code type, int32 index, const void** value, size_t* size) const
 {
 	const device_attr* attrs = fBusDriver->Attributes();
 	if (attrs == NULL)
@@ -208,8 +98,44 @@ DeviceNodeImpl::FindAttr(const char* name, type_code type, int32 index, const vo
 			index--;
 			continue;
 		}
-
-		*value = &attrs->value;
+		switch (type) {
+			case B_UINT8_TYPE:
+			case B_UINT16_TYPE:
+			case B_UINT32_TYPE:
+			case B_UINT64_TYPE:
+				*value = &attrs->value;
+				break;
+			case B_STRING_TYPE:
+				*value = attrs->value.string;
+				break;
+			case B_RAW_TYPE:
+				*value = attrs->value.raw.data;
+				break;
+		}
+		if (size != NULL) {
+			switch (type) {
+				case B_UINT8_TYPE:
+					*size = 1;
+					break;
+				case B_UINT16_TYPE:
+					*size = 2;
+					break;
+				case B_UINT32_TYPE:
+					*size = 4;
+					break;
+				case B_UINT64_TYPE:
+					*size = 8;
+					break;
+				case B_STRING_TYPE:
+					*size = strlen(attrs->value.string) + 1;
+					break;
+				case B_RAW_TYPE:
+					*size = attrs->value.raw.length;
+					break;
+				default:
+					*size = 0;
+			}
+		}
 		return B_OK;
 	}
 
@@ -387,7 +313,7 @@ DeviceNodeImpl::Register(DeviceNodeImpl* parent, BusDriver* driver)
 status_t
 DeviceNodeImpl::Probe()
 {
-	// dprintf("%p.DeviceNodeImpl::Probe()\n", this);
+	dprintf("%p.DeviceNodeImpl::Probe(\"%s\")\n", this, GetName());
 
 	if (fState.unregistered)
 		panic("DeviceNodeImpl::Probe() called on unregisteded node");
@@ -395,8 +321,13 @@ DeviceNodeImpl::Probe()
 	SetProbe(false);
 	fState.probed = true;
 
-	DriverRoster::LookupResultArray candidates;
+	LookupResultArray candidates;
 	DriverRoster::Instance().Lookup(this, candidates);
+
+	dprintf("  candidates:\n");
+	for (int32 i = 0; i < candidates.Count(); i++) {
+		dprintf("    %s: %g\n", candidates[i].module, candidates[i].score);
+	}
 
 	for (int32 i = 0; i < candidates.Count(); i++) {
 		const char* candidate = candidates[i].module;
@@ -488,6 +419,8 @@ DeviceManager::Init()
 	dprintf("*                                    *\n");
 	dprintf("**************************************\n");
 	dprintf("\n");
+
+	CHECK_RET(DriverRoster::Instance().Init());
 
 	BReference<DeviceNodeImpl> rootNode(new(std::nothrow) DeviceNodeImpl(), true);
 	if (!rootNode.IsSet())
@@ -587,19 +520,15 @@ device_manager_std_ops(int32 op, ...)
 	switch (op) {
 		case B_MODULE_INIT: {
 			new((void*)&DeviceManager::Instance()) DeviceManager();
+			new((void*)&DriverRoster::Instance()) DriverRoster();
 			DetachableScopeExit deviceManagerDeleter([] {
+				DriverRoster::Instance().~DriverRoster();
 				DeviceManager::Instance().~DeviceManager();
 			});
+
 			CHECK_RET(DeviceManager::Instance().Init());
 
-			new((void*)&DriverRoster::Instance()) DriverRoster();
-			DetachableScopeExit driverRosterDeleter([] {
-				DriverRoster::Instance().~DriverRoster();
-			});
-			CHECK_RET(DriverRoster::Instance().Init());
-
 			deviceManagerDeleter.Detach();
-			driverRosterDeleter.Detach();
 			return B_OK;
 		}
 		case B_MODULE_UNINIT: {

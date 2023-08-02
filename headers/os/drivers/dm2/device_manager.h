@@ -91,7 +91,7 @@ public:
 	virtual status_t FindChildNode(const device_attr* attrs, DeviceNode** node) const = 0;
 
 	virtual status_t GetNextAttr(device_attr** attr) const = 0;
-	virtual status_t FindAttr(const char* name, type_code type, int32 index, const void** value) const = 0;
+	virtual status_t FindAttr(const char* name, type_code type, int32 index, const void** value, size_t* size) const = 0;
 
 	inline status_t FindAttrUint16(const char* name, uint16* outValue, bool recursive = false) const;
 	inline status_t FindAttrUint32(const char* name, uint32* outValue, bool recursive = false) const;
@@ -225,7 +225,7 @@ DeviceNode::FindAttrUint16(const char* name, uint16* outValue, bool recursive) c
 	(void)recursive;
 
 	const void* value {};
-	status_t res = FindAttr(name, B_UINT16_TYPE, 0, &value);
+	status_t res = FindAttr(name, B_UINT16_TYPE, 0, &value, NULL);
 	if (res < B_OK)
 		return res;
 
@@ -241,7 +241,7 @@ DeviceNode::FindAttrUint32(const char* name, uint32* outValue, bool recursive) c
 	(void)recursive;
 
 	const void* value {};
-	status_t res = FindAttr(name, B_UINT32_TYPE, 0, &value);
+	status_t res = FindAttr(name, B_UINT32_TYPE, 0, &value, NULL);
 	if (res < B_OK)
 		return res;
 
@@ -257,7 +257,7 @@ DeviceNode::FindAttrUint64(const char* name, uint64* outValue, bool recursive) c
 	(void)recursive;
 
 	const void* value {};
-	status_t res = FindAttr(name, B_UINT64_TYPE, 0, &value);
+	status_t res = FindAttr(name, B_UINT64_TYPE, 0, &value, NULL);
 	if (res < B_OK)
 		return res;
 
@@ -272,10 +272,10 @@ DeviceNode::FindAttrString(const char* name, const char** outValue, bool recursi
 	(void)recursive;
 
 	const void* value {};
-	status_t res = FindAttr(name, B_STRING_TYPE, 0, &value);
+	status_t res = FindAttr(name, B_STRING_TYPE, 0, &value, NULL);
 	if (res < B_OK)
 		return res;
 
-	*outValue = *(const char**)value;
+	*outValue = (const char*)value;
 	return res;
 }
