@@ -109,40 +109,20 @@ status_t VirtioBlockDriver::Init()
 			| VIRTIO_FEATURE_RING_INDIRECT_DESC,
 		&fFeatures, &get_feature_name);
 
-	status_t status = fVirtioDevice->ReadDeviceConfig(0, &fConfig, sizeof(struct virtio_blk_config));
-	if (status != B_OK)
-		return status;
+	CHECK_RET(fVirtioDevice->ReadDeviceConfig(0, &fConfig, sizeof(struct virtio_blk_config)));
 
 	SetCapacity();
 
 	TRACE("virtio_block: capacity: %" B_PRIu64 ", block_size %" B_PRIu32 "\n",
 		fCapacity, fBlockSize);
 
-	status = fVirtioDevice->AllocQueues(1, &fVirtioQueue);
+	status_t status = fVirtioDevice->AllocQueues(1, &fVirtioQueue);
 	if (status != B_OK) {
 		ERROR("queue allocation failed (%s)\n", strerror(status));
 		return status;
 	}
-	status = fVirtioDevice->SetupInterrupt(ConfigCallback, this);
-
-	if (status == B_OK)
-		status = fVirtioQueue->SetupInterrupt(Callback, this);
-
-	return status;
-}
-
-
-void
-VirtioBlockDriver::Free()
-{
-	delete this;
-}
-
-
-status_t
-VirtioBlockDriver::RegisterChildDevices()
-{
-	CALLED();
+	CHECK_RET(fVirtioDevice->SetupInterrupt(ConfigCallback, this));
+	CHECK_RET(fVirtioQueue->SetupInterrupt(Callback, this));
 
 	static int32 lastId = 0;
 	int32 id = lastId++;
@@ -153,6 +133,13 @@ VirtioBlockDriver::RegisterChildDevices()
 	CHECK_RET(fNode->RegisterDevFsNode(name, &fDevFsNode));
 
 	return B_OK;
+}
+
+
+void
+VirtioBlockDriver::Free()
+{
+	delete this;
 }
 
 

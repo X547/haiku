@@ -65,7 +65,6 @@ public:
 
 	static status_t Probe(DeviceNode* node, DeviceDriver** driver);
 	void Free() final;
-	status_t RegisterChildDevices() final;
 
 	// IOCallback
 	status_t DoIO(IOOperation* operation) final;

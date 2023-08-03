@@ -106,7 +106,6 @@ public:
 
 	static status_t Probe(DeviceNode* node, DeviceDriver** driver);
 	void Free() final;
-	status_t RegisterChildDevices() final;
 
 private:
 	status_t Init();
@@ -403,6 +402,14 @@ VirtioInputDriver::Init()
 		fVirtioQueue->Request(NULL, &pe, pkt);
 	}
 
+	static int32 lastId = 0;
+	int32 id = lastId++;
+
+	char name[64];
+	snprintf(name, sizeof(name), "input/virtio/%" B_PRId32 "/raw", id);
+
+	CHECK_RET(fNode->RegisterDevFsNode(name, &fDevFsNode));
+
 	return B_OK;
 }
 
@@ -416,23 +423,6 @@ VirtioInputDriver::InterruptCallback(void* driverCookie, void* cookie)
 	Packet* pkt;
 	while (drv->fVirtioQueue->Dequeue((void**)&pkt, NULL))
 		drv->fPacketQueue.Write(pkt);
-}
-
-
-status_t
-VirtioInputDriver::RegisterChildDevices()
-{
-	CALLED();
-
-	static int32 lastId = 0;
-	int32 id = lastId++;
-
-	char name[64];
-	snprintf(name, sizeof(name), "input/virtio/%" B_PRId32 "/raw", id);
-
-	CHECK_RET(fNode->RegisterDevFsNode(name, &fDevFsNode));
-
-	return B_OK;
 }
 
 

@@ -7,6 +7,7 @@
 #include "FdtBus.h"
 
 #include <AutoDeleter.h>
+#include <AutoDeleterDM2.h>
 #include <debug.h>
 
 extern "C" {
@@ -124,6 +125,7 @@ FdtBusImpl::Probe(DeviceNode* node, DeviceDriver** outDriver)
 	if (!driver.IsSet())
 		return B_NO_MEMORY;
 
+	CHECK_RET(driver->Init());
 	*outDriver = driver.Detach();
 	return B_OK;
 }
@@ -149,17 +151,17 @@ FdtBusImpl::QueryInterface(const char* name)
 
 
 status_t
-FdtBusImpl::RegisterChildDevices()
+FdtBusImpl::Init()
 {
 	int node = -1, depth = -1;
 	node = fdt_next_node(gFDT, node, &depth);
-	Traverse(node, depth, fNode);
+	CHECK_RET(Traverse(node, depth, fNode));
 
 	return B_OK;
 }
 
 
-void
+status_t
 FdtBusImpl::Traverse(int &node, int &depth, DeviceNode* parentDev)
 {
 	int curDepth = depth;
@@ -168,12 +170,14 @@ FdtBusImpl::Traverse(int &node, int &depth, DeviceNode* parentDev)
 	dprintf("node('%s')\n", fdt_get_name(gFDT, node, NULL));
 #endif
 	DeviceNode* curDev {};
-	RegisterNode(node, parentDev, curDev);
+	CHECK_RET(RegisterNode(node, parentDev, curDev));
+	DeviceNodePutter curDevDeleter(curDev);
 
 	node = fdt_next_node(gFDT, node, &depth);
 	while (node >= 0 && depth == curDepth + 1) {
-		Traverse(node, depth, curDev);
+		CHECK_RET(Traverse(node, depth, curDev));
 	}
+	return B_OK;
 }
 
 

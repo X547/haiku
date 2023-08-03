@@ -367,7 +367,6 @@ DeviceNodeImpl::ProbeDriver(const char* moduleName, bool isChild)
 
 	DeviceDriver* driver {};
 	CHECK_RET(driverModule->probe(this, &driver));
-	CHECK_RET(driver->RegisterChildDevices());
 
 	fDeviceDriver = driver;
 	fDriverModuleName.SetTo(driverModuleName.Detach());

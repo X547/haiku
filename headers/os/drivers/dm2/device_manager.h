@@ -137,7 +137,6 @@ class DeviceDriver {
 public:
 	virtual void Free() {}
 	virtual void* QueryInterface(const char* name) {return NULL;}
-	virtual status_t RegisterChildDevices() {return B_OK;}
 	virtual void DeviceRemoved() {}
 	virtual status_t Suspend(int32 state) {return ENOSYS;}
 	virtual status_t Resume() {return ENOSYS;}

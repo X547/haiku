@@ -26,7 +26,6 @@ public:
 	static status_t Probe(DeviceNode* node, DeviceDriver** driver);
 	void Free() final;
 	void* QueryInterface(const char* name) final;
-	status_t RegisterChildDevices() final;
 
 	// FdtBus
 	DeviceNode* NodeByPhandle(int phandle) final;
@@ -35,7 +34,8 @@ private:
 	DeviceNode* fNode;
 	HashMap<HashKey32<int32>, DeviceNode*> fPhandles;
 
-	void Traverse(int &node, int &depth, DeviceNode* parentDev);
+	status_t Init();
+	status_t Traverse(int &node, int &depth, DeviceNode* parentDev);
 	status_t RegisterNode(int node, DeviceNode* parentDev, DeviceNode*& curDev);
 };
 

@@ -36,7 +36,9 @@ public:
 
 	static status_t Probe(DeviceNode* node, DeviceDriver** driver);
 	void Free() final;
-	status_t RegisterChildDevices() final;
+
+private:
+	status_t Init();
 
 private:
 	DeviceNode* fNode {};
@@ -80,6 +82,7 @@ ZeroDriver::Probe(DeviceNode* node, DeviceDriver** outDriver)
 	if (!driver.IsSet())
 		return B_NO_MEMORY;
 
+	CHECK_RET(driver->Init());
 	*outDriver = driver.Detach();
 	return B_OK;
 }
@@ -93,7 +96,7 @@ ZeroDriver::Free()
 
 
 status_t
-ZeroDriver::RegisterChildDevices()
+ZeroDriver::Init()
 {
 	CHECK_RET(fNode->RegisterDevFsNode("zero", &fDevFsNode));
 
