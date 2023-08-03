@@ -8,6 +8,7 @@
 #include <util/Vector.h>
 
 #include "Utils.h"
+#include "CompatDriverModuleList.h"
 
 
 class DeviceNodeImpl;
@@ -68,6 +69,7 @@ public:
 	> RosterList;
 
 	ChildList& ChildNodes() {return fChildNodes;}
+	CompatDriverModuleList& CompatDriverModules() {return fCompatDriverModules;}
 
 private:
 	friend class DeviceManager;
@@ -87,6 +89,8 @@ private:
 	State fState {};
 	DeviceNodeImpl* fParent {};
 	ChildList fChildNodes;
+
+	CompatDriverModuleList fCompatDriverModules;
 
 	BusDriver* fBusDriver {};
 	DeviceDriver* fDeviceDriver {};

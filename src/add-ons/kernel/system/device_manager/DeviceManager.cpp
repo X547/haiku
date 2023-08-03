@@ -216,6 +216,8 @@ DeviceNodeImpl::UnregisterNode(DeviceNode* nodeIface)
 	fChildNodes.Remove(node);
 	node->fParent = NULL;
 
+	DriverRoster::Instance().UnregisterDeviceNode(node);
+
 	node->fBusDriver->Free();
 	node->fBusDriver = NULL;
 	node->ReleaseReference();
@@ -306,6 +308,8 @@ DeviceNodeImpl::Register(DeviceNodeImpl* parent, BusDriver* driver)
 	driverDeleter.Detach();
 	// dprintf("node \"%s\" registered\n", GetName());
 
+	DriverRoster::Instance().RegisterDeviceNode(this);
+
 	return B_OK;
 }
 
@@ -321,16 +325,8 @@ DeviceNodeImpl::Probe()
 	SetProbe(false);
 	fState.probed = true;
 
-	LookupResultArray candidates;
-	DriverRoster::Instance().Lookup(this, candidates);
-
-	dprintf("  candidates:\n");
-	for (int32 i = 0; i < candidates.Count(); i++) {
-		dprintf("    %s: %g\n", candidates[i].module, candidates[i].score);
-	}
-
-	for (int32 i = 0; i < candidates.Count(); i++) {
-		const char* candidate = candidates[i].module;
+	for (int32 i = 0; i < fCompatDriverModules.Count(); i++) {
+		const char* candidate = fCompatDriverModules.ModuleNameAt(i);
 		status_t res = ProbeDriver(candidate);
 		if (res >= B_OK && !fState.multipleDrivers)
 			return B_OK;

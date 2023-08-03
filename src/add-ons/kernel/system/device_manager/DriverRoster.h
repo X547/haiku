@@ -14,13 +14,6 @@ class DriverModuleInfo;
 class DriverAddonInfo;
 
 
-struct LookupResult {
-	float score;
-	const char* module; /* TODO: string ownership? */
-};
-typedef Vector<LookupResult> LookupResultArray;
-
-
 class DriverCompatInfo {
 private:
 	DoublyLinkedListLink<DriverCompatInfo> fLink;
@@ -38,10 +31,10 @@ public:
 	~DriverCompatInfo();
 	status_t Init(DriverAddonInfo* addonInfo, const KMessage& msg);
 
-	void Match(DeviceNode* node, LookupResultArray& results);
+	void Match(DeviceNode* node, CompatDriverModuleList& results);
 
 private:
-	void Match(DeviceNode* node, MatchContext ctx, LookupResultArray& results);
+	void Match(DeviceNode* node, MatchContext ctx, CompatDriverModuleList& results);
 
 private:
 	DriverModuleInfo* fModuleInfo {}; // owned by DriverAddonInfo
@@ -146,14 +139,12 @@ public:
 	static DriverRoster& Instance() {return sInstance;}
 	status_t Init();
 
-	void Lookup(DeviceNode* node, LookupResultArray& result);
-
 	void RegisterDeviceNode(DeviceNodeImpl* node);
 	void UnregisterDeviceNode(DeviceNodeImpl* node);
 
 private:
-	void LookupFixed(DeviceNode* node, LookupResultArray& result);
 	status_t RegisterDriverAddon(DriverAddonInfo* driverAddon);
+	void UnregisterDriverAddon(DriverAddonInfo* driverAddon);
 
 private:
 	static DriverRoster sInstance;

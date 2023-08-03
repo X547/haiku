@@ -13,4 +13,5 @@ KernelAddon device_manager :
 	CompatInfoData.cpp
 	RootDevice.cpp
 	DevFsNodeWrapper.cpp
+	CompatDriverModuleList.cpp
 ;
