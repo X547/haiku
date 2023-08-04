@@ -14,6 +14,8 @@ protected:
 
 class Ps2Device {
 public:
+	static inline const char ifaceName[] = "bus_managers/ps2/device";
+
 	virtual status_t SetupInterrupt(Ps2InterruptHandler* handler) = 0;
 	virtual status_t Write(uint8 data) = 0;
 	virtual status_t Read(uint8* data) = 0;

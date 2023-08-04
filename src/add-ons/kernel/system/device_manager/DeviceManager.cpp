@@ -279,8 +279,10 @@ DeviceNodeImpl::GetName() const
 status_t
 DeviceNodeImpl::Register(DeviceNodeImpl* parent, BusDriver* driver)
 {
-	if (driver == NULL)
+	if (driver == NULL) {
+		panic("BusDriver passed to RegisterNode can't be NULL");
 		return B_BAD_VALUE;
+	}
 
 	BusDriverDeleter driverDeleter(driver);
 
@@ -319,8 +321,10 @@ DeviceNodeImpl::Probe()
 {
 	dprintf("%p.DeviceNodeImpl::Probe(\"%s\")\n", this, GetName());
 
-	if (fState.unregistered)
-		panic("DeviceNodeImpl::Probe() called on unregisteded node");
+	if (fState.unregistered) {
+		panic("DeviceNodeImpl::Probe() called on unregistered node");
+		return B_ERROR;
+	}
 
 	SetProbe(false);
 	fState.probed = true;
@@ -364,10 +368,18 @@ DeviceNodeImpl::ProbeDriver(const char* moduleName, bool isChild)
 
 	driver_module_info* driverModule {};
 	CHECK_RET(get_module(moduleName, (module_info**)&driverModule));
+	DetachableScopeExit modulePutter([moduleName]() {
+		put_module(moduleName);
+	});
 
 	DeviceDriver* driver {};
 	CHECK_RET(driverModule->probe(this, &driver));
+	if (driver == NULL) {
+		panic("driver_module_info::probe successed, but returned NULL DeviceDriver");
+		return B_ERROR;
+	}
 
+	modulePutter.Detach();
 	fDeviceDriver = driver;
 	fDriverModuleName.SetTo(driverModuleName.Detach());
 
@@ -375,7 +387,8 @@ DeviceNodeImpl::ProbeDriver(const char* moduleName, bool isChild)
 }
 
 
-void DeviceNodeImpl::UnsetDeviceDriver()
+void
+DeviceNodeImpl::UnsetDeviceDriver()
 {
 	if (fDeviceDriver != NULL) {
 		fDeviceDriver->Free();
@@ -456,8 +469,10 @@ DeviceManager::GetRootNode() const
 void
 DeviceManager::SetRootNode(DeviceNodeImpl* node)
 {
-	if (fRoot != NULL)
+	if (fRoot != NULL) {
 		panic("root node is already set");
+		return;
+	}
 
 	node->AcquireReference();
 	fRoot = node;
