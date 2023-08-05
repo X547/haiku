@@ -9,8 +9,8 @@
 
 
 #include <KernelExport.h>
-#include <device_manager.h>
-#include <bus/PCI.h>
+#include <dm2/device_manager.h>
+#include <dm2/bus/PCI.h>
 
 // name of PCI legacy driver endpoint module
 #define PCI_LEGACY_DRIVER_MODULE_NAME "bus_managers/pci/legacy_v1"
@@ -36,8 +36,7 @@ typedef struct pci_root_module_info {
 				uint16 offset, uint8 size, uint32 value);
 } pci_root_module_info;
 
-extern pci_root_module_info gPCIRootModule;
-extern pci_device_module_info gPCIDeviceModule;
+extern driver_module_info gPciBusDriverModule;
 
 
 #ifdef __cplusplus

@@ -8,10 +8,10 @@
 #define __PCI_H__
 
 #include <PCI.h>
+#include <dm2/bus/PCI.h>
 
 #include <VectorMap.h>
 
-#include "pci_controller.h"
 #include "pci_msi.h"
 
 
@@ -50,9 +50,8 @@ struct PCIDev {
 
 struct domain_data {
 	// These two are set in PCI::AddController:
-	pci_controller_module_info *controller;
-	void *				controller_cookie;
-	device_node *		root_node;
+	PciController *		controller;
+	DeviceNode *		root_node;
 
 	// All the rest is set in PCI::InitDomainData
 	int					max_bus_devices;
@@ -74,8 +73,7 @@ public:
 			void			InitBus();
 			status_t	Finalize();
 
-			status_t		AddController(pci_controller_module_info *controller,
-								void *controller_cookie, device_node *root_node);
+			status_t		AddController(PciController *controller, DeviceNode *root_node);
 
 			status_t		LookupRange(uint32 type, phys_addr_t pciAddr,
 								uint8 &domain, pci_resource_range &range, uint8 **mappedAdr = NULL);

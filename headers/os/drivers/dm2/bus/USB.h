@@ -208,7 +208,16 @@ protected:
 
 // !!!
 struct usb_isochronous_data;
+struct usb_request_data;
 struct generic_io_vec;
+
+class UsbStack;
+class UsbBusObject;
+class UsbBusDevice;
+class UsbBusHub;
+class UsbBusPipe;
+class UsbBusControlPipe;
+class UsbBusManager;
 
 
 typedef enum {
@@ -237,23 +246,13 @@ typedef enum {
 #define USB_OBJECT_DEVICE				0x00000040
 #define USB_OBJECT_HUB					0x00000080
 
-class UsbStack {
-public:
-	virtual status_t	AllocateChunk(void **logicalAddress,
-							phys_addr_t *physicalAddress,
-							size_t size) = 0;
-	virtual status_t	FreeChunk(void *logicalAddress,
-							phys_addr_t physicalAddress,
-							size_t size) = 0;
-
-protected:
-	~UsbStack() = default;
-};
-
 class UsbBusObject {
 public:
 	virtual	uint32 Type() const = 0;
 	virtual UsbBusObject* Parent() const = 0;
+
+	virtual UsbBusManager* GetBusManager() const = 0;
+	virtual UsbStack* GetStack() const = 0;
 
 protected:
 	~UsbBusObject() = default;
@@ -262,17 +261,23 @@ protected:
 
 class UsbBusDevice: public UsbBusObject {
 public:
+	virtual void Free() = 0;
+
 	virtual usb_speed Speed() const = 0;
 
 	virtual void SetControllerCookie(void *cookie) = 0;
 	virtual void* ControllerCookie() const = 0;
+
+	virtual DeviceNode* RegisterNode(DeviceNode* parent = NULL) = 0;
+
+	virtual uint8 HubPort() const = 0;
 
 protected:
 	~UsbBusDevice() = default;
 };
 
 
-class UsbBusHub {
+class UsbBusHub: public UsbBusDevice {
 public:
 
 protected:
@@ -283,6 +288,8 @@ protected:
 class UsbBusPipe: public UsbBusObject {
 public:
 	enum pipeDirection { In, Out, Default };
+
+	virtual void Free() = 0;
 
 	virtual int8 DeviceAddress() const = 0;
 	virtual usb_speed Speed() const = 0;
@@ -301,20 +308,45 @@ protected:
 };
 
 
+class UsbBusControlPipe: public UsbBusPipe {
+public:
+	virtual status_t SendRequest(uint8 requestType,
+				uint8 request, uint16 value,
+				uint16 index, uint16 length,
+				void *data, size_t dataLength,
+				size_t *actualLength) = 0;
+
+protected:
+	~UsbBusControlPipe() = default;
+};
+
+
 class UsbBusTransfer {
 public:
 	virtual void Free() = 0;
 	virtual UsbBusPipe* TransferPipe() const = 0;
 	virtual size_t FragmentLength() const = 0;
 	virtual usb_isochronous_data* IsochronousData() const = 0;
-	virtual size_t DataLength() const = 0;
+	virtual status_t InitKernelAccess() = 0;
 	virtual status_t PrepareKernelAccess() = 0;
 	virtual generic_io_vec*	Vector() = 0;
 	virtual size_t VectorCount() const = 0;
+
+	virtual void SetData(uint8 *buffer, size_t length) = 0;
+	virtual uint8* Data() const = 0;
+	virtual size_t DataLength() const = 0;
+
 	virtual bool IsPhysical() const = 0;
 	virtual bool IsFragmented() const = 0;
 	virtual void AdvanceByFragment(size_t actualLength) = 0;
 	virtual void Finished(uint32 status, size_t actualLength) = 0;
+
+	virtual void SetCallback(usb_callback_func callback, void *cookie) = 0;
+	virtual usb_callback_func Callback() const = 0;
+	virtual void* CallbackCookie() const = 0;
+
+	virtual void SetRequestData(usb_request_data *data) = 0;
+	virtual usb_request_data* RequestData() const = 0;
 
 protected:
 	~UsbBusTransfer() = default;
@@ -327,6 +359,8 @@ public:
 	virtual void Unlock() = 0;
 
 	virtual UsbBusObject* RootObject() const = 0;
+	virtual UsbBusHub* GetRootHub() const = 0;
+	virtual void SetRootHub(UsbBusHub *hub) = 0;
 
 protected:
 	~UsbBusManager() = default;
@@ -358,4 +392,46 @@ public:
 
 protected:
 	~UsbHostController() = default;
+};
+
+
+class UsbStack {
+public:
+	virtual int32		IndexOfBusManager(UsbBusManager* bus) = 0;
+
+	virtual status_t	AllocateChunk(void **logicalAddress,
+							phys_addr_t *physicalAddress,
+							size_t size) = 0;
+	virtual status_t	FreeChunk(void *logicalAddress,
+							phys_addr_t physicalAddress,
+							size_t size) = 0;
+	virtual area_id		AllocateArea(void **logicalAddress,
+							phys_addr_t *physicalAddress,
+							size_t size, const char *name) = 0;
+	// new methods
+	virtual status_t	CreateDevice(UsbBusDevice*& outDevice, UsbBusObject* parent, int8 hubAddress,
+							uint8 hubPort,
+							usb_device_descriptor& desc,
+							int8 deviceAddress,
+							usb_speed speed, bool isRootHub,
+							void *controllerCookie = NULL) = 0;
+
+	virtual status_t	CreateHub(UsbBusHub*& outHub, UsbBusObject* parent, int8 hubAddress,
+							uint8 hubPort,
+							usb_device_descriptor& desc,
+							int8 deviceAddress,
+							usb_speed speed, bool isRootHub,
+							void* controllerCookie = NULL) = 0;
+
+	virtual status_t	CreateControlPipe(UsbBusControlPipe*& outPipe, UsbBusObject* parent,
+							int8 deviceAddress,
+							uint8 endpointAddress,
+							usb_speed speed,
+							UsbBusPipe::pipeDirection direction,
+							size_t maxPacketSize,
+							uint8 interval,
+							int8 hubAddress, uint8 hubPort) = 0;
+
+protected:
+	~UsbStack() = default;
 };

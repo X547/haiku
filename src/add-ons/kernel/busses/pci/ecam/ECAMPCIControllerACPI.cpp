@@ -17,29 +17,15 @@
 status_t
 ECAMPCIControllerACPI::ReadResourceInfo()
 {
-	DeviceNodePutter<&gDeviceManager> parent(gDeviceManager->get_parent_node(fNode));
-	return ReadResourceInfo(parent.Get());
-}
-
-
-status_t
-ECAMPCIControllerACPI::ReadResourceInfo(device_node* parent)
-{
 	dprintf("initialize PCI controller from ACPI\n");
 
 	acpi_module_info* acpiModule;
-	acpi_device_module_info* acpiDeviceModule;
-	acpi_device acpiDevice;
-
 	CHECK_RET(get_module(B_ACPI_MODULE_NAME, (module_info**)&acpiModule));
 
 	acpi_mcfg *mcfg;
 	CHECK_RET(acpiModule->get_table(ACPI_MCFG_SIGNATURE, 0, (void**)&mcfg));
 
-	CHECK_RET(gDeviceManager->get_driver(parent, (driver_module_info**)&acpiDeviceModule,
-		(void**)&acpiDevice));
-
-	acpi_status acpi_res = acpiDeviceModule->walk_resources(acpiDevice, (char *)"_CRS",
+	acpi_status acpi_res = fAcpiDevice->WalkResources((char *)"_CRS",
 		AcpiCrsScanCallback, this);
 
 	if (acpi_res != 0)

@@ -120,6 +120,8 @@ status_t
 pci_reserve_device(uchar virtualBus, uchar device, uchar function,
 	const char *driverName, void *nodeCookie)
 {
+	return ENOSYS;
+#if 0
 	status_t status;
 	uint8 bus;
 	uint8 domain;
@@ -199,6 +201,7 @@ err1:
 	TRACE(("pci_reserve_device for driver %s failed: %s\n", driverName,
 		strerror(status)));
 	return status;
+#endif
 }
 
 
@@ -206,6 +209,8 @@ status_t
 pci_unreserve_device(uchar virtualBus, uchar device, uchar function,
 	const char *driverName, void *nodeCookie)
 {
+	return ENOSYS;
+#if 0
 	status_t status;
 	uint8 bus;
 	uint8 domain;
@@ -283,6 +288,7 @@ err1:
 	TRACE(("pci_unreserve_device for driver %s failed: %s\n", driverName,
 		strerror(status)));
 	return status;
+#endif
 }
 
 
@@ -613,12 +619,10 @@ PCI::Finalize()
 	// domain is second domain is added, but should be called only once.
 
 	for (uint8 i = 0; i < fDomainCount; i++) {
-		pci_controller_module_info* controller = fDomainData[i].controller;
-		if (controller->finalize != NULL) {
-			status_t res = controller->finalize(fDomainData[i].controller_cookie);
-			if (res < B_OK)
-				return res;
-		}
+		PciController* controller = fDomainData[i].controller;
+		status_t res = controller->Finalize();
+		if (res < B_OK)
+			return res;
 	}
 
 	return B_OK;
@@ -694,14 +698,12 @@ PCI::ResolveVirtualBus(uint8 virtualBus, uint8 *domain, uint8 *bus)
 
 
 status_t
-PCI::AddController(pci_controller_module_info *controller, void *controller_cookie,
-	device_node *root_node)
+PCI::AddController(PciController *controller, DeviceNode *root_node)
 {
 	if (fDomainCount == MAX_PCI_DOMAINS)
 		return B_ERROR;
 
 	fDomainData[fDomainCount].controller = controller;
-	fDomainData[fDomainCount].controller_cookie = controller_cookie;
 	fDomainData[fDomainCount].root_node = root_node;
 
 	// initialized later to avoid call back into controller at this point
@@ -754,15 +756,14 @@ PCI::InitDomainData()
 		int32 count;
 		status_t status;
 
-		pci_controller_module_info *ctrlModule = fDomainData[i].controller;
-		void *ctrl = fDomainData[i].controller_cookie;
+		PciController *ctrl = fDomainData[i].controller;
 
-		status = ctrlModule->get_max_bus_devices(ctrl, &count);
+		status = ctrl->GetMaxBusDevices(&count);
 		fDomainData[i].max_bus_devices = (status == B_OK) ? count : 0;
 
 		memset(fDomainData[i].ranges, 0, sizeof(fDomainData[i].ranges));
 		pci_resource_range range;
-		for (uint32 j = 0; ctrlModule->get_range(ctrl, j, &range) >= B_OK; j++) {
+		for (uint32 j = 0; ctrl->GetRange(j, &range) >= B_OK; j++) {
 			if (range.type < kPciRangeEnd && range.size > 0)
 				fDomainData[i].ranges[range.type] = range;
 		}
@@ -1638,8 +1639,7 @@ PCI::ReadConfig(uint8 domain, uint8 bus, uint8 device, uint8 function,
 		return B_ERROR;
 	}
 
-	return (*info->controller->read_pci_config)(info->controller_cookie, bus,
-		device, function, offset, size, value);
+	return info->controller->ReadPciConfig(bus, device, function, offset, size, value);
 }
 
 
@@ -1686,8 +1686,7 @@ PCI::WriteConfig(uint8 domain, uint8 bus, uint8 device, uint8 function,
 		return B_ERROR;
 	}
 
-	return (*info->controller->write_pci_config)(info->controller_cookie, bus,
-		device, function, offset, size, value);
+	return info->controller->WritePciConfig(bus, device, function, offset, size, value);
 }
 
 

@@ -1,6 +1,15 @@
 #include "CompatDriverModuleList.h"
 
+#include <new>
+
 #include "DriverRoster.h"
+
+
+const char*
+CompatDriverModuleList::CompatInfo::GetName() const
+{
+	return fModule->GetName();
+}
 
 
 int32
@@ -13,28 +22,56 @@ CompatDriverModuleList::Count()
 const char*
 CompatDriverModuleList::ModuleNameAt(int32 index)
 {
-	return fModules[index]->GetName();
+	for (CompatInfo *info = fModuleScores.LeftMost(); info != NULL; info = fModuleScores.Next(info)) {
+		if (index == 0)
+			return info->GetName();
+
+		index--;
+	}
+
+	return NULL;
 }
 
 
 void
 CompatDriverModuleList::Clear()
 {
-	fModules.MakeEmpty();
+	fModules.Clear();
 }
 
 
 void
 CompatDriverModuleList::Insert(DriverModuleInfo* module, float score)
 {
-	// TODO: sort by score
+	CompatInfo *oldInfo = fModules.Find(module->GetName());
+	if (oldInfo != NULL) {
+		if (score > oldInfo->GetScore()) {
+			fModuleScores.Remove(oldInfo);
+			oldInfo->SetScore(score);
+			fModuleScores.Insert(oldInfo);
+		}
+		return;
+	}
 
-	fModules.Add(module);
+	ObjectDeleter<CompatInfo> info(new(std::nothrow) CompatInfo(module, score));
+	if (!info.IsSet()) {
+		dprintf("[!] CompatDriverModuleList::Insert(): out of memory\n");
+		return;
+	}
+
+	fModules.Insert(info.Get());
+	fModuleScores.Insert(info.Get());
+	info.Detach();
 }
 
 
 void
 CompatDriverModuleList::Remove(DriverModuleInfo* module)
 {
-	fModules.Remove(module);
+	ObjectDeleter<CompatInfo> info(fModules.Find(module->GetName()));
+	if (!info.IsSet())
+		return;
+
+	fModules.Remove(info.Get());
+	fModuleScores.Remove(info.Get());
 }

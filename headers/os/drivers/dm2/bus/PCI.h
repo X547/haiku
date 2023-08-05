@@ -68,6 +68,8 @@ typedef struct pci_resource_range {
 
 class PciController {
 public:
+	static inline const char ifaceName[] = "busses/pci/device";
+
 	virtual status_t ReadPciConfig(uint8 bus, uint8 device, uint8 function, uint16 offset, uint8 size, uint32* value) = 0;
 	virtual status_t WritePciConfig(uint8 bus, uint8 device, uint8 function, uint16 offset, uint8 size, uint32 value) = 0;
 

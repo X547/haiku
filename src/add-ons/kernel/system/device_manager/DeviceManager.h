@@ -49,8 +49,11 @@ public:
 	status_t ProbeDriver(const char* moduleName, bool isChild = false);
 	void UnsetDeviceDriver();
 
+	void InsertCompatDriverModule(DriverModuleInfo* module, float score);
+	void RemoveCompatDriverModule(DriverModuleInfo* module);
+
 private:
-	void SetProbe(bool doProbe);
+	void SetProbePending(bool doProbe);
 
 private:
 	DoublyLinkedListLink<DeviceNodeImpl> fLink;
@@ -69,7 +72,6 @@ public:
 	> RosterList;
 
 	ChildList& ChildNodes() {return fChildNodes;}
-	CompatDriverModuleList& CompatDriverModules() {return fCompatDriverModules;}
 
 private:
 	friend class DeviceManager;

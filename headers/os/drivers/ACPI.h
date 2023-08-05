@@ -7,6 +7,7 @@
 
 
 #include <KernelExport.h>
+#include <module.h>
 
 
 typedef struct acpi_module_info acpi_module_info;

@@ -60,10 +60,11 @@ typedef struct {
 struct device_manager_info {
 	module_info info;
 
-	// TODO: Maybe not need if node monitor can gracefully handle FS mount.
-	status_t (*file_system_mounted)();
 
 	DeviceNode *(*get_root_node)();
+	status_t (*probe_fence)();
+
+	void (*dump_tree)();
 };
 
 

@@ -14,24 +14,17 @@
 status_t
 ECAMPCIControllerFDT::ReadResourceInfo()
 {
-	DeviceNodePutter<&gDeviceManager> fdtNode(gDeviceManager->get_parent_node(fNode));
-
-	fdt_device_module_info *fdtModule;
-	fdt_device* fdtDev;
-	CHECK_RET(gDeviceManager->get_driver(fdtNode.Get(),
-		(driver_module_info**)&fdtModule, (void**)&fdtDev));
-
 	const void* prop;
 	int propLen;
 
-	prop = fdtModule->get_prop(fdtDev, "bus-range", &propLen);
+	prop = fFdtDevice->GetProp("bus-range", &propLen);
 	if (prop != NULL && propLen == 8) {
 		uint32 busBeg = B_BENDIAN_TO_HOST_INT32(*((uint32*)prop + 0));
 		uint32 busEnd = B_BENDIAN_TO_HOST_INT32(*((uint32*)prop + 1));
 		dprintf("  bus-range: %" B_PRIu32 " - %" B_PRIu32 "\n", busBeg, busEnd);
 	}
 
-	prop = fdtModule->get_prop(fdtDev, "ranges", &propLen);
+	prop = fFdtDevice->GetProp("ranges", &propLen);
 	if (prop == NULL) {
 		dprintf("  \"ranges\" property not found");
 		return B_ERROR;
@@ -81,7 +74,7 @@ ECAMPCIControllerFDT::ReadResourceInfo()
 	}
 
 	uint64 regs = 0;
-	if (!fdtModule->get_reg(fdtDev, 0, &regs, &fRegsLen))
+	if (!fFdtDevice->GetReg(0, &regs, &fRegsLen))
 		return B_ERROR;
 
 	fRegsArea.SetTo(map_physical_memory("PCI Config MMIO", regs, fRegsLen, B_ANY_KERNEL_ADDRESS,
@@ -97,16 +90,12 @@ ECAMPCIControllerFDT::Finalize()
 {
 	dprintf("finalize PCI controller from FDT\n");
 
-	DeviceNodePutter<&gDeviceManager> parent(gDeviceManager->get_parent_node(fNode));
-
-	fdt_device_module_info* parentModule;
-	fdt_device* parentDev;
-
-	CHECK_RET(gDeviceManager->get_driver(parent.Get(), (driver_module_info**)&parentModule,
-		(void**)&parentDev));
-
-	struct fdt_interrupt_map* interruptMap = parentModule->get_interrupt_map(parentDev);
-	parentModule->print_interrupt_map(interruptMap);
+	FdtInterruptMap* interruptMap = fFdtDevice->GetInterruptMap();
+	if (interruptMap == NULL) {
+		dprintf("[!] ECAMPCIControllerFDT::Finalize(): no interrupt map\n");
+		return B_OK;
+	}
+	interruptMap->Print();
 
 	for (int bus = 0; bus < 8; bus++) {
 		// TODO: Proper multiple domain handling. (domain, bus) pair should be converted to virtual
@@ -117,10 +106,10 @@ ECAMPCIControllerFDT::Finalize()
 				uint32 headerType = gPCI->read_pci_config(bus, device, 0, PCI_header_type, 1);
 				if ((headerType & 0x80) != 0) {
 					for (int function = 0; function < 8; function++) {
-						FinalizeInterrupts(parentModule, interruptMap, bus, device, function);
+						FinalizeInterrupts(interruptMap, bus, device, function);
 					}
 				} else {
-					FinalizeInterrupts(parentModule, interruptMap, bus, device, 0);
+					FinalizeInterrupts(interruptMap, bus, device, 0);
 				}
 			}
 		}
@@ -131,8 +120,7 @@ ECAMPCIControllerFDT::Finalize()
 
 
 void
-ECAMPCIControllerFDT::FinalizeInterrupts(fdt_device_module_info* fdtModule,
-	struct fdt_interrupt_map* interruptMap, int bus, int device, int function)
+ECAMPCIControllerFDT::FinalizeInterrupts(FdtInterruptMap* interruptMap, int bus, int device, int function)
 {
 	uint32 childAddr = ((bus & 0xff) << 16) | ((device & 0x1f) << 11) | ((function & 0x07) << 8);
 	uint32 interruptPin = gPCI->read_pci_config(bus, device, function, PCI_interrupt_pin, 1);
@@ -142,7 +130,7 @@ ECAMPCIControllerFDT::FinalizeInterrupts(fdt_device_module_info* fdtModule,
 		return;
 	}
 
-	uint32 irq = fdtModule->lookup_interrupt_map(interruptMap, childAddr, interruptPin);
+	uint32 irq = interruptMap->Lookup(childAddr, interruptPin);
 	if (irq == 0xffffffff) {
 		dprintf("no interrupt mapping for childAddr: (%d:%d:%d), childIrq: %d)\n",
 			bus, device, function, interruptPin);

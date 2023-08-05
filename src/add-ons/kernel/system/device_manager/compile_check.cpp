@@ -4,6 +4,7 @@
 #include <dm2/bus/ACPI.h>
 #include <dm2/bus/ATA.h>
 #include <dm2/bus/FDT.h>
+#include <dm2/bus/HID.h>
 #include <dm2/bus/I2C.h>
 #include <dm2/bus/MMC.h>
 #include <dm2/bus/PCI.h>

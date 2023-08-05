@@ -31,10 +31,10 @@ public:
 	~DriverCompatInfo();
 	status_t Init(DriverAddonInfo* addonInfo, const KMessage& msg);
 
-	void Match(DeviceNode* node, CompatDriverModuleList& results);
+	void Match(DeviceNodeImpl* node);
 
 private:
-	void Match(DeviceNode* node, MatchContext ctx, CompatDriverModuleList& results);
+	void Match(DeviceNodeImpl* node, MatchContext ctx);
 
 private:
 	DriverModuleInfo* fModuleInfo {}; // owned by DriverAddonInfo

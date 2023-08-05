@@ -10,6 +10,46 @@
 DriverRoster DriverRoster::sInstance;
 
 
+static type_code
+NormalizeTypeCode(type_code typeCode) {
+	switch (typeCode) {
+		case B_INT8_TYPE:
+			return B_UINT8_TYPE;
+		case B_INT16_TYPE:
+			return B_UINT16_TYPE;
+		case B_INT32_TYPE:
+			return B_UINT32_TYPE;
+		case B_INT64_TYPE:
+			return B_UINT64_TYPE;
+		default:
+			return typeCode;
+	}
+}
+
+
+static bool
+MatchAttr(DeviceNode* node, const KMessageField& field)
+{
+	type_code typeCode = NormalizeTypeCode(field.TypeCode());
+
+	int32 i = 0;
+	const void* value;
+	size_t valueSize;
+	while (node->FindAttr(field.Name(), typeCode, i++, &value, &valueSize) >= B_OK) {
+		for (int32 j = 0; j < field.CountElements(); j++) {
+			int32 fldValueSize;
+			const void* fldValue = field.ElementAt(j, &fldValueSize);
+			if (valueSize == (size_t)fldValueSize && memcmp(value, fldValue, valueSize) == 0)
+				return true;
+		}
+	}
+
+	return false;
+}
+
+
+// #pragma mark - DriverAddonInfo
+
 DriverCompatInfo::~DriverCompatInfo()
 {
 	while (!fChildInfos.IsEmpty()) {
@@ -59,46 +99,8 @@ DriverCompatInfo::Init(DriverAddonInfo* addonInfo, const KMessage& msg)
 }
 
 
-static type_code
-NormalizeTypeCode(type_code typeCode) {
-	switch (typeCode) {
-		case B_INT8_TYPE:
-			return B_UINT8_TYPE;
-		case B_INT16_TYPE:
-			return B_UINT16_TYPE;
-		case B_INT32_TYPE:
-			return B_UINT32_TYPE;
-		case B_INT64_TYPE:
-			return B_UINT64_TYPE;
-		default:
-			return typeCode;
-	}
-}
-
-
-static bool
-MatchAttr(DeviceNode* node, const KMessageField& field)
-{
-	type_code typeCode = NormalizeTypeCode(field.TypeCode());
-
-	int32 i = 0;
-	const void* value;
-	size_t valueSize;
-	while (node->FindAttr(field.Name(), typeCode, i++, &value, &valueSize) >= B_OK) {
-		for (int32 j = 0; j < field.CountElements(); j++) {
-			int32 fldValueSize;
-			const void* fldValue = field.ElementAt(j, &fldValueSize);
-			if (valueSize == (size_t)fldValueSize && memcmp(value, fldValue, valueSize) == 0)
-				return true;
-		}
-	}
-
-	return false;
-}
-
-
 void
-DriverCompatInfo::Match(DeviceNode* node, MatchContext ctx, CompatDriverModuleList& results)
+DriverCompatInfo::Match(DeviceNodeImpl* node, MatchContext ctx)
 {
 	if (fModuleInfo != NULL)
 		ctx.moduleInfo = fModuleInfo;
@@ -113,7 +115,7 @@ DriverCompatInfo::Match(DeviceNode* node, MatchContext ctx, CompatDriverModuleLi
 	}
 
 	if (fChildInfos.IsEmpty()) {
-		results.Insert(ctx.moduleInfo, ctx.score);
+		node->InsertCompatDriverModule(ctx.moduleInfo, ctx.score);
 		return;
 	}
 
@@ -122,18 +124,20 @@ DriverCompatInfo::Match(DeviceNode* node, MatchContext ctx, CompatDriverModuleLi
 		childInfo != NULL;
 		childInfo = fChildInfos.GetNext(childInfo)
 	) {
-		childInfo->Match(node, ctx, results);
+		childInfo->Match(node, ctx);
 	}
 }
 
 
 void
-DriverCompatInfo::Match(DeviceNode* node, CompatDriverModuleList& results)
+DriverCompatInfo::Match(DeviceNodeImpl* node)
 {
 	MatchContext ctx;
-	Match(node, ctx, results);
+	Match(node, ctx);
 }
 
+
+// #pragma mark - DriverModuleInfo
 
 status_t
 DriverModuleInfo::Init(DriverAddonInfo* addon, const char* name)
@@ -146,6 +150,8 @@ DriverModuleInfo::Init(DriverAddonInfo* addon, const char* name)
 	return B_OK;
 }
 
+
+// #pragma mark - DriverAddonInfo
 
 DriverAddonInfo::~DriverAddonInfo()
 {
@@ -196,6 +202,8 @@ DriverAddonInfo::AddModule(const char* name, DriverModuleInfo*& outModule)
 }
 
 
+// #pragma mark - DriverRoster
+
 status_t
 DriverRoster::Init()
 {
@@ -236,7 +244,7 @@ DriverRoster::RegisterDriverAddon(DriverAddonInfo* driverAddonPtr)
 		node != NULL;
 		node = fDeviceNodes.GetNext(node)
 	) {
-		driverAddonPtr->fCompatInfo.Match(node, node->CompatDriverModules());
+		driverAddonPtr->fCompatInfo.Match(node);
 	}
 
 	return B_OK;
@@ -258,7 +266,7 @@ DriverRoster::UnregisterDriverAddon(DriverAddonInfo* driverAddonPtr)
 			module != NULL;
 			module = driverAddon->fModules.Next(module)
 		) {
-			node->CompatDriverModules().Remove(module);
+			node->RemoveCompatDriverModule(module);
 		}
 	}
 
@@ -276,14 +284,13 @@ DriverRoster::RegisterDeviceNode(DeviceNodeImpl* node)
 		driverAddon != NULL;
 		driverAddon = fDriverAddons.Next(driverAddon)
 	) {
-		driverAddon->fCompatInfo.Match(node, node->CompatDriverModules());
+		driverAddon->fCompatInfo.Match(node);
 	}
 }
 
 
 void DriverRoster::UnregisterDeviceNode(DeviceNodeImpl* node)
 {
-	node->CompatDriverModules().Clear();
 	fDeviceNodes.Remove(node);
 }
 

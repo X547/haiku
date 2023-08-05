@@ -108,7 +108,7 @@ typedef struct xhci_device {
 
 class XHCI: public UsbHostController {
 public:
-	virtual ~XHCI() = default;
+	virtual 		~XHCI();
 
 	void			SetBusManager(UsbBusManager* busManager) final;
 
@@ -130,6 +130,9 @@ public:
 	status_t		NotifyPipeChange(UsbBusPipe* pipe, usb_change change) final;
 
 	const char*		TypeName() const final { return "xhci"; }
+
+			status_t			SubmitControlRequest(UsbBusTransfer *transfer);
+			status_t			SubmitNormalRequest(UsbBusTransfer *transfer);
 
 			// Port operations for root hub
 			uint8				PortCount() const { return fPortCount; }
@@ -278,7 +281,7 @@ private:
 			bool				fStopThreads;
 
 			// Root Hub
-			XHCIRootHub*		fRootHub;
+			UsbBusHub*			fRootHub;
 
 			// Port management
 			uint8				fPortCount;
@@ -310,4 +313,15 @@ private:
 			uint8				fCmdCcs;
 
 			uint32				fExitLatMax;
+};
+
+
+
+
+class XHCIRootHub {
+public:
+static	status_t					Create(UsbBusHub*& outHub, UsbBusObject *rootObject,
+										int8 deviceAddress);
+
+static	status_t					ProcessTransfer(XHCI *xhci, UsbBusTransfer *transfer);
 };

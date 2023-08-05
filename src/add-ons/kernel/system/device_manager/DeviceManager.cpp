@@ -149,6 +149,8 @@ DeviceNodeImpl::QueryBusInterface(const char* ifaceName)
 	if (fBusDriver == NULL)
 		return NULL;
 
+	Probe();
+
 	return fBusDriver->QueryInterface(ifaceName);
 }
 
@@ -209,13 +211,14 @@ DeviceNodeImpl::UnregisterNode(DeviceNode* nodeIface)
 	if (node->fParent != this)
 		return B_ERROR; // TODO: better error code?
 
-	node->SetProbe(false);
+	node->SetProbePending(false);
 	node->fState.registered = false;
 	node->fState.unregistered = true;
 
 	fChildNodes.Remove(node);
 	node->fParent = NULL;
 
+	fCompatDriverModules.Clear();
 	DriverRoster::Instance().UnregisterDeviceNode(node);
 
 	node->fBusDriver->Free();
@@ -306,7 +309,7 @@ DeviceNodeImpl::Register(DeviceNodeImpl* parent, BusDriver* driver)
 		fState.multipleDrivers = true;
 
 	fState.registered = true;
-	SetProbe(true);
+	SetProbePending(true);
 	driverDeleter.Detach();
 	// dprintf("node \"%s\" registered\n", GetName());
 
@@ -326,8 +329,16 @@ DeviceNodeImpl::Probe()
 		return B_ERROR;
 	}
 
-	SetProbe(false);
+	SetProbePending(false);
+	if (fState.probed)
+		return B_OK;
 	fState.probed = true;
+
+	const char* fixedChildModule;
+	if (FindAttrString(B_DEVICE_FIXED_CHILD, &fixedChildModule) >= B_OK) {
+		ProbeDriver(fixedChildModule);
+		return B_OK;
+	}
 
 	for (int32 i = 0; i < fCompatDriverModules.Count(); i++) {
 		const char* candidate = fCompatDriverModules.ModuleNameAt(i);
@@ -400,7 +411,21 @@ DeviceNodeImpl::UnsetDeviceDriver()
 
 
 void
-DeviceNodeImpl::SetProbe(bool doProbe)
+DeviceNodeImpl::InsertCompatDriverModule(DriverModuleInfo* module, float score)
+{
+	fCompatDriverModules.Insert(module, score);
+}
+
+
+void
+DeviceNodeImpl::RemoveCompatDriverModule(DriverModuleInfo* module)
+{
+	fCompatDriverModules.Remove(module);
+}
+
+
+void
+DeviceNodeImpl::SetProbePending(bool doProbe)
 {
 	// dprintf("%p.DeviceNodeImpl::SetProbe(%d)\n", this, doProbe);
 
@@ -439,10 +464,6 @@ DeviceManager::Init()
 		return B_NO_MEMORY;
 
 	CHECK_RET(rootNode->Register(NULL, rootBusDriver.Detach()));
-
-	ProcessPendingNodes();
-
-	DeviceManager::DumpTree();
 
 	return B_OK;
 }
@@ -486,6 +507,8 @@ DeviceManager::ProcessPendingNodes()
 		DeviceNodeImpl* node = fPendingList.First();
 		node->Probe();
 	}
+
+	DumpTree();
 
 	return B_OK;
 }
@@ -558,8 +581,9 @@ static device_manager_info sDeviceManagerModule = {
 		.name = B_DEVICE_MANAGER_MODULE_NAME,
 		.std_ops = device_manager_std_ops,
 	},
-	.file_system_mounted = []() {return DeviceManager::Instance().FileSystemMounted();},
 	.get_root_node = []() {return DeviceManager::Instance().GetRootNode();},
+	.probe_fence = []() {return DeviceManager::Instance().ProcessPendingNodes();},
+	.dump_tree = []() {return DeviceManager::Instance().DumpTree();},
 };
 
 

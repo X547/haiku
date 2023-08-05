@@ -138,7 +138,6 @@ static struct pci_module_info sOldPCIModule = {
 
 
 module_dependency module_dependencies[] = {
-	{B_DEVICE_MANAGER_MODULE_NAME, (module_info **)&gDeviceManager},
 	{}
 };
 
@@ -153,8 +152,7 @@ driver_module_info gPCILegacyDriverModule = {
 
 module_info *modules[] = {
 	(module_info *)&sOldPCIModule,
-	(module_info *)&gPCIRootModule,
-	(module_info *)&gPCIDeviceModule,
+	(module_info *)&gPciBusDriverModule,
 	(module_info *)&gPCILegacyDriverModule,
 	NULL
 };
