@@ -1,3 +1,0 @@
-SubDir HAIKU_TOP src add-ons kernel rtc ;
-
-SubInclude HAIKU_TOP src add-ons kernel rtc goldfish ;
