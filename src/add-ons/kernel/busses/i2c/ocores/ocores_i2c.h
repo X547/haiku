@@ -1,5 +1,5 @@
 /*
- * Copyright 2022, Haiku, Inc.
+ * Copyright 2022-2023, Haiku, Inc.
  * Distributed under the terms of the MIT License.
  */
 
@@ -7,17 +7,20 @@
 #ifndef _OCORES_I2C_H_
 #define _OCORES_I2C_H_
 
-#include <i2c.h>
 #include <ByteOrder.h>
 #include <assert.h>
 
+#include <dm2/bus/I2C.h>
+#include <dm2/bus/FDT.h>
+
+#include <AutoDeleter.h>
 #include <AutoDeleterOS.h>
 #include <lock.h>
 
-
 #define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
-#define OCORES_I2C_DRIVER_MODULE_NAME "busses/i2c/ocores_i2c/driver_v1"
+
+#define OCORES_I2C_DRIVER_MODULE_NAME "busses/i2c/ocores_i2c/driver/v1"
 
 
 static_assert(B_HOST_IS_LENDIAN);
@@ -81,24 +84,23 @@ struct OcoresI2cRegs {
 };
 
 
-class OcoresI2c {
+class OcoresI2cDriver: public DeviceDriver, public I2cBus {
 public:
-	static float SupportsDevice(device_node* parent);
-	static status_t RegisterDevice(device_node* parent);
-	static status_t InitDriver(device_node* node, OcoresI2c*& outDriver);
-	void UninitDriver();
+	OcoresI2cDriver(DeviceNode* node): fNode(node) {}
+	virtual ~OcoresI2cDriver() = default;
 
-	void SetI2cBus(i2c_bus bus);
-	status_t ExecCommand(i2c_op op,
-		i2c_addr slaveAddress, const uint8 *cmdBuffer, size_t cmdLength,
-		uint8* dataBuffer, size_t dataLength);
-	status_t AcquireBus();
-	void ReleaseBus();
+	// DeviceDriver
+	static status_t Probe(DeviceNode* node, DeviceDriver** driver);
+	void Free() final {delete this;}
+	void* QueryInterface(const char* name) final;
+
+	// I2cBus
+	status_t ExecCommand(i2c_op op, i2c_addr slaveAddress, const uint8 *cmdBuffer, size_t cmdLength, uint8* dataBuffer, size_t dataLength) final;
+	status_t AcquireBus() final;
+	void ReleaseBus() final;
 
 private:
-	inline status_t InitDriverInt(device_node* node);
-	static int32 InterruptReceived(void* arg);
-	inline int32 InterruptReceivedInt();
+	status_t Init();
 
 	status_t WaitCompletion();
 	status_t WriteByte(OcoresI2cRegsCommand cmd, uint8 val);
@@ -106,19 +108,15 @@ private:
 	status_t WriteAddress(i2c_addr address, bool isRead);
 
 private:
-	struct mutex fLock = MUTEX_INITIALIZER("Opencores i2c");
+	DeviceNode* fNode;
+	FdtDevice* fFdtDevice {};
 
 	AreaDeleter fRegsArea;
 	volatile OcoresI2cRegs* fRegs{};
 	long fIrqVector = -1;
 
-	device_node* fNode{};
-	i2c_bus fBus{};
+	struct mutex fLock = MUTEX_INITIALIZER("Opencores i2c");
 };
 
-
-extern device_manager_info* gDeviceManager;
-extern i2c_for_controller_interface* gI2c;
-extern i2c_sim_interface gOcoresI2cDriver;
 
 #endif	// _OCORES_I2C_H_

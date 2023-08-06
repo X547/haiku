@@ -9,6 +9,7 @@
 #include "DriverRoster.h"
 #include "RootDevice.h"
 #include "DevFsNodeWrapper.h"
+#include "UserlandInterface.h"
 
 
 // TODO: locking
@@ -55,15 +56,35 @@ DeviceNodeImpl::GetParent() const
 
 
 status_t
-DeviceNodeImpl::GetNextChildNode(const device_attr* attrs, DeviceNode** node) const
+DeviceNodeImpl::GetNextChildNode(const device_attr* attrs, DeviceNode** outNode) const
 {
-	// TODO: implement
-	panic("DeviceNodeImpl::GetNextChildNode: not implemented");
-	return ENOSYS;
+	// TODO: implement attribute filtering
+	if (attrs != NULL)
+		return B_BAD_VALUE;
+
+	if (*outNode == NULL) {
+		if (fChildNodes.IsEmpty())
+			return B_ENTRY_NOT_FOUND;
+
+		DeviceNodeImpl* node = fChildNodes.First();
+		node->AcquireReference();
+		*outNode = node;
+		return B_OK;
+	}
+
+	DeviceNodeImpl* node = static_cast<DeviceNodeImpl*>(*outNode);
+	DeviceNodeImpl* nextNode = fChildNodes.GetNext(node);
+	*outNode = nextNode;
+	if (nextNode == NULL)
+		return B_ENTRY_NOT_FOUND;
+
+	nextNode->AcquireReference();
+	return B_OK;
 }
 
+
 status_t
-DeviceNodeImpl::FindChildNode(const device_attr* attrs, DeviceNode** node) const
+DeviceNodeImpl::FindChildNode(const device_attr* attrs, DeviceNode** outNode) const
 {
 	// TODO: implement
 	panic("DeviceNodeImpl::FindChildNode: not implemented");
@@ -72,11 +93,28 @@ DeviceNodeImpl::FindChildNode(const device_attr* attrs, DeviceNode** node) const
 
 
 status_t
-DeviceNodeImpl::GetNextAttr(device_attr** attr) const
+DeviceNodeImpl::GetNextAttr(const device_attr** attr) const
 {
-	// TODO: implement
-	panic("DeviceNodeImpl::GetNextAttr: not implemented");
-	return ENOSYS;
+	const device_attr* attrs = fBusDriver->Attributes();
+	if (attrs == NULL)
+		return B_ENTRY_NOT_FOUND;
+
+	if (*attr == NULL) {
+		if (attrs[0].name == NULL)
+			return B_ENTRY_NOT_FOUND;
+
+		*attr = attrs;
+		return B_OK;
+	}
+
+	if ((*attr)->name == NULL)
+		return B_ENTRY_NOT_FOUND;
+
+	(*attr)++;
+	if ((*attr)->name == NULL)
+		return B_ENTRY_NOT_FOUND;
+
+	return B_OK;
 }
 
 
@@ -203,7 +241,7 @@ status_t
 DeviceNodeImpl::UnregisterNode(DeviceNode* nodeIface)
 {
 	DeviceNodeImpl* node = static_cast<DeviceNodeImpl*>(nodeIface);
-	// dprintf("DeviceNodeImpl::UnregisterNode(%p)\n", node);
+	//dprintf("%p.DeviceNodeImpl::UnregisterNode(\"%s\")\n", node, node->GetName());
 
 	if (!node->fState.registered)
 		return B_ERROR; // TODO: better error code?
@@ -218,7 +256,7 @@ DeviceNodeImpl::UnregisterNode(DeviceNode* nodeIface)
 	fChildNodes.Remove(node);
 	node->fParent = NULL;
 
-	fCompatDriverModules.Clear();
+	node->fCompatDriverModules.Clear();
 	DriverRoster::Instance().UnregisterDeviceNode(node);
 
 	node->fBusDriver->Free();
@@ -336,13 +374,18 @@ DeviceNodeImpl::Probe()
 
 	const char* fixedChildModule;
 	if (FindAttrString(B_DEVICE_FIXED_CHILD, &fixedChildModule) >= B_OK) {
-		ProbeDriver(fixedChildModule);
+		if (ProbeDriver(fixedChildModule) < B_OK) {
+			dprintf("[!] failed to probe driver \"%s\" for node \"%s\"\n", fixedChildModule, GetName());
+		}
 		return B_OK;
 	}
 
 	for (int32 i = 0; i < fCompatDriverModules.Count(); i++) {
 		const char* candidate = fCompatDriverModules.ModuleNameAt(i);
 		status_t res = ProbeDriver(candidate);
+		if (res < B_OK) {
+			dprintf("[!] failed to probe driver \"%s\" for node \"%s\"\n", candidate, GetName());
+		}
 		if (res >= B_OK && !fState.multipleDrivers)
 			return B_OK;
 	}
@@ -508,8 +551,6 @@ DeviceManager::ProcessPendingNodes()
 		node->Probe();
 	}
 
-	DumpTree();
-
 	return B_OK;
 }
 
@@ -561,10 +602,14 @@ device_manager_std_ops(int32 op, ...)
 
 			CHECK_RET(DeviceManager::Instance().Init());
 
+			device_manager_install_userland_iface();
+
 			deviceManagerDeleter.Detach();
 			return B_OK;
 		}
 		case B_MODULE_UNINIT: {
+			device_manager_uninstall_userland_iface();
+
 			DriverRoster::Instance().~DriverRoster();
 			DeviceManager::Instance().~DeviceManager();
 			return B_OK;

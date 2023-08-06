@@ -38,7 +38,7 @@ class I2cBus {
 public:
 	static inline const char ifaceName[] = "bus_managers/i2c/bus";
 
-	virtual status_t ExecCommand(i2c_op op, i2c_addr slaveAddress, const void *cmdBuffer, size_t cmdLength, void* dataBuffer, size_t dataLength) = 0;
+	virtual status_t ExecCommand(i2c_op op, i2c_addr slaveAddress, const uint8 *cmdBuffer, size_t cmdLength, uint8* dataBuffer, size_t dataLength) = 0;
 	virtual status_t AcquireBus() = 0;
 	virtual void ReleaseBus() = 0;
 

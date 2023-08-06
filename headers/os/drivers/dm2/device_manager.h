@@ -91,7 +91,7 @@ public:
 	virtual status_t GetNextChildNode(const device_attr* attrs, DeviceNode** node) const = 0;
 	virtual status_t FindChildNode(const device_attr* attrs, DeviceNode** node) const = 0;
 
-	virtual status_t GetNextAttr(device_attr** attr) const = 0;
+	virtual status_t GetNextAttr(const device_attr** attr) const = 0;
 	virtual status_t FindAttr(const char* name, type_code type, int32 index, const void** value, size_t* size) const = 0;
 
 	inline status_t FindAttrUint16(const char* name, uint16* outValue, bool recursive = false) const;

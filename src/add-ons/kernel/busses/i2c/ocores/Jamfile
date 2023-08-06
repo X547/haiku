@@ -7,5 +7,4 @@ UsePrivateKernelHeaders ;
 
 KernelAddon ocores_i2c :
 	ocores_i2c.cpp
-	kernel_interface.cpp
 ;

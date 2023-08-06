@@ -12,7 +12,7 @@
 #include <stdio.h>
 #include <unistd.h>
 
-#include <drivers/device_manager.h>
+#include <drivers/dm2/device_manager.h>
 #include <device_manager_defs.h>
 #include <generic_syscall_defs.h>
 #include <string.h>
@@ -45,7 +45,7 @@ get_root(device_node_cookie *cookie)
 }
 
 
-status_t 
+status_t
 get_child(device_node_cookie *device)
 {
 	return _kern_generic_syscall(DEVICE_MANAGER_SYSCALLS, DM_GET_CHILD, device,
@@ -53,7 +53,7 @@ get_child(device_node_cookie *device)
 }
 
 
-status_t 
+status_t
 get_next_child(device_node_cookie *device)
 {
 	return _kern_generic_syscall(DEVICE_MANAGER_SYSCALLS, DM_GET_NEXT_CHILD,
@@ -61,7 +61,7 @@ get_next_child(device_node_cookie *device)
 }
 
 
-status_t 
+status_t
 dm_get_next_attr(struct device_attr_info *attr)
 {
 	return _kern_generic_syscall(DEVICE_MANAGER_SYSCALLS,

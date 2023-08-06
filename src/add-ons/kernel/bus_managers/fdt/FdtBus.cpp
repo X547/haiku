@@ -153,6 +153,14 @@ FdtBusImpl::QueryInterface(const char* name)
 status_t
 FdtBusImpl::Init()
 {
+	size_t size = fdt_totalsize(gFDT);
+	void* newFDT = malloc(size);
+	if (newFDT == NULL)
+		return B_NO_MEMORY;
+
+	memcpy(newFDT, gFDT, size);
+	gFDT = newFDT;
+
 	int node = -1, depth = -1;
 	node = fdt_next_node(gFDT, node, &depth);
 	CHECK_RET(Traverse(node, depth, fNode));

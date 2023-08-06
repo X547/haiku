@@ -76,7 +76,13 @@ private:
 
 			inline int Compare(const Value* a, const Value* b) const
 			{
-				return Compare(a->fScore, b);
+				if (a->fScore < b->fScore)
+					return 1;
+
+				if (a->fScore > b->fScore)
+					return -1;
+
+				return strcmp(a->GetName(), b->GetName());
 			}
 		};
 

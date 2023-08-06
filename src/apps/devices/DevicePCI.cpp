@@ -17,6 +17,8 @@
 #undef B_TRANSLATION_CONTEXT
 #define B_TRANSLATION_CONTEXT "DevicePCI"
 
+#include <dm2/bus/PCI.h>
+
 extern "C" {
 #include "dm_wrapper.h"
 #include "pcihdr.h"
@@ -56,24 +58,24 @@ void
 DevicePCI::InitFromAttributes()
 {
 	// Process the attributes
-	fClassBaseId = atoi(fAttributeMap[B_DEVICE_TYPE].String());
-	fClassSubId = atoi(fAttributeMap[B_DEVICE_SUB_TYPE].String());
-	fClassApiId = atoi(fAttributeMap[B_DEVICE_INTERFACE].String());
-	fVendorId = atoi(fAttributeMap[B_DEVICE_VENDOR_ID].String());
-	fDeviceId = atoi(fAttributeMap[B_DEVICE_ID].String());
+	fClassBaseId = atoi(fAttributeMap[B_PCI_DEVICE_TYPE].String());
+	fClassSubId = atoi(fAttributeMap[B_PCI_DEVICE_SUB_TYPE].String());
+	fClassApiId = atoi(fAttributeMap[B_PCI_DEVICE_INTERFACE].String());
+	fVendorId = atoi(fAttributeMap[B_PCI_DEVICE_VENDOR_ID].String());
+	fDeviceId = atoi(fAttributeMap[B_PCI_DEVICE_ID].String());
 
 	// Looks better in Hex, so rewrite
-	fAttributeMap[B_DEVICE_TYPE] = ToHex(fClassBaseId);
-	fAttributeMap[B_DEVICE_SUB_TYPE] = ToHex(fClassSubId);
-	fAttributeMap[B_DEVICE_INTERFACE] = ToHex(fClassApiId);
-	fAttributeMap[B_DEVICE_VENDOR_ID] = ToHex(fVendorId);
-	fAttributeMap[B_DEVICE_ID] = ToHex(fDeviceId);
+	fAttributeMap[B_PCI_DEVICE_TYPE] = ToHex(fClassBaseId);
+	fAttributeMap[B_PCI_DEVICE_SUB_TYPE] = ToHex(fClassSubId);
+	fAttributeMap[B_PCI_DEVICE_INTERFACE] = ToHex(fClassApiId);
+	fAttributeMap[B_PCI_DEVICE_VENDOR_ID] = ToHex(fVendorId);
+	fAttributeMap[B_PCI_DEVICE_ID] = ToHex(fDeviceId);
 
-	// Fetch ClassInfo	
+	// Fetch ClassInfo
 	char classInfo[128];
 	get_class_info(fClassBaseId, fClassSubId, fClassApiId, classInfo,
 		sizeof(classInfo));
-	
+
 	// Fetch ManufacturerName
 	BString ManufacturerName;
 	const char *venShort;
@@ -86,7 +88,7 @@ DevicePCI::InitFromAttributes()
 	} else {
 		ManufacturerName << (venShort ? venShort : venFull);
 	}
-	
+
 	// Fetch DeviceName
 	BString DeviceName;
 	const char *devShort;
@@ -100,7 +102,7 @@ DevicePCI::InitFromAttributes()
 	} else {
 		DeviceName << (devShort ? devShort : devFull);
 	}
-	
+
 	SetAttribute(B_TRANSLATE("Device name"), DeviceName);
 	SetAttribute(B_TRANSLATE("Manufacturer"), ManufacturerName);
 #if 0

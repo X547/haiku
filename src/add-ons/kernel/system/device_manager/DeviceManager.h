@@ -27,7 +27,7 @@ public:
 	status_t GetNextChildNode(const device_attr* attrs, DeviceNode** node) const final;
 	status_t FindChildNode(const device_attr* attrs, DeviceNode** node) const final;
 
-	status_t GetNextAttr(device_attr** attr) const final;
+	status_t GetNextAttr(const device_attr** attr) const final;
 	status_t FindAttr(const char* name, type_code type, int32 index, const void** value, size_t* size) const final;
 
 	void* QueryBusInterface(const char* ifaceName) final;

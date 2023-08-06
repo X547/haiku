@@ -1,0 +1,4 @@
+SubDir HAIKU_TOP src add-ons kernel busses hid ;
+
+SubInclude HAIKU_TOP src add-ons kernel busses hid i2c ;
+SubInclude HAIKU_TOP src add-ons kernel busses hid usb ;

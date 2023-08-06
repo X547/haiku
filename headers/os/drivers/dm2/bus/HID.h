@@ -23,7 +23,7 @@
 
 class HidDeviceCallback {
 public:
-	virtual void InputAvailable(uint8 reportId) = 0;
+	virtual void InputAvailable() = 0;
 
 protected:
 	~HidDeviceCallback() = default;
@@ -36,14 +36,16 @@ public:
 
 	virtual void SetCallback(HidDeviceCallback* callback) = 0;
 	virtual status_t Reset() = 0;
-	virtual status_t ReadReport(uint8 reportType, uint8 reportId, uint32 size, uint8 *data) = 0;
-	virtual status_t WriteReport(uint8 reportType, uint8 reportId, uint32 size, const uint8* data) = 0;
+	virtual status_t Read(uint32 size, uint8* data) = 0;
+	virtual status_t Write(uint32 size, const uint8* data) = 0;
+	virtual status_t GetReport(uint8 reportType, uint8 reportId, uint32 size, uint8* data) = 0;
+	virtual status_t SetReport(uint8 reportType, uint8 reportId, uint32 size, const uint8* data) = 0;
 	// idle time in milliseconds
 	virtual status_t GetIdle(uint8 reportId, uint16* idle) = 0;
 	virtual status_t SetIdle(uint8 reportId, uint16 idle) = 0;
 	virtual status_t GetProtocol(uint16* protocol) = 0;
 	virtual status_t SetProtocol(uint16 protocol) = 0;
-	virtual status_t SetPower(uint16 power) = 0;
+	virtual status_t SetPower(uint8 power) = 0;
 
 protected:
 	~HidDevice() = default;

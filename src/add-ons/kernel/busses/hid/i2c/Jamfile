@@ -1,0 +1,11 @@
+SubDir HAIKU_TOP src add-ons kernel busses hid i2c ;
+
+SubDirC++Flags -fno-rtti ;
+
+UsePrivateKernelHeaders ;
+
+SubDirHdrs $(HAIKU_TOP) src system kernel arch generic ;
+
+KernelAddon i2c_hid :
+	i2c_hid.cpp
+;
