@@ -9,14 +9,33 @@
 #include <syscalls.h>
 
 
+extern "C" {
+	status_t set_shutdown_hook(status_t (*shutdown)(bool reboot));
+}
+
+
+static status_t (*sShutdownHook)(bool reboot);
+
+
+status_t
+set_shutdown_hook(status_t (*shutdown)(bool reboot))
+{
+	if (sShutdownHook != NULL && shutdown != NULL)
+		return B_ERROR;
+
+	sShutdownHook = shutdown;
+	return B_OK;
+}
+
+
 status_t
 system_shutdown(bool reboot)
 {
 	int32 cookie = 0;
 	team_info info;
-	
+
 	gKernelShutdown = true;
-	
+
 	// Now shutdown all system services!
 	// TODO: Once we are sure we can shutdown the system on all hardware
 	// checking reboot may not be necessary anymore.
@@ -27,8 +46,11 @@ system_shutdown(bool reboot)
 			kill_team(info.team);
 		}
 	}
-	
+
 	sync();
+
+	if (sShutdownHook != NULL)
+		sShutdownHook(reboot);
 
 	return arch_cpu_shutdown(reboot);
 }

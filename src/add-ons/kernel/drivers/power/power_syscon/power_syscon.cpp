@@ -10,6 +10,11 @@
 #include <AutoDeleter.h>
 #include <AutoDeleterDM2.h>
 
+extern "C" {
+	status_t set_shutdown_hook(status_t (*shutdown)(bool reboot));
+}
+
+
 #define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
 
@@ -20,7 +25,7 @@
 class PowerSysconDriver: public DeviceDriver {
 public:
 	PowerSysconDriver(DeviceNode* node, bool isReboot): fNode(node), fIsReboot(isReboot) {}
-	virtual ~PowerSysconDriver() = default;
+	virtual ~PowerSysconDriver();
 
 	// DeviceDriver
 	static status_t Probe(DeviceNode* node, bool isReboot, DeviceDriver** driver);
@@ -31,6 +36,8 @@ public:
 private:
 	status_t Init();
 	status_t Call();
+
+	static status_t Shutdown(bool reboot);
 
 private:
 	DeviceNode* fNode;
@@ -43,7 +50,31 @@ private:
 	uint32 fMask = 0xffffffff;
 
 	bool fIsReboot;
+	bool fHookInstalled = false;
 };
+
+
+static int32 sDriverCount;
+static PowerSysconDriver* sPoweroffDriver;
+static PowerSysconDriver* sRebootDriver;
+
+
+PowerSysconDriver::~PowerSysconDriver()
+{
+	int32 oldCount;
+	if (fIsReboot && sRebootDriver == this) {
+		sRebootDriver = NULL;
+		oldCount = atomic_add(&sDriverCount, -1);
+	}
+	else if (!fIsReboot && sPoweroffDriver == this) {
+		sPoweroffDriver = NULL;
+		oldCount = atomic_add(&sDriverCount, -1);
+	} else {
+		return;
+	}
+	if (oldCount == 1)
+		set_shutdown_hook(NULL);
+}
 
 
 status_t
@@ -76,8 +107,8 @@ PowerSysconDriver::ProbeReboot(DeviceNode* node, DeviceDriver** outDriver)
 status_t
 PowerSysconDriver::Init()
 {
-	dprintf("PowerSysconDriver::Init()\n");
-	dprintf("  fIsReboot: %d\n", fIsReboot);
+	// dprintf("PowerSysconDriver::Init()\n");
+	// dprintf("  fIsReboot: %d\n", fIsReboot);
 
 	fFdtDevice = fNode->QueryBusInterface<FdtDevice>();
 
@@ -87,19 +118,19 @@ PowerSysconDriver::Init()
 	if (prop == NULL || propLen != 4)
 		return B_ERROR;
 	uint32 regmapPhandle = B_BENDIAN_TO_HOST_INT32(*(const uint32*)prop);
-	dprintf("  regmapPhandle: %" B_PRIu32 "\n", regmapPhandle);
+	// dprintf("  regmapPhandle: %" B_PRIu32 "\n", regmapPhandle);
 
 	prop = fFdtDevice->GetProp("offset", &propLen);
 	if (prop == NULL || propLen != 4)
 		return B_ERROR;
 	fOffset = B_BENDIAN_TO_HOST_INT32(*(const uint32*)prop);
-	dprintf("  fOffset: %" B_PRIu32 "\n", fOffset);
+	// dprintf("  fOffset: %" B_PRIu32 "\n", fOffset);
 
 	prop = fFdtDevice->GetProp("value", &propLen);
 	if (prop == NULL || propLen != 4)
 		return B_ERROR;
 	fValue = B_BENDIAN_TO_HOST_INT32(*(const uint32*)prop);
-	dprintf("  fValue: %" B_PRIu32 "\n", fValue);
+	// dprintf("  fValue: %" B_PRIu32 "\n", fValue);
 
 	prop = fFdtDevice->GetProp("mask", &propLen);
 	if (prop != NULL) {
@@ -107,19 +138,31 @@ PowerSysconDriver::Init()
 			return B_ERROR;
 
 		fMask = B_BENDIAN_TO_HOST_INT32(*(const uint32*)prop);
-		dprintf("  fMask: %" B_PRIu32 "\n", fMask);
+		// dprintf("  fMask: %" B_PRIu32 "\n", fMask);
 	}
 
 	DeviceNodePutter fdtBusNode(fFdtDevice->GetBus());
 	FdtBus* fdtBus = fdtBusNode->QueryDriverInterface<FdtBus>();
-	dprintf("  fdtBus: %p\n", fdtBus);
+	// dprintf("  fdtBus: %p\n", fdtBus);
 
 	fSysconNode.SetTo(fdtBus->NodeByPhandle(regmapPhandle));
-	dprintf("  fSysconNode: %p\n", fSysconNode.Get());
+	// dprintf("  fSysconNode: %p\n", fSysconNode.Get());
 	fSysconDevice = fSysconNode->QueryDriverInterface<SysconDevice>();
-	dprintf("  fSysconDevice: %p\n", fSysconDevice);
+	// dprintf("  fSysconDevice: %p\n", fSysconDevice);
 
-	// TODO: register kernel interface
+	int32 oldCount;
+	if (fIsReboot && sRebootDriver == NULL) {
+		sRebootDriver = this;
+		oldCount = atomic_add(&sDriverCount, 1);
+	} else if (!fIsReboot && sPoweroffDriver == NULL) {
+		sPoweroffDriver = this;
+		oldCount = atomic_add(&sDriverCount, 1);
+	} else {
+		return B_ERROR;
+	}
+
+	if (oldCount == 0)
+		set_shutdown_hook(PowerSysconDriver::Shutdown);
 
 	return B_OK;
 }
@@ -129,7 +172,19 @@ status_t
 PowerSysconDriver::Call()
 {
 	CHECK_RET(fSysconDevice->Write4(fOffset, fMask, fValue));
-	return B_OK;
+	return B_ERROR;
+}
+
+
+status_t
+PowerSysconDriver::Shutdown(bool reboot)
+{
+	if (reboot && sRebootDriver != NULL) {
+		return sRebootDriver->Call();
+	} else if (!reboot && sPoweroffDriver != NULL) {
+		return sPoweroffDriver->Call();
+	}
+	return B_ERROR;
 }
 
 
