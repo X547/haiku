@@ -1,8 +1,11 @@
 SubDir HAIKU_TOP src add-ons kernel drivers graphics ati ;
 
+SubDirC++Flags -fno-rtti -fvisibility=hidden ;
+
 UsePrivateHeaders [ FDirName graphics ati ] ;
 UsePrivateHeaders [ FDirName graphics common ] ;
 UsePrivateHeaders graphics kernel ;
+UsePrivateKernelHeaders ;
 
 KernelAddon ati :
 	driver.cpp

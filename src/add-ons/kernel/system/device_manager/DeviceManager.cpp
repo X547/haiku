@@ -187,14 +187,14 @@ DeviceNodeImpl::QueryBusInterface(const char* ifaceName)
 	if (fBusDriver == NULL)
 		return NULL;
 
-	Probe();
-
 	return fBusDriver->QueryInterface(ifaceName);
 }
 
 void*
 DeviceNodeImpl::QueryDriverInterface(const char* ifaceName)
 {
+	Probe();
+
 	if (fDeviceDriver == NULL)
 		return NULL;
 
@@ -360,8 +360,6 @@ DeviceNodeImpl::Register(DeviceNodeImpl* parent, BusDriver* driver)
 status_t
 DeviceNodeImpl::Probe()
 {
-	dprintf("%p.DeviceNodeImpl::Probe(\"%s\")\n", this, GetName());
-
 	if (fState.unregistered) {
 		panic("DeviceNodeImpl::Probe() called on unregistered node");
 		return B_ERROR;
@@ -371,6 +369,8 @@ DeviceNodeImpl::Probe()
 	if (fState.probed)
 		return B_OK;
 	fState.probed = true;
+
+	dprintf("%p.DeviceNodeImpl::Probe(\"%s\")\n", this, GetName());
 
 	const char* fixedChildModule;
 	if (FindAttrString(B_DEVICE_FIXED_CHILD, &fixedChildModule) >= B_OK) {

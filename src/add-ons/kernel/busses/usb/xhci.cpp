@@ -491,7 +491,7 @@ XHCI::Start()
 status_t
 XHCI::Stop()
 {
-	return ENOSYS;
+	return B_OK;
 }
 
 

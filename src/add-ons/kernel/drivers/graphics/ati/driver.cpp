@@ -6,14 +6,23 @@
 	Gerald Zajac
 */
 
-#include <KernelExport.h>
-#include <PCI.h>
-#include <drivers/bios.h>
-#include <malloc.h>
 #include <stdio.h>
 #include <string.h>
+#include <new>
+
+#include <KernelExport.h>
+
+#include <dm2/bus/PCI.h>
+#include <drivers/bios.h>
+
 #include <graphic_driver.h>
 #include <boot_item.h>
+
+#include <kernel.h>
+#include <lock.h>
+#include <util/AutoLock.h>
+#include <AutoDeleter.h>
+#include <AutoDeleterOS.h>
 
 #include "DriverInterface.h"
 
@@ -27,9 +36,12 @@
 #endif
 
 
-#define ATI_ACCELERANT_NAME    "ati.accelerant"
+#define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
-#define ROUND_TO_PAGE_SIZE(x) (((x) + (B_PAGE_SIZE) - 1) & ~((B_PAGE_SIZE) - 1))
+
+#define ATT_DRIVER_MODULE_NAME "drivers/graphics/ati/driver/v1"
+
+#define ATI_ACCELERANT_NAME    "ati.accelerant"
 
 #define VESA_MODES_BOOT_INFO "vesa_modes/v1"
 
@@ -40,14 +52,15 @@
 #define M64_BIOS_SIZE		0x10000		// 64KB
 #define R128_BIOS_SIZE		0x10000		// 64KB
 
-int32 api_version = B_CUR_DRIVER_API_VERSION;	// revision of driver API used
-
 #define VENDOR_ID 0x1002	// ATI vendor ID
 
 // Mach64 register definitions.
 #define M64_CLOCK_INTERNAL	4
 #define M64_CONFIG_CHIP_ID	0x0CE0		// offset in register area
 #define M64_CFG_CHIP_TYPE	0x0000FFFF
+
+
+class AtiDriver;
 
 
 struct ChipInfo {
@@ -69,6 +82,8 @@ static char sRage128_Pro_Ultra[] = "RAGE 128 PRO Ultra";
 // This table maps a PCI device ID to a chip type identifier and the chip name.
 // The table is split into two groups of chips, the Mach64 and Rage128 chips,
 // with each group ordered by the chip ID.
+
+//TODO: move this to driver compat info KMessage
 
 static const ChipInfo chipTable[] = {
 	{ 0x4742, MACH64_264GTPRO,		"3D RAGE PRO, AGP"		},		// GB
@@ -153,62 +168,144 @@ static const ChipInfo chipTable[] = {
 };
 
 
-struct DeviceInfo {
-	uint32			openCount;		// count of how many times device has been opened
-	int32			flags;
-	area_id 		sharedArea;		// area shared between driver and all accelerants
-	SharedInfo* 	sharedInfo;		// pointer to shared info area memory
-	vuint8*	 		regs;			// pointer to memory mapped registers
-	const ChipInfo*	pChipInfo;		// info about the selected chip
-	pci_info		pciInfo;		// copy of pci info for this device
-	char			name[B_OS_NAME_LENGTH]; // name of device
+class AtiDevFsNodeHandle: public DevFsNodeHandle {
+public:
+	AtiDevFsNodeHandle(AtiDriver& driver): fDriver(driver) {}
+	virtual ~AtiDevFsNodeHandle() = default;
+
+	void Free() final {delete this;}
+	status_t Close() final;
+	status_t Control(uint32 op, void *buffer, size_t length) final;
+
+public:
+	uint32 fCookie {};
+
+private:
+	AtiDriver& fDriver;
 };
 
 
-static Benaphore		gLock;
-static DeviceInfo		gDeviceInfo[MAX_DEVICES];
-static char*			gDeviceNames[MAX_DEVICES + 1];
-static pci_module_info*	gPCI;
+class AtiDevFsNode: public DevFsNode {
+public:
+	AtiDevFsNode(AtiDriver& driver): fDriver(driver) {}
+	virtual ~AtiDevFsNode() = default;
 
+	Capabilities GetCapabilities() const final;
+	status_t Open(const char* path, int openMode, DevFsNodeHandle **outHandle) final;
 
-// Prototypes for device hook functions.
-
-static status_t device_open(const char* name, uint32 flags, void** cookie);
-static status_t device_close(void* dev);
-static status_t device_free(void* dev);
-static status_t device_read(void* dev, off_t pos, void* buf, size_t* len);
-static status_t device_write(void* dev, off_t pos, const void* buf, size_t* len);
-static status_t device_ioctl(void* dev, uint32 msg, void* buf, size_t len);
-
-static device_hooks gDeviceHooks =
-{
-	device_open,
-	device_close,
-	device_free,
-	device_ioctl,
-	device_read,
-	device_write,
-	NULL,
-	NULL,
-	NULL,
-	NULL
+private:
+	AtiDriver& fDriver;
 };
 
 
+class AtiDriver: public DeviceDriver {
+public:
+	AtiDriver(DeviceNode* node): fNode(node), fDevFsNode(*this) {}
+	virtual ~AtiDriver();
 
-static inline uint32
-GetPCI(pci_info& info, uint8 offset, uint8 size)
+	// DeviceDriver
+	static status_t Probe(DeviceNode* node, DeviceDriver** driver);
+	void Free() final {delete this;}
+
+private:
+	bool InterruptIsVBI();
+	void ClearVBI();
+	void EnableVBI();
+	void DisableVBI();
+
+	status_t Mach64_GetBiosParameters(uint8& clockType);
+	status_t Rage128_GetBiosParameters();
+
+	status_t Init();
+	status_t MapDevice();
+	void UnmapDevice();
+	static int32 InterruptHandler(void* data);
+	inline int32 InterruptHandlerInt();
+	void InitInterruptHandler();
+	status_t InitDevice();
+
+private:
+	friend class AtiDevFsNodeHandle;
+	friend class AtiDevFsNode;
+
+	recursive_lock	fLock = RECURSIVE_LOCK_INITIALIZER("ATI driver lock");
+
+	DeviceNode*		fNode;
+	PciDevice* 		fPciDevice {};
+	AtiDevFsNode	fDevFsNode;
+
+	uint32			fOpenCount {};				// count of how many times device has been opened
+	int32			fFlags {};
+	area_id 		fSharedArea = -1;			// area shared between driver and all accelerants
+	SharedInfo* 	fSharedInfo {};				// pointer to shared info area memory
+	vuint8*	 		fRegs {};					// pointer to memory mapped registers
+	const ChipInfo*	fPChipInfo {};				// info about the selected chip
+	pci_info		fPciInfo {};				// copy of pci info for this device
+	char			fName[B_OS_NAME_LENGTH] {};	// name of device
+};
+
+
+// #pragma mark - AtiDriver
+
+AtiDriver::~AtiDriver()
 {
-	return gPCI->read_pci_config(info.bus, info.device, info.function, offset,
-		size);
 }
 
 
-static inline void
-SetPCI(pci_info& info, uint8 offset, uint8 size, uint32 value)
+status_t
+AtiDriver::Probe(DeviceNode* node, DeviceDriver** outDriver)
 {
-	gPCI->write_pci_config(info.bus, info.device, info.function, offset, size,
-		value);
+	ObjectDeleter<AtiDriver> driver(new(std::nothrow) AtiDriver(node));
+	if (!driver.IsSet())
+		return B_NO_MEMORY;
+
+	CHECK_RET(driver->Init());
+	*outDriver = driver.Detach();
+	return B_OK;
+}
+
+
+status_t
+AtiDriver::Init()
+{
+	fPciDevice = fNode->QueryBusInterface<PciDevice>();
+	fPciDevice->GetPciInfo(&fPciInfo);
+
+	if (fPciInfo.vendor_id != VENDOR_ID)
+		return B_ERROR;
+
+	// Search the table of supported devices to find a chip/device that
+	// matches device ID of the current PCI device.
+
+	const ChipInfo* pDevice = chipTable;
+
+	while (pDevice->chipID != 0) {	// end of table?
+		if (pDevice->chipID == fPciInfo.device_id) {
+			// Matching device/chip found.  If chip is 264VT, reject it
+			// if its version is zero since the mode can not be set on
+			// that chip.
+
+			if (pDevice->chipType == MACH64_264VT
+					&& (fPciInfo.revision & 0x7) == 0)
+				break;
+
+			fPChipInfo = pDevice;		// matching device/chip found
+			break;
+		}
+
+		pDevice++;
+	}
+
+	if (fPChipInfo == NULL)
+		return B_ERROR;
+
+	sprintf(fName, "graphics/" DEVICE_FORMAT,
+		fPciInfo.vendor_id, fPciInfo.device_id,
+		fPciInfo.bus, fPciInfo.device, fPciInfo.function);
+
+	CHECK_RET(fNode->RegisterDevFsNode(fName, &fDevFsNode));
+
+	return B_OK;
 }
 
 
@@ -216,29 +313,28 @@ SetPCI(pci_info& info, uint8 offset, uint8 size, uint32 value)
 // not know the commands to handle these operations;  thus, these functions
 // currently do nothing.
 
-static bool
-InterruptIsVBI()
+bool
+AtiDriver::InterruptIsVBI()
 {
 	// return true only if a vertical blanking interrupt has occured
 	return false;
 }
 
 
-static void
-ClearVBI()
+void
+AtiDriver::ClearVBI()
 {
 }
 
-static void
-EnableVBI()
+void
+AtiDriver::EnableVBI()
 {
 }
 
-static void
-DisableVBI()
+void
+AtiDriver::DisableVBI()
 {
 }
-
 
 
 static status_t
@@ -395,8 +491,8 @@ SetVesaDisplayMode(uint16 mode)
 				  (romAddr[(v) + 3] << 24))
 
 
-static status_t
-Mach64_GetBiosParameters(DeviceInfo& di, uint8& clockType)
+status_t
+AtiDriver::Mach64_GetBiosParameters(uint8& clockType)
 {
 	// Get some clock parameters from the video BIOS, and if Mobility chip,
 	// also get the LCD panel width & height.
@@ -406,7 +502,7 @@ Mach64_GetBiosParameters(DeviceInfo& di, uint8& clockType)
 
 	clockType = M64_CLOCK_INTERNAL;
 
-	SharedInfo& si = *(di.sharedInfo);
+	SharedInfo& si = *(fSharedInfo);
 	M64_Params& params = si.m64Params;
 	params.clockNumberToProgram = 3;
 
@@ -421,7 +517,7 @@ Mach64_GetBiosParameters(DeviceInfo& di, uint8& clockType)
 #if defined(__x86__) || defined(__x86_64__)
 		0x000c0000,
 #else
-		di.pciInfo.u.h0.rom_base,
+		fPciInfo.u.h0.rom_base,
 #endif
 		M64_BIOS_SIZE,
 		B_ANY_KERNEL_ADDRESS,
@@ -474,8 +570,8 @@ Mach64_GetBiosParameters(DeviceInfo& di, uint8& clockType)
 
 
 
-static status_t
-Rage128_GetBiosParameters(DeviceInfo& di)
+status_t
+AtiDriver::Rage128_GetBiosParameters()
 {
 	// Get the PLL parameters from the video BIOS, and if Mobility chips, also
 	// get the LCD panel width & height and a few other related parameters.
@@ -485,7 +581,7 @@ Rage128_GetBiosParameters(DeviceInfo& di)
 	// The default PLL parameters values probably will not work for all chips.
 	// For example, reference freq can be 29.50MHz, 28.63MHz, or 14.32MHz.
 
-	SharedInfo& si = *(di.sharedInfo);
+	SharedInfo& si = *(fSharedInfo);
 	R128_PLLParams& pll = si.r128PLLParams;
 	pll.reference_freq = 2950;
 	pll.reference_div = 65;
@@ -505,7 +601,7 @@ Rage128_GetBiosParameters(DeviceInfo& di)
 #if defined(__x86__) || defined(__x86_64__)
 		0x000c0000,
 #else
-		di.pciInfo.u.h0.rom_base,
+		fPciInfo.u.h0.rom_base,
 #endif
 		R128_BIOS_SIZE,
 		B_ANY_KERNEL_ADDRESS,
@@ -588,22 +684,23 @@ Rage128_GetBiosParameters(DeviceInfo& di)
 }
 
 
-static status_t
-MapDevice(DeviceInfo& di)
+status_t
+AtiDriver::MapDevice()
 {
-	SharedInfo& si = *(di.sharedInfo);
-	pci_info& pciInfo = di.pciInfo;
+	SharedInfo& si = *(fSharedInfo);
+	pci_info& pciInfo = fPciInfo;
 
 	// Enable memory mapped IO and bus master.
-
-	SetPCI(pciInfo, PCI_command, 2, GetPCI(pciInfo, PCI_command, 2)
-		| PCI_command_io | PCI_command_memory | PCI_command_master);
+	fPciDevice->WritePciConfig(PCI_command, 2,
+		fPciDevice->ReadPciConfig(PCI_command, 2)
+			| PCI_command_io | PCI_command_memory | PCI_command_master);
 
 	// Enable ROM decoding
 
-	if (di.pciInfo.u.h0.rom_size > 0) {
-		SetPCI(pciInfo, PCI_rom_base, 4,
-			GetPCI(pciInfo, PCI_rom_base, 4) | 0x00000001);
+	if (pciInfo.u.h0.rom_size > 0) {
+		fPciDevice->WritePciConfig(PCI_rom_base, 4,
+			fPciDevice->ReadPciConfig(PCI_rom_base, 4)
+				| 0x00000001);
 	}
 
 	// Map the video memory.
@@ -670,7 +767,7 @@ MapDevice(DeviceInfo& di)
 		regAreaSize,
 		B_ANY_KERNEL_ADDRESS,
 		B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA | B_CLONEABLE_AREA,
-		(void**)&di.regs);
+		(void**)&fRegs);
 
 	// If there was an error, delete other areas.
 	if (si.regsArea < 0) {
@@ -682,10 +779,10 @@ MapDevice(DeviceInfo& di)
 }
 
 
-static void
-UnmapDevice(DeviceInfo& di)
+void
+AtiDriver::UnmapDevice()
 {
-	SharedInfo& si = *(di.sharedInfo);
+	SharedInfo& si = *(fSharedInfo);
 
 	if (si.regsArea >= 0)
 		delete_area(si.regsArea);
@@ -694,16 +791,23 @@ UnmapDevice(DeviceInfo& di)
 
 	si.regsArea = si.videoMemArea = -1;
 	si.videoMemAddr = (addr_t)NULL;
-	di.regs = NULL;
+	fRegs = NULL;
 }
 
 
-static int32
-InterruptHandler(void* data)
+int32
+AtiDriver::InterruptHandler(void* data)
+{
+	AtiDriver* driver = (AtiDriver*)data;
+	return driver->InterruptHandlerInt();
+}
+
+
+int32
+AtiDriver::InterruptHandlerInt()
 {
 	int32 handled = B_UNHANDLED_INTERRUPT;
-	DeviceInfo& di = *((DeviceInfo*)data);
-	int32* flags = &(di.flags);
+	int32* flags = &(fFlags);
 
 	// Is someone already handling an interrupt for this device?
 	if (atomic_or(flags, SKD_HANDLER_INSTALLED) & SKD_HANDLER_INSTALLED)
@@ -715,7 +819,7 @@ InterruptHandler(void* data)
 		handled = B_HANDLED_INTERRUPT;
 
 		// Release vertical blanking semaphore.
-		sem_id& sem = di.sharedInfo->vertBlankSem;
+		sem_id& sem = fSharedInfo->vertBlankSem;
 
 		if (sem >= 0) {
 			int32 blocked;
@@ -732,16 +836,16 @@ InterruptHandler(void* data)
 }
 
 
-static void
-InitInterruptHandler(DeviceInfo& di)
+void
+AtiDriver::InitInterruptHandler()
 {
-	SharedInfo& si = *(di.sharedInfo);
+	SharedInfo& si = *(fSharedInfo);
 
 	DisableVBI();					// disable & clear any pending interrupts
 	si.bInterruptAssigned = false;	// indicate interrupt not assigned yet
 
 	// Create a semaphore for vertical blank management.
-	si.vertBlankSem = create_sem(0, di.name);
+	si.vertBlankSem = create_sem(0, fName);
 	if (si.vertBlankSem < 0)
 		return;
 
@@ -757,12 +861,12 @@ InitInterruptHandler(DeviceInfo& di)
 
 	// If there is a valid interrupt assigned, set up interrupts.
 
-	if (status == B_OK && di.pciInfo.u.h0.interrupt_pin != 0x00
-		&& di.pciInfo.u.h0.interrupt_line != 0xff) {
+	if (status == B_OK && fPciInfo.u.h0.interrupt_pin != 0x00
+		&& fPciInfo.u.h0.interrupt_line != 0xff) {
 		// We have a interrupt line to use.
 
-		status = install_io_interrupt_handler(di.pciInfo.u.h0.interrupt_line,
-			InterruptHandler, (void*)(&di), 0);
+		status = install_io_interrupt_handler(fPciInfo.u.h0.interrupt_line,
+			InterruptHandler, this, 0);
 
 		if (status == B_OK)
 			si.bInterruptAssigned = true;	// we can use interrupt related functions
@@ -776,8 +880,8 @@ InitInterruptHandler(DeviceInfo& di)
 }
 
 
-static status_t
-InitDevice(DeviceInfo& di)
+status_t
+AtiDriver::InitDevice()
 {
 	// Perform initialization and mapping of the device, and return B_OK if
 	// sucessful;  else, return error code.
@@ -795,16 +899,16 @@ InitDevice(DeviceInfo& di)
 	// Create the area for shared info with NO user-space read or write
 	// permissions, to prevent accidental damage.
 
-	di.sharedArea = create_area("ATI shared info",
-		(void**) &(di.sharedInfo),
+	fSharedArea = create_area("ATI shared info",
+		(void**) &(fSharedInfo),
 		B_ANY_KERNEL_ADDRESS,
-		ROUND_TO_PAGE_SIZE(sharedSize + vesaModeTableSize),
+		ROUNDUP(sharedSize + vesaModeTableSize, B_PAGE_SIZE),
 		B_FULL_LOCK,
 		B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA | B_CLONEABLE_AREA);
-	if (di.sharedArea < 0)
-		return di.sharedArea;	// return error code
+	if (fSharedArea < 0)
+		return fSharedArea;	// return error code
 
-	SharedInfo& si = *(di.sharedInfo);
+	SharedInfo& si = *(fSharedInfo);
 
 	memset(&si, 0, sharedSize);
 
@@ -816,13 +920,13 @@ InitDevice(DeviceInfo& di)
 			vesaModeTableSize);
 	}
 
-	pci_info& pciInfo = di.pciInfo;
+	pci_info& pciInfo = fPciInfo;
 
 	si.vendorID = pciInfo.vendor_id;
 	si.deviceID = pciInfo.device_id;
 	si.revision = pciInfo.revision;
-	si.chipType = di.pChipInfo->chipType;
-	strcpy(si.chipName, di.pChipInfo->chipName);
+	si.chipType = fPChipInfo->chipType;
+	strcpy(si.chipName, fPChipInfo->chipName);
 
 	TRACE("Chip revision: 0x%x\n", si.revision);
 
@@ -836,7 +940,7 @@ InitDevice(DeviceInfo& di)
 	if (si.chipType == MACH64_264VT && si.revision & 0x7)
 		si.chipType = MACH64_264VTB;
 
-	status_t status = MapDevice(di);
+	status_t status = MapDevice();
 
 	// If device mapped without any error, get the bios parameters from the
 	// chip's BIOS ROM.
@@ -844,7 +948,7 @@ InitDevice(DeviceInfo& di)
 	if (status >= 0) {
 		if (MACH64_FAMILY(si.chipType)) {
 			uint8 clockType;
-			Mach64_GetBiosParameters(di, clockType);
+			Mach64_GetBiosParameters(clockType);
 
 			// All chips supported by this driver should have an internal clock.
 			// If the clock is not an internal clock, the video chip is not
@@ -856,299 +960,63 @@ InitDevice(DeviceInfo& di)
 			}
 		}
 		else if (RAGE128_FAMILY(si.chipType))
-			Rage128_GetBiosParameters(di);
+			Rage128_GetBiosParameters();
 	}
 
 	if (status < 0) {
-		delete_area(di.sharedArea);
-		di.sharedArea = -1;
-		di.sharedInfo = NULL;
+		delete_area(fSharedArea);
+		fSharedArea = -1;
+		fSharedInfo = NULL;
 		return status;		// return error code
 	}
 
-	InitInterruptHandler(di);
+	InitInterruptHandler();
 
 	TRACE("Interrupt assigned:  %s\n", si.bInterruptAssigned ? "yes" : "no");
 	return B_OK;
 }
 
 
-static const ChipInfo*
-GetNextSupportedDevice(uint32& pciIndex, pci_info& pciInfo)
-{
-	// Search the PCI devices for a device that is supported by this driver.
-	// The search starts at the device specified by argument pciIndex, and
-	// continues until a supported device is found or there are no more devices
-	// to examine.  Argument pciIndex is incremented after each device is
-	// examined.
-
-	// If a supported device is found, return a pointer to the struct containing
-	// the chip info; else return NULL.
-
-	while (gPCI->get_nth_pci_info(pciIndex, &pciInfo) == B_OK) {
-
-		if (pciInfo.vendor_id == VENDOR_ID) {
-
-			// Search the table of supported devices to find a chip/device that
-			// matches device ID of the current PCI device.
-
-			const ChipInfo* pDevice = chipTable;
-
-			while (pDevice->chipID != 0) {	// end of table?
-				if (pDevice->chipID == pciInfo.device_id) {
-					// Matching device/chip found.  If chip is 264VT, reject it
-					// if its version is zero since the mode can not be set on
-					// that chip.
-
-					if (pDevice->chipType == MACH64_264VT
-							&& (pciInfo.revision & 0x7) == 0)
-						break;
-
-					return pDevice;		// matching device/chip found
-				}
-
-				pDevice++;
-			}
-		}
-
-		pciIndex++;
-	}
-
-	return NULL;		// no supported device found
-}
-
-
-
-//	#pragma mark - Kernel Interface
-
+// #pragma mark - AtiDevFsNodeHandle
 
 status_t
-init_hardware(void)
+AtiDevFsNodeHandle::Close()
 {
-	// Return B_OK if a device supported by this driver is found; otherwise,
-	// return B_ERROR so the driver will be unloaded.
+	RecursiveLocker lock(&fDriver.fLock);
 
-	if (get_module(B_PCI_MODULE_NAME, (module_info**)&gPCI) != B_OK)
-		return B_ERROR;		// unable to access PCI bus
-
-	// Check pci devices for a device supported by this driver.
-
-	uint32 pciIndex = 0;
-	pci_info pciInfo;
-	const ChipInfo* pDevice = GetNextSupportedDevice(pciIndex, pciInfo);
-
-	TRACE("init_hardware() - %s\n",
-		pDevice == NULL ? "no supported devices" : "device supported");
-
-	put_module(B_PCI_MODULE_NAME);		// put away the module manager
-
-	return (pDevice == NULL ? B_ERROR : B_OK);
-}
-
-
-status_t
-init_driver(void)
-{
-	// Get handle for the pci bus.
-
-	if (get_module(B_PCI_MODULE_NAME, (module_info**)&gPCI) != B_OK)
-		return B_ERROR;
-
-	status_t status = gLock.Init("ATI driver lock");
-	if (status < B_OK)
-		return status;
-
-	// Get info about all the devices supported by this driver.
-
-	uint32 pciIndex = 0;
-	uint32 count = 0;
-
-	while (count < MAX_DEVICES) {
-		DeviceInfo& di = gDeviceInfo[count];
-
-		const ChipInfo* pDevice = GetNextSupportedDevice(pciIndex, di.pciInfo);
-		if (pDevice == NULL)
-			break;			// all supported devices have been obtained
-
-		// Compose device name.
-		sprintf(di.name, "graphics/" DEVICE_FORMAT,
-				  di.pciInfo.vendor_id, di.pciInfo.device_id,
-				  di.pciInfo.bus, di.pciInfo.device, di.pciInfo.function);
-		TRACE("init_driver() match found; name: %s\n", di.name);
-
-		gDeviceNames[count] = di.name;
-		di.openCount = 0;		// mark driver as available for R/W open
-		di.sharedArea = -1;		// indicate shared area not yet created
-		di.sharedInfo = NULL;
-		di.pChipInfo = pDevice;
-		count++;
-		pciIndex++;
+	fDriver.fOpenCount--;
+	if (fDriver.fOpenCount > 0) {
+		return B_OK;
 	}
 
-	gDeviceNames[count] = NULL;	// terminate list with null pointer
+	SharedInfo& si = *(fDriver.fSharedInfo);
+	pci_info& pciInfo = fDriver.fPciInfo;
 
-	TRACE("init_driver() %" B_PRIu32 " supported devices\n", count);
+	if (si.bInterruptAssigned) {
+		remove_io_interrupt_handler(pciInfo.u.h0.interrupt_line,
+			AtiDriver::InterruptHandler, &fDriver);
+	}
+
+	// Delete the semaphores, ignoring any errors because the owning team
+	// may have died.
+	if (si.vertBlankSem >= 0)
+		delete_sem(si.vertBlankSem);
+	si.vertBlankSem = -1;
+
+	fDriver.UnmapDevice();	// free regs and frame buffer areas
+
+	delete_area(fDriver.fSharedArea);
+	fDriver.fSharedArea = -1;
+	fDriver.fSharedInfo = NULL;
 
 	return B_OK;
 }
 
 
-void
-uninit_driver(void)
+status_t
+AtiDevFsNodeHandle::Control(uint32 msg, void* buffer, size_t bufferLength)
 {
-	// Free the driver data.
-
-	gLock.Delete();
-	put_module(B_PCI_MODULE_NAME);	// put the pci module away
-}
-
-
-const char**
-publish_devices(void)
-{
-	return (const char**)gDeviceNames;	// return list of supported devices
-}
-
-
-device_hooks*
-find_device(const char* name)
-{
-	int i = 0;
-	while (gDeviceNames[i] != NULL) {
-		if (strcmp(name, gDeviceNames[i]) == 0)
-			return &gDeviceHooks;
-		i++;
-	}
-
-	return NULL;
-}
-
-
-
-//	#pragma mark - Device Hooks
-
-
-static status_t
-device_open(const char* name, uint32 /*flags*/, void** cookie)
-{
-	status_t status = B_OK;
-
-	TRACE("device_open() - name: %s\n", name);
-
-	// Find the device name in the list of devices.
-
-	int32 i = 0;
-	while (gDeviceNames[i] != NULL && (strcmp(name, gDeviceNames[i]) != 0))
-		i++;
-
-	if (gDeviceNames[i] == NULL)
-		return B_BAD_VALUE;		// device name not found in list of devices
-
-	DeviceInfo& di = gDeviceInfo[i];
-
-	gLock.Acquire();	// make sure no one else has write access to common data
-
-	if (di.openCount == 0)
-		status = InitDevice(di);
-
-	gLock.Release();
-
-	if (status == B_OK) {
-		di.openCount++;		// mark device open
-		*cookie = &di;		// send cookie to opener
-	}
-
-	TRACE("device_open() returning 0x%" B_PRIx32 ",  open count: %" B_PRIu32 "\n", status,
-		di.openCount);
-	return status;
-}
-
-
-static status_t
-device_read(void* dev, off_t pos, void* buf, size_t* len)
-{
-	// Following 3 lines of code are here to eliminate "unused parameter"
-	// warnings.
-	(void)dev;
-	(void)pos;
-	(void)buf;
-
-	*len = 0;
-	return B_NOT_ALLOWED;
-}
-
-
-static status_t
-device_write(void* dev, off_t pos, const void* buf, size_t* len)
-{
-	// Following 3 lines of code are here to eliminate "unused parameter"
-	// warnings.
-	(void)dev;
-	(void)pos;
-	(void)buf;
-
-	*len = 0;
-	return B_NOT_ALLOWED;
-}
-
-
-static status_t
-device_close(void* dev)
-{
-	(void)dev;		// avoid compiler warning for unused arg
-
-	return B_NO_ERROR;
-}
-
-
-static status_t
-device_free(void* dev)
-{
-	DeviceInfo& di = *((DeviceInfo*)dev);
-	SharedInfo& si = *(di.sharedInfo);
-	pci_info& pciInfo = di.pciInfo;
-
-	TRACE("enter device_free()\n");
-
-	gLock.Acquire();		// lock driver
-
-	// If opened multiple times, merely decrement the open count and exit.
-
-	if (di.openCount <= 1) {
-		DisableVBI();		// disable & clear any pending interrupts
-
-		if (si.bInterruptAssigned) {
-			remove_io_interrupt_handler(pciInfo.u.h0.interrupt_line,
-				InterruptHandler, &di);
-		}
-
-		// Delete the semaphores, ignoring any errors because the owning team
-		// may have died.
-		if (si.vertBlankSem >= 0)
-			delete_sem(si.vertBlankSem);
-		si.vertBlankSem = -1;
-
-		UnmapDevice(di);	// free regs and frame buffer areas
-
-		delete_area(di.sharedArea);
-		di.sharedArea = -1;
-		di.sharedInfo = NULL;
-	}
-
-	if (di.openCount > 0)
-		di.openCount--;		// mark device available
-
-	gLock.Release();	// unlock driver
-
-	TRACE("exit device_free() openCount: %" B_PRIu32 "\n", di.openCount);
-	return B_OK;
-}
-
-
-static status_t
-device_ioctl(void* dev, uint32 msg, void* buffer, size_t bufferLength)
-{
-	DeviceInfo& di = *((DeviceInfo*)dev);
+	AtiDriver& di = fDriver;
 
 	TRACE("device_ioctl(); ioctl: %" B_PRIu32 ", buffer: %#08" B_PRIxADDR
 		", bufLen: %" B_PRIuSIZE "\n", msg, (addr_t)buffer, bufferLength);
@@ -1166,7 +1034,7 @@ device_ioctl(void* dev, uint32 msg, void* buffer, size_t bufferLength)
 
 		case ATI_DEVICE_NAME:
 		{
-			status_t status = user_strlcpy((char*)buffer, di.name,
+			status_t status = user_strlcpy((char*)buffer, di.fName,
 				B_OS_NAME_LENGTH);
 			if (status < B_OK)
 				return status;
@@ -1178,7 +1046,7 @@ device_ioctl(void* dev, uint32 msg, void* buffer, size_t bufferLength)
 			if (bufferLength != sizeof(area_id))
 				return B_BAD_DATA;
 
-			return user_memcpy(buffer, &di.sharedArea, sizeof(area_id));
+			return user_memcpy(buffer, &di.fSharedArea, sizeof(area_id));
 
 		case ATI_GET_EDID:
 		{
@@ -1217,9 +1085,9 @@ device_ioctl(void* dev, uint32 msg, void* buffer, size_t bufferLength)
 				return res;
 
 			if (value)
-				EnableVBI();
+				fDriver.EnableVBI();
 			else
-				DisableVBI();
+				fDriver.DisableVBI();
 
 			return B_OK;
 		}
@@ -1227,3 +1095,48 @@ device_ioctl(void* dev, uint32 msg, void* buffer, size_t bufferLength)
 
 	return B_DEV_INVALID_IOCTL;
 }
+
+
+// #pragma mark - AtiDevFsNode
+
+DevFsNode::Capabilities
+AtiDevFsNode::GetCapabilities() const
+{
+	return {
+		.control = true
+	};
+}
+
+
+status_t
+AtiDevFsNode::Open(const char* path, int openMode, DevFsNodeHandle **outHandle)
+{
+	ObjectDeleter<AtiDevFsNodeHandle> handle(new(std::nothrow) AtiDevFsNodeHandle(fDriver));
+	if (!handle.IsSet())
+		return B_NO_MEMORY;
+
+	{
+		RecursiveLocker lock(&fDriver.fLock);
+		if (fDriver.fOpenCount == 0) {
+			CHECK_RET(fDriver.InitDevice());
+			fDriver.fOpenCount++;
+		}
+	}
+
+	*outHandle = handle.Detach();
+	return B_OK;
+}
+
+
+static driver_module_info sAtiDriverModule = {
+	.info = {
+		.name = ATT_DRIVER_MODULE_NAME,
+	},
+	.probe = AtiDriver::Probe
+};
+
+
+_EXPORT module_info* modules[] = {
+	(module_info* )&sAtiDriverModule,
+	NULL
+};

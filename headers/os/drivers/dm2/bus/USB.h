@@ -204,7 +204,7 @@ protected:
 };
 
 
-// Host controller interface
+// #pragma mark - Host controller interface
 
 // !!!
 struct usb_isochronous_data;
