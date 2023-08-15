@@ -1,0 +1,11 @@
+SubDir HAIKU_TOP src add-ons kernel busses ps2 altera_ps2 ;
+
+SubDirC++Flags -fno-rtti ;
+
+UsePrivateKernelHeaders ;
+
+SubDirHdrs $(HAIKU_TOP) src system kernel arch generic ;
+
+KernelAddon altera_ps2 :
+	altera_ps2.cpp
+;

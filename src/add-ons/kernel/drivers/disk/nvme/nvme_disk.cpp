@@ -988,7 +988,7 @@ static driver_module_info sNvmeDiskDriver = {
 };
 
 
-module_info* modules[] = {
+_EXPORT module_info* modules[] = {
 	(module_info* )&sNvmeDiskDriver,
 	NULL
 };

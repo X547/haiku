@@ -9,6 +9,8 @@
 
 #include <dm2/device_manager.h>
 
+#include <util/DoublyLinkedList.h>
+
 
 class DevFsNodeWrapper : public BaseDevice {
 public:
@@ -44,6 +46,14 @@ public:
 protected:
 			status_t 		_DoIO(void* cookie, off_t pos,
 								void* buffer, size_t* _length, bool isWrite);
+
+private:
+	DoublyLinkedListLink<DevFsNodeWrapper> fLink;
+
+public:
+	typedef DoublyLinkedList<
+		DevFsNodeWrapper, DoublyLinkedListMemberGetLink<DevFsNodeWrapper, &DevFsNodeWrapper::fLink>
+	> List;
 
 protected:
 	DevFsNode*				fDevFsNode;

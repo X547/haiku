@@ -4,20 +4,12 @@ SubDirC++Flags -fno-rtti ;
 
 UsePrivateKernelHeaders ;
 
-KernelStaticLibrary libusb.a :
-	Stack.cpp
-	Device.cpp
-	Hub.cpp
-	BusManager.cpp
-	Transfer.cpp
-	Pipe.cpp
-	Interface.cpp
-	Object.cpp
-	PhysicalMemoryAllocator.cpp
-;
-
 KernelAddon usb :
 	usb.cpp
-	: libusb.a
+	PhysicalMemoryAllocator.cpp
+	Stack.cpp
+#	Object.cpp
+#	Device.cpp
+	:
 	: usb.rdef
 	;

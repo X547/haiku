@@ -3,9 +3,11 @@ SubDir HAIKU_TOP src add-ons kernel drivers audio hda ;
 UsePrivateKernelHeaders ;
 UsePrivateHeaders audio ;
 
+SubDirC++Flags -fvisibility=hidden ;
+
 KernelAddon hda :
 	driver.cpp
-	device.cpp
+#	device.cpp
 	hda_multi_audio.cpp
 	hda_controller.cpp
 	hda_codec.cpp

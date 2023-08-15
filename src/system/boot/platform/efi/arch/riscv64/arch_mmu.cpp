@@ -371,7 +371,9 @@ arch_mmu_generate_post_efi_page_tables(size_t memoryMapSize, efi_memory_descript
 	// Boot loader
 	TRACE("Boot loader:\n");
 	for (size_t i = 0; i < memoryMapSize / descriptorSize; ++i) {
-		efi_memory_descriptor* entry = &memoryMap[i];
+		efi_memory_descriptor *entry
+			= (efi_memory_descriptor *)((addr_t)memoryMap + i * descriptorSize);
+
 		switch (entry->Type) {
 		case EfiLoaderCode:
 		case EfiLoaderData:
@@ -382,10 +384,6 @@ arch_mmu_generate_post_efi_page_tables(size_t memoryMapSize, efi_memory_descript
 			;
 		}
 	}
-	TRACE("Boot loader stack\n");
-	addr_t sp = Sp();
-	addr_t stackTop = ROUNDDOWN(sp - 1024*64, B_PAGE_SIZE);
-	TRACE("  SP: %#" B_PRIxADDR "\n", sp);
 
 	// EFI runtime services
 	TRACE("EFI runtime services:\n");

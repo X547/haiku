@@ -9,6 +9,7 @@
 
 #include "Utils.h"
 #include "CompatDriverModuleList.h"
+#include "DevFsNodeWrapper.h"
 
 
 class DeviceNodeImpl;
@@ -36,7 +37,7 @@ public:
 	status_t InstallListener(DeviceNodeListener* listener) final;
 	status_t UninstallListener(DeviceNodeListener* listener) final;
 
-	status_t RegisterNode(BusDriver* driver, DeviceNode** node) final;
+	status_t RegisterNode(DeviceDriver* owner, BusDriver* driver, const device_attr* attrs, DeviceNode** node) final;
 	status_t UnregisterNode(DeviceNode* node) final;
 
 	status_t RegisterDevFsNode(const char* path, DevFsNode* driver) final;
@@ -44,7 +45,7 @@ public:
 
 	// Internal interface
 	const char* GetName() const;
-	status_t Register(DeviceNodeImpl* parent, BusDriver* driver);
+	status_t Register(DeviceNodeImpl* parent, DeviceDriver* owner, BusDriver* driver, const device_attr* attrs);
 	status_t Probe();
 	status_t ProbeDriver(const char* moduleName, bool isChild = false);
 	void UnsetDeviceDriver();
@@ -91,14 +92,17 @@ private:
 	State fState {};
 	DeviceNodeImpl* fParent {};
 	ChildList fChildNodes;
+	ArrayDeleter<device_attr> fAttributes;
+	ArrayDeleter<uint8> fAttrData;
 
 	CompatDriverModuleList fCompatDriverModules;
 
+	DeviceDriver* fOwnerDriver {};
 	BusDriver* fBusDriver {};
 	DeviceDriver* fDeviceDriver {};
 	CStringDeleter fDriverModuleName;
 
-	Vector<DevFsNodeWrapper*> fDevFsNodes;
+	DevFsNodeWrapper::List fDevFsNodes;
 };
 
 
@@ -115,6 +119,7 @@ public:
 	status_t ProcessPendingNodes();
 
 	void DumpTree();
+	void RunTest(const char* testName);
 
 private:
 	void DumpNode(DeviceNodeImpl* node, int32 level);

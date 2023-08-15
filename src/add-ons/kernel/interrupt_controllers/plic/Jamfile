@@ -1,7 +1,0 @@
-SubDir HAIKU_TOP src add-ons kernel interrupt_controllers plic ;
-
-UsePrivateKernelHeaders ;
-UsePrivateHeaders shared ;
-
-KernelAddon plic : 
-	plic.cpp ;

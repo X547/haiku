@@ -5,7 +5,8 @@ SubDirHdrs [ FDirName $(SUBDIR) acpica include ] ;
 SubDirHdrs [ FDirName $(SUBDIR) acpica include platform ] ;
 SubDirHdrs [ FDirName $(SUBDIR) arch $(TARGET_KERNEL_ARCH_DIR) ] ;
 SubDirHdrs [ FDirName $(SUBDIR) $(DOTDOT) pci ] ;
-SubDirCcFlags -D_KERNEL_MODE ;
+SubDirCcFlags -D_KERNEL_MODE -fvisibility=hidden ;
+SubDirC++Flags -fvisibility=hidden ;
 
 
 local arch_src =
@@ -214,9 +215,9 @@ KernelAddon acpi :
 	BusManager.cpp
 	Module.cpp
 	Device.cpp
-	NamespaceDump.cpp
-	EmbeddedController.cpp
-	Call.cpp
+#	NamespaceDump.cpp
+#	EmbeddedController.cpp
+#	Call.cpp
 
 	$(arch_src)
 	:

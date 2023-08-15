@@ -42,15 +42,13 @@ private:
 
 class PciDeviceImpl: public PciDevice, public BusDriver {
 public:
-				PciDeviceImpl(uint32 domain, uint8 bus, PCIDev* device):
-					fDomain(domain), fBus(bus), fDevice(device) {}
+				PciDeviceImpl(PciBusImpl* driver, uint32 domain, uint8 bus, PCIDev* device):
+					fDriver(driver), fDomain(domain), fBus(bus), fDevice(device) {}
 	virtual		~PciDeviceImpl() = default;
 
 	// BusDriver
 	void		Free() final {delete this;}
 	status_t	InitDriver(DeviceNode* node) final;
-	const device_attr*
-				Attributes() const final;
 	void*		QueryInterface(const char* name) final;
 
 	// PciDevice
@@ -84,11 +82,11 @@ public:
 	status_t	EnableMsix() final;
 
 private:
+	PciBusImpl* fDriver;
 	uint32 fDomain;
 	uint8 fBus;
 	PCIDev* fDevice;
 	DeviceNode* fNode {};
-	Vector<device_attr> fAttrs;
 };
 
 
@@ -126,12 +124,30 @@ PciBusImpl::Init()
 
 		PCIDev* dev = gPCI->FindDevice(domain, bus, info.device, info.function);
 
-		ObjectDeleter<PciDeviceImpl> pciDev(new(std::nothrow) PciDeviceImpl(domain, bus, dev));
+		ObjectDeleter<PciDeviceImpl> pciDev(new(std::nothrow) PciDeviceImpl(this, domain, bus, dev));
 		if (!pciDev.IsSet()) {
 			return B_NO_MEMORY;
 		}
 
-		CHECK_RET(fNode->RegisterNode(static_cast<BusDriver*>(pciDev.Detach()), NULL));
+		device_attr attrs[] = {
+			{B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "PCI Device"}},
+			{B_DEVICE_BUS,         B_STRING_TYPE, {.string = "pci"}},
+
+			{B_PCI_DEVICE_VENDOR_ID, B_UINT16_TYPE, {.ui16 = info.vendor_id}},
+			{B_PCI_DEVICE_ID,        B_UINT16_TYPE, {.ui16 = info.device_id}},
+			{B_PCI_DEVICE_TYPE,      B_UINT16_TYPE, {.ui16 = info.class_base}},
+			{B_PCI_DEVICE_SUB_TYPE,  B_UINT16_TYPE, {.ui16 = info.class_sub}},
+			{B_PCI_DEVICE_INTERFACE, B_UINT16_TYPE, {.ui16 = info.class_api}},
+
+			{B_PCI_DEVICE_DOMAIN,   B_UINT32_TYPE, {.ui32 = domain}},
+			{B_PCI_DEVICE_BUS,      B_UINT8_TYPE,  {.ui8  = bus}},
+			{B_PCI_DEVICE_DEVICE,   B_UINT8_TYPE,  {.ui8  = info.device}},
+			{B_PCI_DEVICE_FUNCTION, B_UINT8_TYPE,  {.ui8  = info.function}},
+
+			{}
+		};
+
+		CHECK_RET(fNode->RegisterNode(this, static_cast<BusDriver*>(pciDev.Detach()), &attrs[0], NULL));
 	}
 
 	return B_OK;
@@ -144,33 +160,7 @@ status_t
 PciDeviceImpl::InitDriver(DeviceNode* node)
 {
 	fNode = node;
-
-	pci_info& info = fDevice->info;
-
-	fAttrs.Add({B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "PCI Device"}});
-	fAttrs.Add({B_DEVICE_BUS,         B_STRING_TYPE, {.string = "pci"}});
-
-	fAttrs.Add({B_PCI_DEVICE_VENDOR_ID, B_UINT16_TYPE, {.ui16 = info.vendor_id}});
-	fAttrs.Add({B_PCI_DEVICE_ID,        B_UINT16_TYPE, {.ui16 = info.device_id}});
-	fAttrs.Add({B_PCI_DEVICE_TYPE,      B_UINT16_TYPE, {.ui16 = info.class_base}});
-	fAttrs.Add({B_PCI_DEVICE_SUB_TYPE,  B_UINT16_TYPE, {.ui16 = info.class_sub}});
-	fAttrs.Add({B_PCI_DEVICE_INTERFACE, B_UINT16_TYPE, {.ui16 = info.class_api}});
-
-	fAttrs.Add({B_PCI_DEVICE_DOMAIN,   B_UINT32_TYPE, {.ui32 = fDomain}});
-	fAttrs.Add({B_PCI_DEVICE_BUS,      B_UINT8_TYPE,  {.ui8  = fBus}});
-	fAttrs.Add({B_PCI_DEVICE_DEVICE,   B_UINT8_TYPE,  {.ui8  = info.device}});
-	fAttrs.Add({B_PCI_DEVICE_FUNCTION, B_UINT8_TYPE,  {.ui8  = info.function}});
-
-	fAttrs.Add({});
-
 	return B_OK;
-}
-
-
-const device_attr*
-PciDeviceImpl::Attributes() const
-{
-	return &fAttrs[0];
 }
 
 

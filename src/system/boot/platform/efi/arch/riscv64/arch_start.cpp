@@ -93,6 +93,10 @@ arch_start_kernel(addr_t kernelEntry)
 	for (size_t i = 0; i < memory_map_size / descriptor_size; ++i) {
 		efi_memory_descriptor *entry
 			= (efi_memory_descriptor *)(addr + i * descriptor_size);
+
+		// !!! This are not equal in EDK 2 RISC-V for some reason and it breaks boot
+		entry->VirtualStart = entry->PhysicalStart;
+
 		dprintf("  phys: 0x%08" PRIx64 "-0x%08" PRIx64
 			", virt: 0x%08" PRIx64 "-0x%08" PRIx64
 			", type: %s (%#x), attr: %#" PRIx64 "\n",
@@ -137,7 +141,7 @@ arch_start_kernel(addr_t kernelEntry)
 		}
 	}
 
-	arch_traps_init();
+	// arch_traps_init();
 
 	// Update EFI, generate final kernel physical memory map, etc.
 	arch_mmu_post_efi_setup(memory_map_size, memory_map,

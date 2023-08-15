@@ -1,6 +1,6 @@
 SubDir HAIKU_TOP src add-ons kernel drivers input hid_input ;
 
-SubDirC++Flags -fno-rtti ;
+SubDirC++Flags -fno-rtti -fvisibility=hidden ;
 
 SubDirSysHdrs $(HAIKU_TOP) headers os drivers ;
 SubDirSysHdrs $(HAIKU_TOP) src add-ons kernel drivers input hid_shared ;

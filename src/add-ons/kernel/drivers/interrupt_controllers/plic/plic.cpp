@@ -22,28 +22,16 @@
 #define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
 
-#define PLIC_MODULE_NAME "interrupt_controllers/plic/driver/v1"
+#define PLIC_MODULE_NAME "drivers/interrupt_controllers/plic/driver/v1"
 
 
 class PlicInterruptController: public DeviceDriver, public InterruptSource, public InterruptControllerDevice {
-private:
-	AreaDeleter fRegsArea;
-	PlicRegs volatile* fRegs {};
-	uint32 fIrqCount {};
-	uint32 fPlicContexts[SMP_MAX_CPUS] {};
-	uint32 fPendingContexts[NUM_IO_VECTORS] {};
-
-	status_t Init(DeviceNode* node);
-
-	static int32 HandleInterrupt(void* arg);
-	inline int32 HandleInterruptInt();
-
 public:
-	virtual ~PlicInterruptController() = default;
+	virtual ~PlicInterruptController();
 
 	// DeviceDriver
 	static status_t Probe(DeviceNode* node, DeviceDriver** driver);
-	void Free() final;
+	void Free() final {delete this;}
 	void* QueryInterface(const char* name) final;
 
 	// InterruptControllerDevice
@@ -55,6 +43,20 @@ public:
 	void ConfigureIoInterrupt(int irq, uint32 config) final {}
 	void EndOfInterrupt(int irq) final;
 	int32 AssignToCpu(int32 irq, int32 cpu) final;
+
+private:
+	status_t Init(DeviceNode* node);
+
+	static int32 HandleInterrupt(void* arg);
+	inline int32 HandleInterruptInt();
+
+private:
+	AreaDeleter fRegsArea;
+	PlicRegs volatile* fRegs {};
+	bool fAttached = false;
+	uint32 fIrqCount {};
+	uint32 fPlicContexts[SMP_MAX_CPUS] {};
+	uint32 fPendingContexts[NUM_IO_VECTORS] {};
 };
 
 
@@ -132,6 +134,7 @@ PlicInterruptController::Init(DeviceNode* node)
 
 	reserve_io_interrupt_vectors_ex(fIrqCount + 1, 0, INTERRUPT_TYPE_IRQ, this);
 	install_io_interrupt_handler(0, HandleInterrupt, this, B_NO_LOCK_VECTOR);
+	fAttached = true;
 
 	for (int32 cpu = 0; cpu < cpuCount; cpu++)
 		fRegs->contexts[fPlicContexts[cpu]].priorityThreshold = 0;
@@ -144,18 +147,18 @@ PlicInterruptController::Init(DeviceNode* node)
 }
 
 
-void
-PlicInterruptController::Free()
+PlicInterruptController::~PlicInterruptController()
 {
-	dprintf("PlicInterruptController::Free\n");
+	dprintf("-PlicInterruptController\n");
 
-	// mask interrupts
-	for (uint32 irq = 1; irq < fIrqCount + 1; irq++)
-		fRegs->priority[irq] = 0;
+	if (fAttached) {
+		// mask interrupts
+		for (uint32 irq = 1; irq < fIrqCount + 1; irq++)
+			fRegs->priority[irq] = 0;
 
-	remove_io_interrupt_handler(0, HandleInterrupt, this);
-	free_io_interrupt_vectors_ex(fIrqCount + 1, 0);
-	delete this;
+		remove_io_interrupt_handler(0, HandleInterrupt, this);
+		free_io_interrupt_vectors_ex(fIrqCount + 1, 0);
+	}
 }
 
 

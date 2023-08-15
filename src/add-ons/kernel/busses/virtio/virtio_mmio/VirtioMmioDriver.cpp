@@ -95,7 +95,16 @@ VirtioMmioDeviceDriver::Init()
 
 	CHECK_RET(fDevice.Init(regs, regsLen, interrupt, 1));
 
-	CHECK_RET(fNode->RegisterNode(busDriver.Detach(), NULL));
+	Vector<device_attr> attrs;
+	attrs.Add({ B_DEVICE_PRETTY_NAME,    B_STRING_TYPE, {.string = "Virtio MMIO"} });
+	attrs.Add({ B_DEVICE_BUS,            B_STRING_TYPE, {.string = "virtio"} });
+	attrs.Add({ "virtio/version",        B_UINT32_TYPE, {.ui32 = fDevice.fRegs->version} });
+	attrs.Add({ "virtio/device_id",      B_UINT32_TYPE, {.ui32 = fDevice.fRegs->deviceId} });
+	attrs.Add({ VIRTIO_DEVICE_TYPE_ITEM, B_UINT16_TYPE, {.ui16 = (uint16)fDevice.fRegs->deviceId} });
+	attrs.Add({ "virtio/vendor_id",      B_UINT32_TYPE, {.ui32 = fDevice.fRegs->vendorId} });
+	attrs.Add({});
+
+	CHECK_RET(fNode->RegisterNode(this, busDriver.Detach(), &attrs[0], NULL));
 
 	return B_OK;
 }
@@ -112,28 +121,6 @@ void
 VirtioMmioBusDriver::Free()
 {
 	delete this;
-}
-
-
-status_t
-VirtioMmioBusDriver::InitDriver(DeviceNode* node)
-{
-	fAttrs.Add({ B_DEVICE_PRETTY_NAME,    B_STRING_TYPE, {.string = "Virtio MMIO"} });
-	fAttrs.Add({ B_DEVICE_BUS,            B_STRING_TYPE, {.string = "virtio"} });
-	fAttrs.Add({ "virtio/version",        B_UINT32_TYPE, {.ui32 = fDevice.fRegs->version} });
-	fAttrs.Add({ "virtio/device_id",      B_UINT32_TYPE, {.ui32 = fDevice.fRegs->deviceId} });
-	fAttrs.Add({ VIRTIO_DEVICE_TYPE_ITEM, B_UINT16_TYPE, {.ui16 = (uint16)fDevice.fRegs->deviceId} });
-	fAttrs.Add({ "virtio/vendor_id",      B_UINT32_TYPE, {.ui32 = fDevice.fRegs->vendorId} });
-	fAttrs.Add({});
-
-	return B_OK;
-}
-
-
-const device_attr*
-VirtioMmioBusDriver::Attributes() const
-{
-	return &fAttrs[0];
 }
 
 

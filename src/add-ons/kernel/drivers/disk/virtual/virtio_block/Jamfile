@@ -4,6 +4,8 @@ UsePrivateKernelHeaders ;
 UsePrivateHeaders drivers virtio ;
 SubDirHdrs $(HAIKU_TOP) src system kernel device_manager ;
 
+SubDirC++Flags -fvisibility=hidden ;
+
 KernelAddon virtio_block :
 	virtio_block.cpp
 ;

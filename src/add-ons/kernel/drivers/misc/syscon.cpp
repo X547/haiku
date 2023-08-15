@@ -18,7 +18,7 @@
 class SysconDriver: public DeviceDriver, public SysconDevice {
 public:
 	SysconDriver(DeviceNode* node): fNode(node) {}
-	virtual ~SysconDriver();
+	virtual ~SysconDriver() = default;
 
 	// DeviceDriver
 	static status_t Probe(DeviceNode* node, DeviceDriver** driver);
@@ -40,11 +40,6 @@ private:
 	uint32 volatile* fRegs {};
 	uint64 fRegsLen {};
 };
-
-
-SysconDriver::~SysconDriver()
-{
-}
 
 
 status_t

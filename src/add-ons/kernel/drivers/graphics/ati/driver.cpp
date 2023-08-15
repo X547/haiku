@@ -39,7 +39,7 @@
 #define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
 
-#define ATT_DRIVER_MODULE_NAME "drivers/graphics/ati/driver/v1"
+#define ATI_DRIVER_MODULE_NAME "drivers/graphics/ati/driver/v1"
 
 #define ATI_ACCELERANT_NAME    "ati.accelerant"
 
@@ -977,6 +977,37 @@ AtiDriver::InitDevice()
 }
 
 
+// #pragma mark - AtiDevFsNode
+
+DevFsNode::Capabilities
+AtiDevFsNode::GetCapabilities() const
+{
+	return {
+		.control = true
+	};
+}
+
+
+status_t
+AtiDevFsNode::Open(const char* path, int openMode, DevFsNodeHandle **outHandle)
+{
+	ObjectDeleter<AtiDevFsNodeHandle> handle(new(std::nothrow) AtiDevFsNodeHandle(fDriver));
+	if (!handle.IsSet())
+		return B_NO_MEMORY;
+
+	{
+		RecursiveLocker lock(&fDriver.fLock);
+		if (fDriver.fOpenCount == 0) {
+			CHECK_RET(fDriver.InitDevice());
+			fDriver.fOpenCount++;
+		}
+	}
+
+	*outHandle = handle.Detach();
+	return B_OK;
+}
+
+
 // #pragma mark - AtiDevFsNodeHandle
 
 status_t
@@ -1097,40 +1128,9 @@ AtiDevFsNodeHandle::Control(uint32 msg, void* buffer, size_t bufferLength)
 }
 
 
-// #pragma mark - AtiDevFsNode
-
-DevFsNode::Capabilities
-AtiDevFsNode::GetCapabilities() const
-{
-	return {
-		.control = true
-	};
-}
-
-
-status_t
-AtiDevFsNode::Open(const char* path, int openMode, DevFsNodeHandle **outHandle)
-{
-	ObjectDeleter<AtiDevFsNodeHandle> handle(new(std::nothrow) AtiDevFsNodeHandle(fDriver));
-	if (!handle.IsSet())
-		return B_NO_MEMORY;
-
-	{
-		RecursiveLocker lock(&fDriver.fLock);
-		if (fDriver.fOpenCount == 0) {
-			CHECK_RET(fDriver.InitDevice());
-			fDriver.fOpenCount++;
-		}
-	}
-
-	*outHandle = handle.Detach();
-	return B_OK;
-}
-
-
 static driver_module_info sAtiDriverModule = {
 	.info = {
-		.name = ATT_DRIVER_MODULE_NAME,
+		.name = ATI_DRIVER_MODULE_NAME,
 	},
 	.probe = AtiDriver::Probe
 };

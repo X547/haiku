@@ -42,8 +42,6 @@ private:
 		HidDeviceImpl(UsbHidDriver& base): fBase(base) {}
 
 		// BusDriver
-		status_t InitDriver(DeviceNode* node) final;
-		const device_attr* Attributes() const final;
 		void* QueryInterface(const char* name) final;
 
 		// HidDevice
@@ -103,38 +101,27 @@ UsbHidDriver::Init()
 		B_USB_HID_DESCRIPTOR_REPORT << 8, interfaceIndex, descriptorLength,
 		&fReportDecriptor[0], &descriptorLength));
 
-	CHECK_RET(fNode->RegisterNode(static_cast<BusDriver*>(&fHidDevice), NULL));
+	device_attr attrs[] = {
+		{B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "HID Device"}},
+		{B_DEVICE_BUS,         B_STRING_TYPE, {.string = "hid"}},
+
+		{HID_DEVICE_REPORT_DESC,     B_RAW_TYPE,    {.raw = {.data = &fReportDecriptor[0], .length = 0}}},
+		{HID_DEVICE_MAX_INPUT_SIZE,  B_UINT16_TYPE, {.ui16 = 0}},
+		{HID_DEVICE_MAX_OUTPUT_SIZE, B_UINT16_TYPE, {.ui16 = 0}},
+		{HID_DEVICE_VENDOR,          B_UINT16_TYPE, {.ui16 = 0}},
+		{HID_DEVICE_PRODUCT,         B_UINT16_TYPE, {.ui16 = 0}},
+		{HID_DEVICE_VERSION,         B_UINT16_TYPE, {.ui16 = 0}},
+
+		{}
+	};
+
+	CHECK_RET(fNode->RegisterNode(this, static_cast<BusDriver*>(&fHidDevice), attrs, NULL));
 
 	return B_OK;
 }
 
 
 // #pragma mark - BusDriver
-
-status_t
-UsbHidDriver::HidDeviceImpl::InitDriver(DeviceNode* node)
-{
-	fAttrs.Add({B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "HID Device"}});
-	fAttrs.Add({B_DEVICE_BUS,         B_STRING_TYPE, {.string = "hid"}});
-
-	fAttrs.Add({HID_DEVICE_REPORT_DESC,     B_RAW_TYPE,    {.raw = {.data = &fBase.fReportDecriptor[0], .length = 0}}});
-	fAttrs.Add({HID_DEVICE_MAX_INPUT_SIZE,  B_UINT16_TYPE, {.ui16 = 0}});
-	fAttrs.Add({HID_DEVICE_MAX_OUTPUT_SIZE, B_UINT16_TYPE, {.ui16 = 0}});
-	fAttrs.Add({HID_DEVICE_VENDOR,          B_UINT16_TYPE, {.ui16 = 0}});
-	fAttrs.Add({HID_DEVICE_PRODUCT,         B_UINT16_TYPE, {.ui16 = 0}});
-	fAttrs.Add({HID_DEVICE_VERSION,         B_UINT16_TYPE, {.ui16 = 0}});
-
-	fAttrs.Add({});
-
-	return B_OK;
-}
-
-
-const device_attr*
-UsbHidDriver::HidDeviceImpl::Attributes() const
-{
-	return &fAttrs[0];
-}
 
 void*
 UsbHidDriver::HidDeviceImpl::QueryInterface(const char* name)

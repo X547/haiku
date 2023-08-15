@@ -408,7 +408,7 @@ static driver_module_info sVirtioBlockDriver = {
 };
 
 
-module_info* modules[] = {
+_EXPORT module_info* modules[] = {
 	(module_info* )&sVirtioBlockDriver,
 	NULL
 };

@@ -104,21 +104,14 @@ ECAMPCIController::Init()
 {
 	CHECK_RET(ReadResourceInfo());
 
-	CHECK_RET(fNode->RegisterNode(static_cast<BusDriver*>(&fBusManager), NULL));
-
-	return B_OK;
-}
-
-
-const device_attr* ECAMPCIController::BusManager::Attributes() const
-{
 	static const device_attr attrs[] = {
 		{B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "PCI Bus Manager"}},
 		{B_DEVICE_FIXED_CHILD, B_STRING_TYPE, {.string = "bus_managers/pci/driver/v1"}},
 		{}
 	};
+	CHECK_RET(fNode->RegisterNode(this, static_cast<BusDriver*>(&fBusManager), attrs, NULL));
 
-	return attrs;
+	return B_OK;
 }
 
 

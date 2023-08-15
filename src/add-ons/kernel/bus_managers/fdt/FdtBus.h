@@ -2,6 +2,7 @@
 
 #include <dm2/bus/FDT.h>
 
+#include <AutoDeleter.h>
 #include <HashMap.h>
 #include <util/Vector.h>
 
@@ -15,6 +16,30 @@
 
 
 #define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
+
+
+class FdtInterruptMapImpl: public FdtInterruptMap {
+public:
+	virtual ~FdtInterruptMapImpl() = default;
+
+	void Print() final;
+	uint32 Lookup(uint32 childAddr, uint32 childIrq) final;
+
+private:
+	friend class FdtDeviceImpl;
+
+	struct MapEntry {
+		uint32_t childAddr;
+		uint32_t childIrq;
+		uint32_t parentIrqCtrl;
+		uint32_t parentIrq;
+	};
+
+	uint32_t fChildAddrMask;
+	uint32_t fChildIrqMask;
+
+	Vector<MapEntry> fInterruptMap;
+};
 
 
 class FdtBusImpl: public DeviceDriver, public FdtBus {
@@ -46,9 +71,8 @@ public:
 	virtual ~FdtDeviceImpl() = default;
 
 	// BusDriver
-	status_t InitDriver(DeviceNode* node) final;
 	void Free() final;
-	const device_attr* Attributes() const final;
+	status_t InitDriver(DeviceNode* node) final;
 	void* QueryInterface(const char* name) final;
 
 	// FdtDevice
@@ -59,33 +83,14 @@ public:
 	bool GetInterrupt(uint32 ord, DeviceNode** interruptController, uint64* interrupt) final;
 	FdtInterruptMap* GetInterruptMap() final;
 
+	status_t BuildAttrs(Vector<device_attr>& attrs);
+
 private:
 	DeviceNode* fNode {};
 	DeviceNode* fBusNode {};
 	int fFdtNode = -1;
-	Vector<device_attr> fAttrs;
+
+	ObjectDeleter<FdtInterruptMapImpl> fInterruptMap;
 
 	int GetFdtNode();
-};
-
-
-class FdtInterruptMapImpl: public FdtInterruptMap {
-public:
-	virtual ~FdtInterruptMapImpl() = default;
-
-	void Print() final;
-	uint32 Lookup(uint32 childAddr, uint32 childIrq) final;
-
-private:
-	struct MapEntry {
-		uint32_t childAddr;
-		uint32_t childIrq;
-		uint32_t parentIrqCtrl;
-		uint32_t parentIrq;
-	};
-
-	uint32_t fChildAddrMask;
-	uint32_t fChildIrqMask;
-
-	Vector<MapEntry> fInterruptMap;
 };

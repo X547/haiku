@@ -6,6 +6,7 @@ SubInclude HAIKU_TOP src add-ons kernel busses i2c ;
 SubInclude HAIKU_TOP src add-ons kernel busses hid ;
 SubInclude HAIKU_TOP src add-ons kernel busses mmc ;
 SubInclude HAIKU_TOP src add-ons kernel busses pci ;
+SubInclude HAIKU_TOP src add-ons kernel busses ps2 ;
 SubInclude HAIKU_TOP src add-ons kernel busses random ;
 SubInclude HAIKU_TOP src add-ons kernel busses scsi ;
 SubInclude HAIKU_TOP src add-ons kernel busses usb ;

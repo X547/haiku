@@ -103,7 +103,7 @@ private:
 
 	friend class VirtioMmioQueue;
 	friend class VirtioIrqHandler;
-	friend class VirtioMmioBusDriver; // !!!
+	friend class VirtioMmioDeviceDriver; // !!!
 
 public:
 	VirtioMmioDevice();
@@ -146,13 +146,10 @@ public:
 	virtual ~VirtioMmioBusDriver() = default;
 
 	void Free() final;
-	status_t InitDriver(DeviceNode* node) final;
-	const device_attr* Attributes() const final;
 	void* QueryInterface(const char* name) final;
 
 private:
 	VirtioMmioDevice& fDevice;
-	Vector<device_attr> fAttrs;
 };
 
 

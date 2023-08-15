@@ -136,7 +136,6 @@ protected:
 	public:
 		BusManager(ECAMPCIController& base): fBase(base) {}
 
-		const device_attr* Attributes() const final;
 		void* QueryInterface(const char* name) final;
 
 	private:

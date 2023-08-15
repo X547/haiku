@@ -19,6 +19,64 @@
 DeviceManager DeviceManager::sInstance;
 
 
+static status_t
+copy_attributes(const device_attr* attrs, ArrayDeleter<device_attr> &outAttrs, ArrayDeleter<uint8> &outAttrData)
+{
+	size_t attrDataSize = 0;
+	size_t attrCount = 0;
+	for (const device_attr* attr = attrs; attr->name != NULL; attr++) {
+		switch (attr->type) {
+			case B_UINT8_TYPE:
+			case B_UINT16_TYPE:
+			case B_UINT32_TYPE:
+			case B_UINT64_TYPE:
+				break;
+			case B_STRING_TYPE:
+				attrDataSize += strlen(attr->value.string) + 1;
+				break;
+			case B_RAW_TYPE:
+				attrDataSize += attr->value.raw.length;
+				break;
+			default:
+				return B_BAD_VALUE;
+		}
+		attrCount++;
+	}
+	outAttrs.SetTo(new(std::nothrow) device_attr[attrCount + 1]);
+	if (!outAttrs.IsSet())
+		return B_NO_MEMORY;
+
+	outAttrData.SetTo(new(std::nothrow) uint8[attrDataSize]);
+	if (!outAttrData.IsSet())
+		return B_NO_MEMORY;
+
+	uint8* attrData = &outAttrData[0];
+
+	for (const device_attr* attr = attrs; attr->name != NULL; attr++) {
+		device_attr& outAttr = outAttrs[attr - attrs];
+		outAttr = *attr;
+
+		switch (attr->type) {
+			case B_STRING_TYPE: {
+				size_t curDataSize = strlen(attr->value.string) + 1;
+				memcpy(attrData, attr->value.string, curDataSize);
+				outAttr.value.string = (const char*)attrData;
+				attrData += curDataSize;
+				break;
+			}
+			case B_RAW_TYPE:
+				memcpy(attrData, attr->value.raw.data, attr->value.raw.length);
+				outAttr.value.raw.data = (const char*)attrData;
+				attrData += attr->value.raw.length;
+				break;
+		}
+	}
+	memset(&outAttrs[attrCount], 0, sizeof(device_attr));
+
+	return B_OK;
+}
+
+
 // #pragma mark - DeviceNodeImpl
 
 
@@ -32,8 +90,8 @@ DeviceNodeImpl::~DeviceNodeImpl()
 {
 	dprintf("-DeviceNodeImpl(%p)\n", this);
 
-	for (int32 i = 0; i < fDevFsNodes.Count(); i++) {
-		DevFsNodeWrapper* wrapper = fDevFsNodes[i];
+	while (!fDevFsNodes.IsEmpty()) {
+		DevFsNodeWrapper* wrapper = fDevFsNodes.RemoveHead();
 		devfs_unpublish_device(wrapper, true);
 		delete wrapper;
 	}
@@ -95,7 +153,7 @@ DeviceNodeImpl::FindChildNode(const device_attr* attrs, DeviceNode** outNode) co
 status_t
 DeviceNodeImpl::GetNextAttr(const device_attr** attr) const
 {
-	const device_attr* attrs = fBusDriver->Attributes();
+	const device_attr* attrs = &fAttributes[0];
 	if (attrs == NULL)
 		return B_ENTRY_NOT_FOUND;
 
@@ -121,7 +179,7 @@ DeviceNodeImpl::GetNextAttr(const device_attr** attr) const
 status_t
 DeviceNodeImpl::FindAttr(const char* name, type_code type, int32 index, const void** value, size_t* size) const
 {
-	const device_attr* attrs = fBusDriver->Attributes();
+	const device_attr* attrs = &fAttributes[0];
 	if (attrs == NULL)
 		return B_NAME_NOT_FOUND;
 
@@ -221,13 +279,13 @@ DeviceNodeImpl::UninstallListener(DeviceNodeListener* listener)
 
 
 status_t
-DeviceNodeImpl::RegisterNode(BusDriver* driver, DeviceNode** outNode)
+DeviceNodeImpl::RegisterNode(DeviceDriver* owner, BusDriver* driver, const device_attr* attrs, DeviceNode** outNode)
 {
 	BReference<DeviceNodeImpl> node(new(std::nothrow) DeviceNodeImpl(), true);
 	if (!node.IsSet())
 		return B_NO_MEMORY;
 
-	CHECK_RET(node->Register(this, driver));
+	CHECK_RET(node->Register(this, owner, driver, attrs));
 	// dprintf("DeviceNodeImpl::RegisterNode() -> %p\n", node.Get());
 
 	if (outNode != NULL)
@@ -271,6 +329,10 @@ status_t
 DeviceNodeImpl::RegisterDevFsNode(const char* path, DevFsNode* driver)
 {
 	dprintf("RegisterDevFsNode(\"%s\")\n", path);
+	if (driver == NULL) {
+		panic("DevFsNode passed to RegisterDevFsNode can't be NULL");
+		return B_BAD_VALUE;
+	}
 
 	ObjectDeleter<DevFsNodeWrapper> wrapper(new(std::nothrow) DevFsNodeWrapper(driver));
 	if (!wrapper.IsSet())
@@ -292,10 +354,13 @@ DeviceNodeImpl::UnregisterDevFsNode(const char* path)
 		devfs_put_device(device);
 	});
 
-	for (int32 i = 0; i < fDevFsNodes.Count(); i++) {
-		if (fDevFsNodes[i] == device) {
-			DevFsNodeWrapper* wrapper = static_cast<DevFsNodeWrapper*>(device);
-			fDevFsNodes.Erase(i);
+	for (
+		DevFsNodeWrapper* wrapper = fDevFsNodes.First();
+		wrapper != NULL;
+		wrapper = fDevFsNodes.GetNext(wrapper)
+	) {
+		if (wrapper == device) {
+			fDevFsNodes.Remove(wrapper);
 			devfs_unpublish_device(device, true);
 			delete wrapper;
 			return B_OK;
@@ -318,7 +383,11 @@ DeviceNodeImpl::GetName() const
 
 
 status_t
-DeviceNodeImpl::Register(DeviceNodeImpl* parent, BusDriver* driver)
+DeviceNodeImpl::Register(
+	DeviceNodeImpl* parent,
+	DeviceDriver* owner,
+	BusDriver* driver,
+	const device_attr* attrs)
 {
 	if (driver == NULL) {
 		panic("BusDriver passed to RegisterNode can't be NULL");
@@ -327,8 +396,11 @@ DeviceNodeImpl::Register(DeviceNodeImpl* parent, BusDriver* driver)
 
 	BusDriverDeleter driverDeleter(driver);
 
+	fOwnerDriver = owner;
 	fBusDriver = driver;
 	fParent = parent;
+
+	CHECK_RET(copy_attributes(attrs, fAttributes, fAttrData));
 
 	CHECK_RET(fBusDriver->InitDriver(this));
 
@@ -436,6 +508,7 @@ DeviceNodeImpl::ProbeDriver(const char* moduleName, bool isChild)
 	modulePutter.Detach();
 	fDeviceDriver = driver;
 	fDriverModuleName.SetTo(driverModuleName.Detach());
+	fBusDriver->DriverAttached(true);
 
 	return B_OK;
 }
@@ -445,6 +518,7 @@ void
 DeviceNodeImpl::UnsetDeviceDriver()
 {
 	if (fDeviceDriver != NULL) {
+		fBusDriver->DriverAttached(false);
 		fDeviceDriver->Free();
 		fDeviceDriver = NULL;
 		put_module(fDriverModuleName.Get());
@@ -506,7 +580,13 @@ DeviceManager::Init()
 	if (!rootBusDriver.IsSet())
 		return B_NO_MEMORY;
 
-	CHECK_RET(rootNode->Register(NULL, rootBusDriver.Detach()));
+	static const device_attr rootAttrs[] = {
+		{B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "Devices Root"}},
+		{B_DEVICE_BUS,         B_STRING_TYPE, {.string = "root"}},
+		{B_DEVICE_FLAGS,       B_UINT32_TYPE, {.ui32   = B_FIND_MULTIPLE_CHILDREN}},
+		{}
+	};
+	CHECK_RET(rootNode->Register(NULL, NULL, rootBusDriver.Detach(), rootAttrs));
 
 	return B_OK;
 }
@@ -561,6 +641,46 @@ DeviceManager::DumpTree()
 	dprintf("Node tree:\n");
 	DumpNode(fRoot, 0);
 	dprintf("\n");
+}
+
+
+static
+DeviceNodeImpl* find_node(DeviceNodeImpl* node, const char* name)
+{
+	if (strcmp(node->GetName(), name) == 0) {
+		node->AcquireReference();
+		return node;
+	}
+
+	for (
+		DeviceNodeImpl *child = node->ChildNodes().First();
+		child != NULL;
+		child = node->ChildNodes().GetNext(child)
+	) {
+		DeviceNodeImpl* res = find_node(child, name);
+		if (res != NULL)
+			return res;
+	}
+
+	return NULL;
+}
+
+
+void
+DeviceManager::RunTest(const char* testName)
+{
+	dprintf("DeviceManager::RunTest(\"%s\")\n", testName);
+
+	if (strcmp(testName, "driverDetach1") == 0) {
+		BReference<DeviceNodeImpl> root(static_cast<DeviceNodeImpl*>(Instance().GetRootNode()), true);
+		BReference<DeviceNodeImpl> node(find_node(root.Get(), "rtc@101000"), true);
+
+		dprintf("node: \"%s\"\n", node->GetName());
+		node->UnsetDeviceDriver();
+
+		Instance().DumpTree();
+	}
+	panic("(!)");
 }
 
 
@@ -628,7 +748,8 @@ static device_manager_info sDeviceManagerModule = {
 	},
 	.get_root_node = []() {return DeviceManager::Instance().GetRootNode();},
 	.probe_fence = []() {return DeviceManager::Instance().ProcessPendingNodes();},
-	.dump_tree = []() {return DeviceManager::Instance().DumpTree();},
+	.dump_tree = []() {DeviceManager::Instance().DumpTree();},
+	.run_test = [](const char* testName) {DeviceManager::Instance().RunTest(testName);},
 };
 
 

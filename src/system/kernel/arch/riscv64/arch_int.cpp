@@ -458,7 +458,7 @@ STrap(iframe* frame)
 						return;
 					}
 				}
-				panic("page fault with interrupts disabled@!dump_virt_page %#" B_PRIx64, stval);
+				panic("page fault with interrupts disabled, EPC: %#" B_PRIx64 ", STVAL: %#" B_PRIx64 " @!dump_virt_page %#" B_PRIx64, frame->epc, stval, stval);
 			}
 
 			addr_t newIP = 0;

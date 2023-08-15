@@ -53,8 +53,6 @@ private:
 		HidDeviceImpl(I2cHidDriver& base): fBase(base) {}
 
 		// BusDriver
-		status_t InitDriver(DeviceNode* node) final;
-		const device_attr* Attributes() const final;
 		void* QueryInterface(const char* name) final;
 
 		// HidDevice
@@ -72,7 +70,6 @@ private:
 
 	public:
 		I2cHidDriver& fBase;
-		Vector<device_attr> fAttrs;
 		HidDeviceCallback* fCallback {};
 	} fHidDevice;
 };
@@ -143,7 +140,21 @@ I2cHidDriver::Init()
 		(uint8*)&fDescriptor.wReportDescRegister, sizeof(fDescriptor.wReportDescRegister),
 		&fReportDecriptor[0], fDescriptor.wReportDescLength));
 
-	CHECK_RET(fNode->RegisterNode(static_cast<BusDriver*>(&fHidDevice), NULL));
+	device_attr attrs[] = {
+		{B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "HID Device"}},
+		{B_DEVICE_BUS,         B_STRING_TYPE, {.string = "hid"}},
+
+		{HID_DEVICE_REPORT_DESC,     B_RAW_TYPE,    {.raw = {.data = &fReportDecriptor[0], .length = fDescriptor.wReportDescLength}}},
+		{HID_DEVICE_MAX_INPUT_SIZE,  B_UINT16_TYPE, {.ui16 = fDescriptor.wMaxInputLength}},
+		{HID_DEVICE_MAX_OUTPUT_SIZE, B_UINT16_TYPE, {.ui16 = fDescriptor.wMaxOutputLength}},
+		{HID_DEVICE_VENDOR,          B_UINT16_TYPE, {.ui16 = fDescriptor.wVendorID}},
+		{HID_DEVICE_PRODUCT,         B_UINT16_TYPE, {.ui16 = fDescriptor.wProductID}},
+		{HID_DEVICE_VERSION,         B_UINT16_TYPE, {.ui16 = fDescriptor.wVersionID}},
+
+		{}
+	};
+
+	CHECK_RET(fNode->RegisterNode(this, static_cast<BusDriver*>(&fHidDevice), attrs, NULL));
 
 	return B_OK;
 }
@@ -181,31 +192,6 @@ I2cHidDriver::HandleInterruptInt()
 
 
 // #pragma mark - BusDriver
-
-status_t
-I2cHidDriver::HidDeviceImpl::InitDriver(DeviceNode* node)
-{
-	fAttrs.Add({B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "HID Device"}});
-	fAttrs.Add({B_DEVICE_BUS,         B_STRING_TYPE, {.string = "hid"}});
-
-	fAttrs.Add({HID_DEVICE_REPORT_DESC,     B_RAW_TYPE,    {.raw = {.data = &fBase.fReportDecriptor[0], .length = fBase.fDescriptor.wReportDescLength}}});
-	fAttrs.Add({HID_DEVICE_MAX_INPUT_SIZE,  B_UINT16_TYPE, {.ui16 = fBase.fDescriptor.wMaxInputLength}});
-	fAttrs.Add({HID_DEVICE_MAX_OUTPUT_SIZE, B_UINT16_TYPE, {.ui16 = fBase.fDescriptor.wMaxOutputLength}});
-	fAttrs.Add({HID_DEVICE_VENDOR,          B_UINT16_TYPE, {.ui16 = fBase.fDescriptor.wVendorID}});
-	fAttrs.Add({HID_DEVICE_PRODUCT,         B_UINT16_TYPE, {.ui16 = fBase.fDescriptor.wProductID}});
-	fAttrs.Add({HID_DEVICE_VERSION,         B_UINT16_TYPE, {.ui16 = fBase.fDescriptor.wVersionID}});
-
-	fAttrs.Add({});
-
-	return B_OK;
-}
-
-
-const device_attr*
-I2cHidDriver::HidDeviceImpl::Attributes() const
-{
-	return &fAttrs[0];
-}
 
 void*
 I2cHidDriver::HidDeviceImpl::QueryInterface(const char* name)

@@ -5,6 +5,7 @@
 
 #include <arch/platform.h>
 #include <boot/kernel_args.h>
+#include <boot_item.h>
 #include <Htif.h>
 #include <Plic.h>
 #include <Clint.h>
@@ -16,6 +17,7 @@
 uint32 gPlatform;
 
 void* gFDT = NULL;
+phys_addr_t sACPIRootPointer = 0;
 
 HtifRegs  *volatile gHtifRegs  = (HtifRegs *volatile)0;
 PlicRegs  *volatile gPlicRegs;
@@ -65,6 +67,10 @@ arch_platform_init_post_vm(struct kernel_args *kernelArgs)
 		dprintf("SBI vendor ID: %#lx\n", res.value);
 		res = sbi_get_marchid();
 		dprintf("SBI arch ID: %#lx\n", res.value);
+	}
+	if (kernelArgs->arch_args.acpi_root) {
+		sACPIRootPointer = kernelArgs->arch_args.acpi_root.Get();
+		add_boot_item("ACPI_ROOT_POINTER", &sACPIRootPointer, sizeof(sACPIRootPointer));
 	}
 	return B_OK;
 }

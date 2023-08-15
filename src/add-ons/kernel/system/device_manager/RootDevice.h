@@ -11,8 +11,9 @@ public:
 	// BusDriver
 	status_t InitDriver(DeviceNode* node) final;
 	void Free() final;
-	const device_attr* Attributes() const final;
 	status_t CreateChildNode(DeviceNode** outNode) final;
+
+	status_t Register();
 
 private:
 	DeviceNode* fNode {};

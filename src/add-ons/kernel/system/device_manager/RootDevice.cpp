@@ -24,17 +24,10 @@ RootDevice::Free()
 }
 
 
+#if 0
 const device_attr*
 RootDevice::Attributes() const
 {
-	static const device_attr rootAttrs[] = {
-		{B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "Devices Root"}},
-		{B_DEVICE_BUS, B_STRING_TYPE, {.string = "root"}},
-		{B_DEVICE_FLAGS, B_UINT32_TYPE,
-			{.ui32 = B_FIND_MULTIPLE_CHILDREN }},
-		{}
-	};
-
 	static const device_attr genericAttrs[] = {
 		{B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "Generic"}},
 		{B_DEVICE_BUS, B_STRING_TYPE, {.string = "generic"}},
@@ -42,13 +35,10 @@ RootDevice::Attributes() const
 		{NULL}
 	};
 
-	static const device_attr childAttrs[] = {
-		{B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "Root subnode"}},
-		{NULL}
-	};
 
 	return fIsRoot ? rootAttrs : childAttrs;
 }
+#endif
 
 
 status_t
@@ -58,7 +48,11 @@ RootDevice::CreateChildNode(DeviceNode** outNode)
 	if (!busDriver.IsSet())
 		return B_NO_MEMORY;
 
-	CHECK_RET(fNode->RegisterNode(busDriver.Detach(), outNode));
+	static const device_attr attrs[] = {
+		{B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "Root subnode"}},
+		{NULL}
+	};
+	CHECK_RET(fNode->RegisterNode(NULL, busDriver.Detach(), attrs, outNode));
 
 	return B_OK;
 }

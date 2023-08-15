@@ -60,11 +60,12 @@ typedef struct {
 struct device_manager_info {
 	module_info info;
 
-
 	DeviceNode *(*get_root_node)();
 	status_t (*probe_fence)();
 
 	void (*dump_tree)();
+
+	void (*run_test)(const char* testName);
 };
 
 
@@ -110,7 +111,7 @@ public:
 	virtual status_t InstallListener(DeviceNodeListener* listener) = 0;
 	virtual status_t UninstallListener(DeviceNodeListener* listener) = 0;
 
-	virtual status_t RegisterNode(BusDriver* driver, DeviceNode** node) = 0;
+	virtual status_t RegisterNode(DeviceDriver* owner, BusDriver* driver, const device_attr* attrs, DeviceNode** node) = 0;
 	virtual status_t UnregisterNode(DeviceNode* node) = 0;
 
 	virtual status_t RegisterDevFsNode(const char* path, DevFsNode* driver) = 0;
@@ -153,9 +154,8 @@ public:
 	virtual void Free() {}
 	// Called by DeviceNode::RegisterNode. DeviceNode::RegisterNode will fail if this method fails.
 	virtual status_t InitDriver(DeviceNode* node) {return B_OK;}
-	virtual const device_attr* Attributes() const = 0;
 	virtual void* QueryInterface(const char* name) {return NULL;}
-	virtual void DriverChanged() {}
+	virtual void DriverAttached(bool isAttached) {}
 	virtual status_t CreateChildNode(DeviceNode** outNode) {return ENOSYS;};
 
 protected:

@@ -1,7 +1,0 @@
-SubDir HAIKU_TOP src add-ons kernel interrupt_controllers aplic ;
-
-UsePrivateKernelHeaders ;
-UsePrivateHeaders shared ;
-
-KernelAddon aplic :
-	aplic.cpp ;

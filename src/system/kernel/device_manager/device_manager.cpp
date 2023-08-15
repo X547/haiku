@@ -42,6 +42,7 @@ device_manager_init(struct kernel_args* args)
 	sDeviceManager->dump_tree();
 	CHECK_RET(sDeviceManager->probe_fence());
 	sDeviceManager->dump_tree();
+	// sDeviceManager->run_test("driverDetach1");
 
 	modulePutter.Detach();
 	return B_OK;
