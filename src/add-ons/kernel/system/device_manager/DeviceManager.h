@@ -32,7 +32,7 @@ public:
 	status_t FindAttr(const char* name, type_code type, int32 index, const void** value, size_t* size) const final;
 
 	void* QueryBusInterface(const char* ifaceName) final;
-	void* QueryDriverInterface(const char* ifaceName) final;
+	void* QueryDriverInterface(const char* ifaceName, DeviceNode* dep) final;
 
 	status_t InstallListener(DeviceNodeListener* listener) final;
 	status_t UninstallListener(DeviceNodeListener* listener) final;
@@ -55,6 +55,7 @@ public:
 
 private:
 	void SetProbePending(bool doProbe);
+	void UnregisterOwnedNodes(DeviceDriver* owner);
 
 private:
 	DoublyLinkedListLink<DeviceNodeImpl> fLink;
@@ -111,8 +112,8 @@ public:
 	static DeviceManager& Instance() {return sInstance;}
 
 	status_t Init();
-	status_t FileSystemMounted();
 	DeviceNode* GetRootNode() const;
+	DeviceNodeImpl* GetRootNodeNoRef() const {return fRoot;}
 	void SetRootNode(DeviceNodeImpl* node);
 
 	DeviceNodeImpl::PendingList& PendingNodes() {return fPendingList;}

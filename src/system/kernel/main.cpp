@@ -64,7 +64,7 @@
 #include "vm/VMAnonymousCache.h"
 
 
-#define TRACE_BOOT
+//#define TRACE_BOOT
 #ifdef TRACE_BOOT
 #	define TRACE(x...) dprintf("INIT: " x)
 #else

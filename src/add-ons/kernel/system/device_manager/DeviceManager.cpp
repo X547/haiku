@@ -88,7 +88,7 @@ DeviceNodeImpl::DeviceNodeImpl()
 
 DeviceNodeImpl::~DeviceNodeImpl()
 {
-	dprintf("-DeviceNodeImpl(%p)\n", this);
+	dprintf("-DeviceNodeImpl(%p, \"%s\")\n", this, GetName());
 
 	while (!fDevFsNodes.IsEmpty()) {
 		DevFsNodeWrapper* wrapper = fDevFsNodes.RemoveHead();
@@ -248,15 +248,23 @@ DeviceNodeImpl::QueryBusInterface(const char* ifaceName)
 	return fBusDriver->QueryInterface(ifaceName);
 }
 
+
 void*
-DeviceNodeImpl::QueryDriverInterface(const char* ifaceName)
+DeviceNodeImpl::QueryDriverInterface(const char* ifaceName, DeviceNode* dep)
 {
 	Probe();
 
 	if (fDeviceDriver == NULL)
 		return NULL;
 
-	return fDeviceDriver->QueryInterface(ifaceName);
+	void* iface = fDeviceDriver->QueryInterface(ifaceName);
+	if (iface == NULL)
+		return NULL;
+#if 0
+	if (dep != NULL)
+		fDependants.Insert(static_cast<DriverDependencyImpl*>(dep));
+#endif
+	return iface;
 }
 
 
@@ -306,6 +314,14 @@ DeviceNodeImpl::UnregisterNode(DeviceNode* nodeIface)
 
 	if (node->fParent != this)
 		return B_ERROR; // TODO: better error code?
+
+	while (!fDevFsNodes.IsEmpty()) {
+		DevFsNodeWrapper* wrapper = fDevFsNodes.RemoveHead();
+		devfs_unpublish_device(wrapper, true);
+		delete wrapper;
+	}
+
+	node->UnsetDeviceDriver();
 
 	node->SetProbePending(false);
 	node->fState.registered = false;
@@ -518,6 +534,8 @@ void
 DeviceNodeImpl::UnsetDeviceDriver()
 {
 	if (fDeviceDriver != NULL) {
+		DeviceManager::Instance().GetRootNodeNoRef()->UnregisterOwnedNodes(fDeviceDriver);
+		dprintf("UnsetDeviceDriver(\"%s\", \"%s\")\n", GetName(), fDriverModuleName.Get());
 		fBusDriver->DriverAttached(false);
 		fDeviceDriver->Free();
 		fDeviceDriver = NULL;
@@ -544,16 +562,31 @@ DeviceNodeImpl::RemoveCompatDriverModule(DriverModuleInfo* module)
 void
 DeviceNodeImpl::SetProbePending(bool doProbe)
 {
-	// dprintf("%p.DeviceNodeImpl::SetProbe(%d)\n", this, doProbe);
+	// dprintf("%p.DeviceNodeImpl::SetProbePending(%d)\n", this, doProbe);
 
 	if (doProbe == fState.probePending)
 		return;
 
 	fState.probePending = doProbe;
+	PendingList& pendingNodes = DeviceManager::Instance().PendingNodes();
 	if (doProbe)
-		DeviceManager::Instance().PendingNodes().Insert(this);
+		pendingNodes.Insert(this);
 	else
-		DeviceManager::Instance().PendingNodes().Remove(this);
+		pendingNodes.Remove(this);
+}
+
+
+void
+DeviceNodeImpl::UnregisterOwnedNodes(DeviceDriver* owner)
+{
+	DeviceNodeImpl* node = fChildNodes.First();
+	while (node != NULL) {
+		DeviceNodeImpl* next = fChildNodes.GetNext(node);
+		node->UnregisterOwnedNodes(owner);
+		node = next;
+	}
+	if (fOwnerDriver == owner)
+		fParent->UnregisterNode(this);
 }
 
 
@@ -588,14 +621,6 @@ DeviceManager::Init()
 	};
 	CHECK_RET(rootNode->Register(NULL, NULL, rootBusDriver.Detach(), rootAttrs));
 
-	return B_OK;
-}
-
-
-status_t
-DeviceManager::FileSystemMounted()
-{
-	dprintf("DeviceManager::FileSystemMounted()\n");
 	return B_OK;
 }
 
@@ -673,12 +698,19 @@ DeviceManager::RunTest(const char* testName)
 
 	if (strcmp(testName, "driverDetach1") == 0) {
 		BReference<DeviceNodeImpl> root(static_cast<DeviceNodeImpl*>(Instance().GetRootNode()), true);
-		BReference<DeviceNodeImpl> node(find_node(root.Get(), "rtc@101000"), true);
+		BReference<DeviceNodeImpl> node(find_node(root.Get(), "i2c@8"), true);
 
-		dprintf("node: \"%s\"\n", node->GetName());
 		node->UnsetDeviceDriver();
-
 		Instance().DumpTree();
+
+		node->fState.probed = false;
+		node->SetProbePending(true);
+		ProcessPendingNodes();
+		Instance().DumpTree();
+
+#if 0
+		dprintf("node: \"%s\"\n", node->GetName());
+#endif
 	}
 	panic("(!)");
 }

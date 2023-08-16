@@ -8,6 +8,7 @@
 #include <acpi.h>
 
 #include <AutoDeleterDrivers.h>
+#include <ScopeExit.h>
 
 #include "acpi_irq_routing_table.h"
 
@@ -21,6 +22,9 @@ ECAMPCIControllerACPI::ReadResourceInfo()
 
 	acpi_module_info* acpiModule;
 	CHECK_RET(get_module(B_ACPI_MODULE_NAME, (module_info**)&acpiModule));
+	ScopeExit acpiModulePutter([]() {
+		put_module(B_ACPI_MODULE_NAME);
+	});
 
 	acpi_mcfg *mcfg;
 	CHECK_RET(acpiModule->get_table(ACPI_MCFG_SIGNATURE, 0, (void**)&mcfg));
@@ -142,6 +146,9 @@ ECAMPCIControllerACPI::Finalize()
 
 	acpi_module_info *acpiModule;
 	CHECK_RET(get_module(B_ACPI_MODULE_NAME, (module_info**)&acpiModule));
+	ScopeExit acpiModulePutter([]() {
+		put_module(B_ACPI_MODULE_NAME);
+	});
 
 	IRQRoutingTable table;
 	CHECK_RET(prepare_irq_routing(acpiModule, table, [](int32 gsi) {return true;}));

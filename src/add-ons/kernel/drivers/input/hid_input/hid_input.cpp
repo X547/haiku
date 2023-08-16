@@ -202,14 +202,6 @@ HidInputDriver::Init()
 	dprintf("  fMaxOutputSize: %" B_PRIu16 "\n", fMaxOutputSize);
 	dprintf("  fReportDescriptorLength: %" B_PRIuSIZE "\n", fReportDescriptorLength);
 
-	for (size_t i = 0; i < fReportDescriptorLength; i++) {
-		dprintf(" %02x", fReportDescriptor[i]);
-		if (i % 16 == 15)
-			dprintf("\n");
-	}
-	if (fReportDescriptorLength % 16 != 0)
-		dprintf("\n");
-
 	fInputBuffer.SetTo(new(std::nothrow) uint8[fMaxInputSize]);
 	if (!fInputBuffer.IsSet())
 		return B_NO_MEMORY;

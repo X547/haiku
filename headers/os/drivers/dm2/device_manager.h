@@ -83,6 +83,15 @@ struct driver_module_info {
 #define B_DEVICE_MANAGER_DRIVER_MODULE_SUFFIX "driver/v1"
 
 
+class DriverDependency {
+public:
+	virtual void Free() = 0;
+
+protected:
+	~DriverDependency() = default;
+};
+
+
 class DeviceNode {
 public:
 	virtual int32 AcquireReference() = 0;
@@ -101,12 +110,12 @@ public:
 	inline status_t FindAttrString(const char* name, const char** outValue, bool recursive = false) const;
 
 	virtual void* QueryBusInterface(const char* ifaceName) = 0;
-	virtual void* QueryDriverInterface(const char* ifaceName) = 0;
+	virtual void* QueryDriverInterface(const char* ifaceName, DeviceNode* dep) = 0;
 
 	template<typename Iface>
 	inline Iface* QueryBusInterface();
 	template<typename Iface>
-	inline Iface* QueryDriverInterface();
+	inline Iface* QueryDriverInterface(DeviceNode* dep = NULL);
 
 	virtual status_t InstallListener(DeviceNodeListener* listener) = 0;
 	virtual status_t UninstallListener(DeviceNodeListener* listener) = 0;
@@ -212,9 +221,9 @@ DeviceNode::QueryBusInterface()
 
 template<typename Iface>
 inline Iface*
-DeviceNode::QueryDriverInterface()
+DeviceNode::QueryDriverInterface(DeviceNode* dep)
 {
-	return (Iface*)QueryDriverInterface(Iface::ifaceName);
+	return (Iface*)QueryDriverInterface(Iface::ifaceName, dep);
 }
 
 

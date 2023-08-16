@@ -46,7 +46,6 @@ private:
 	long fIrqVector = -1;
 
 	i2c_hid_descriptor fDescriptor {};
-	ArrayDeleter<uint8> fReportDecriptor;
 
 	class HidDeviceImpl: public BusDriver, public HidDevice {
 	public:
@@ -102,7 +101,7 @@ I2cHidDriver::Init()
 
 	fFdtDevice = fNode->QueryBusInterface<FdtDevice>();
 	DeviceNodePutter i2cBusNode(fNode->GetParent());
-	fI2cBus = i2cBusNode->QueryDriverInterface<I2cBus>();
+	fI2cBus = i2cBusNode->QueryDriverInterface<I2cBus>(fNode);
 
 	int attrLen;
 	const void *attr = fFdtDevice->GetProp("reg", &attrLen);
@@ -131,20 +130,20 @@ I2cHidDriver::Init()
 	dprintf("  fDescriptor.wMaxInputLength: %" B_PRIu16 "\n", fDescriptor.wMaxInputLength);
 	dprintf("  fDescriptor.wMaxOutputLength: %" B_PRIu16 "\n", fDescriptor.wMaxOutputLength);
 
-	fReportDecriptor.SetTo(new(std::nothrow) uint8[fDescriptor.wReportDescLength]);
-	if (!fReportDecriptor.IsSet())
+	ArrayDeleter<uint8> reportDecriptor(new(std::nothrow) uint8[fDescriptor.wReportDescLength]);
+	if (!reportDecriptor.IsSet())
 		return B_NO_MEMORY;
 
 	CHECK_RET(ExecCommand(
 		I2C_OP_READ_STOP,
 		(uint8*)&fDescriptor.wReportDescRegister, sizeof(fDescriptor.wReportDescRegister),
-		&fReportDecriptor[0], fDescriptor.wReportDescLength));
+		&reportDecriptor[0], fDescriptor.wReportDescLength));
 
 	device_attr attrs[] = {
 		{B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "HID Device"}},
 		{B_DEVICE_BUS,         B_STRING_TYPE, {.string = "hid"}},
 
-		{HID_DEVICE_REPORT_DESC,     B_RAW_TYPE,    {.raw = {.data = &fReportDecriptor[0], .length = fDescriptor.wReportDescLength}}},
+		{HID_DEVICE_REPORT_DESC,     B_RAW_TYPE,    {.raw = {.data = &reportDecriptor[0], .length = fDescriptor.wReportDescLength}}},
 		{HID_DEVICE_MAX_INPUT_SIZE,  B_UINT16_TYPE, {.ui16 = fDescriptor.wMaxInputLength}},
 		{HID_DEVICE_MAX_OUTPUT_SIZE, B_UINT16_TYPE, {.ui16 = fDescriptor.wMaxOutputLength}},
 		{HID_DEVICE_VENDOR,          B_UINT16_TYPE, {.ui16 = fDescriptor.wVendorID}},

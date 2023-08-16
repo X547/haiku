@@ -388,7 +388,9 @@ arch_mmu_generate_post_efi_page_tables(size_t memoryMapSize, efi_memory_descript
 	// EFI runtime services
 	TRACE("EFI runtime services:\n");
 	for (size_t i = 0; i < memoryMapSize / descriptorSize; ++i) {
-		efi_memory_descriptor* entry = &memoryMap[i];
+		efi_memory_descriptor *entry
+			= (efi_memory_descriptor *)((addr_t)memoryMap + i * descriptorSize);
+
 		if ((entry->Attribute & EFI_MEMORY_RUNTIME) != 0)
 			MapRange(entry->VirtualStart, entry->PhysicalStart, entry->NumberOfPages * B_PAGE_SIZE,
 				(1 << pteRead) | (1 << pteWrite) | (1 << pteExec));
