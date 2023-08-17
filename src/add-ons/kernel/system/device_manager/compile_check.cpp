@@ -13,6 +13,11 @@
 #include <dm2/bus/USB.h>
 #include <dm2/bus/Virtio.h>
 
+#include <dm2/device/Clock.h>
+#include <dm2/device/InterruptController.h>
+#include <dm2/device/Reset.h>
+#include <dm2/device/Syscon.h>
+
 
 void DeviceNodeQueryTest(DeviceNode* node)
 {
