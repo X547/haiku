@@ -90,12 +90,6 @@ DeviceNodeImpl::~DeviceNodeImpl()
 {
 	dprintf("-DeviceNodeImpl(%p, \"%s\")\n", this, GetName());
 
-	while (!fDevFsNodes.IsEmpty()) {
-		DevFsNodeWrapper* wrapper = fDevFsNodes.RemoveHead();
-		devfs_unpublish_device(wrapper, true);
-		delete wrapper;
-	}
-
 	UnsetDeviceDriver();
 
 	if (fBusDriver != NULL)
@@ -315,12 +309,6 @@ DeviceNodeImpl::UnregisterNode(DeviceNode* nodeIface)
 	if (node->fParent != this)
 		return B_ERROR; // TODO: better error code?
 
-	while (!fDevFsNodes.IsEmpty()) {
-		DevFsNodeWrapper* wrapper = fDevFsNodes.RemoveHead();
-		devfs_unpublish_device(wrapper, true);
-		delete wrapper;
-	}
-
 	node->UnsetDeviceDriver();
 
 	node->SetProbePending(false);
@@ -370,20 +358,14 @@ DeviceNodeImpl::UnregisterDevFsNode(const char* path)
 		devfs_put_device(device);
 	});
 
-	for (
-		DevFsNodeWrapper* wrapper = fDevFsNodes.First();
-		wrapper != NULL;
-		wrapper = fDevFsNodes.GetNext(wrapper)
-	) {
-		if (wrapper == device) {
-			fDevFsNodes.Remove(wrapper);
-			devfs_unpublish_device(device, true);
-			delete wrapper;
-			return B_OK;
-		}
-	}
+	DevFsNodeWrapper* wrapper = static_cast<DevFsNodeWrapper*>(device);
+	if (!fDevFsNodes.Contains(wrapper))
+		return ENOENT;
 
-	return ENOENT;
+	fDevFsNodes.Remove(wrapper);
+	devfs_unpublish_device(device, true);
+	delete wrapper;
+	return B_OK;
 }
 
 
@@ -514,6 +496,7 @@ DeviceNodeImpl::ProbeDriver(const char* moduleName, bool isChild)
 		put_module(moduleName);
 	});
 
+	// TODO: unregister nodes and DevFS nodes on probe fail
 	DeviceDriver* driver {};
 	CHECK_RET(driverModule->probe(this, &driver));
 	if (driver == NULL) {
@@ -536,6 +519,11 @@ DeviceNodeImpl::UnsetDeviceDriver()
 	if (fDeviceDriver != NULL) {
 		DeviceManager::Instance().GetRootNodeNoRef()->UnregisterOwnedNodes(fDeviceDriver);
 		dprintf("UnsetDeviceDriver(\"%s\", \"%s\")\n", GetName(), fDriverModuleName.Get());
+		while (!fDevFsNodes.IsEmpty()) {
+			DevFsNodeWrapper* wrapper = fDevFsNodes.RemoveHead();
+			devfs_unpublish_device(wrapper, true);
+			delete wrapper;
+		}
 		fBusDriver->DriverAttached(false);
 		fDeviceDriver->Free();
 		fDeviceDriver = NULL;
