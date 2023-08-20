@@ -7,8 +7,11 @@
 
 
 #include <dm2/device_manager.h>
+#include <ByteOrder.h>
 
 
+class ClockDevice;
+class ResetDevice;
 class FdtInterruptMap;
 
 
@@ -31,8 +34,19 @@ public:
 	virtual const char* GetName() = 0;
 	virtual const void* GetProp(const char* name, int* len) = 0;
 	virtual bool GetReg(uint32 ord, uint64* regs, uint64* len) = 0;
+	virtual status_t GetRegByName(const char* name, uint64* regs, uint64* len) = 0;
 	virtual bool GetInterrupt(uint32 ord, DeviceNode** interruptController, uint64* interrupt) = 0;
+	virtual status_t GetInterruptByName(const char* name, DeviceNode** interruptController, uint64* interrupt) = 0;
 	virtual FdtInterruptMap* GetInterruptMap() = 0;
+
+	// TODO: declare dependency on clock controller driver
+	virtual status_t GetClock(uint32 ord, ClockDevice** clock) = 0;
+	virtual status_t GetClockByName(const char* name, ClockDevice** clock) = 0;
+	virtual status_t GetReset(uint32 ord, ResetDevice** reset) = 0;
+	virtual status_t GetResetByName(const char* name, ResetDevice** reset) = 0;
+
+	inline status_t GetPropUint32(const char* name, uint32& val);
+	inline status_t GetPropUint64(const char* name, uint64& val);
 
 protected:
 	~FdtDevice() = default;
@@ -47,6 +61,38 @@ public:
 protected:
 	~FdtInterruptMap() = default;
 };
+
+
+inline status_t
+FdtDevice::GetPropUint32(const char* name, uint32& val)
+{
+	int propLen;
+	const void* prop = GetProp(name, &propLen);
+	if (prop == NULL)
+		return B_NAME_NOT_FOUND;
+
+	if (propLen != 4)
+		return B_BAD_VALUE;
+
+	val = B_BENDIAN_TO_HOST_INT32(*(const uint32*)prop);
+	return B_OK;
+}
+
+
+inline status_t
+FdtDevice::GetPropUint64(const char* name, uint64& val)
+{
+	int propLen;
+	const void* prop = GetProp(name, &propLen);
+	if (prop == NULL)
+		return B_NAME_NOT_FOUND;
+
+	if (propLen != 8)
+		return B_BAD_VALUE;
+
+	val = B_BENDIAN_TO_HOST_INT64(*(const uint32*)prop);
+	return B_OK;
+}
 
 
 /* Attributes of FDT device nodes */

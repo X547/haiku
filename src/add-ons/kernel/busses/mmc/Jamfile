@@ -1,11 +1,4 @@
 SubDir HAIKU_TOP src add-ons kernel busses mmc ;
 
-SubDirC++Flags -fno-rtti ;
-
-UsePrivateKernelHeaders ;
-UsePrivateHeaders drivers ;
-SubDirHdrs $(HAIKU_TOP) src system kernel device_manager ;
-
-KernelAddon sdhci_pci :
-	sdhci_pci.cpp
-;
+SubInclude HAIKU_TOP src add-ons kernel busses mmc designware ;
+SubInclude HAIKU_TOP src add-ons kernel busses mmc sdhci ;

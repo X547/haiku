@@ -47,6 +47,9 @@ public:
 	FdtBusImpl(DeviceNode* node): fNode(node) {}
 	virtual ~FdtBusImpl() = default;
 
+	DeviceNode* GetNode() {return fNode;}
+	const void* GetFDT() {return fFDT.Get();}
+
 	// DeviceDriver
 	static status_t Probe(DeviceNode* node, DeviceDriver** driver);
 	void Free() final;
@@ -57,6 +60,7 @@ public:
 
 private:
 	DeviceNode* fNode;
+	MemoryDeleter fFDT;
 	HashMap<HashKey32<int32>, DeviceNode*> fPhandles;
 
 	status_t Init();
@@ -67,7 +71,7 @@ private:
 
 class FdtDeviceImpl: public BusDriver, public FdtDevice {
 public:
-	FdtDeviceImpl(DeviceNode* busNode, int fdtNode): fBusNode(busNode), fFdtNode(fdtNode) {}
+	FdtDeviceImpl(FdtBusImpl* bus, int fdtNode): fBus(bus), fFdtNode(fdtNode) {}
 	virtual ~FdtDeviceImpl() = default;
 
 	// BusDriver
@@ -80,15 +84,22 @@ public:
 	const char* GetName() final;
 	const void* GetProp(const char* name, int* len) final;
 	bool GetReg(uint32 ord, uint64* regs, uint64* len) final;
+	status_t GetRegByName(const char* name, uint64* regs, uint64* len) final;
 	bool GetInterrupt(uint32 ord, DeviceNode** interruptController, uint64* interrupt) final;
+	status_t GetInterruptByName(const char* name, DeviceNode** interruptController, uint64* interrupt) final;
 	FdtInterruptMap* GetInterruptMap() final;
+
+	status_t GetClock(uint32 ord, ClockDevice** clock) final;
+	status_t GetClockByName(const char* name, ClockDevice** clock) final;
+	status_t GetReset(uint32 ord, ResetDevice** reset) final;
+	status_t GetResetByName(const char* name, ResetDevice** reset) final;
 
 	status_t BuildAttrs(Vector<device_attr>& attrs);
 
 private:
-	DeviceNode* fNode {};
-	DeviceNode* fBusNode {};
+	FdtBusImpl* fBus;
 	int fFdtNode = -1;
+	DeviceNode* fNode {};
 
 	ObjectDeleter<FdtInterruptMapImpl> fInterruptMap;
 

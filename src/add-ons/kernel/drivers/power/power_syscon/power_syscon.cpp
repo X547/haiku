@@ -112,34 +112,19 @@ PowerSysconDriver::Init()
 
 	fFdtDevice = fNode->QueryBusInterface<FdtDevice>();
 
-	const void* prop;
-	int propLen;
-	prop = fFdtDevice->GetProp("regmap", &propLen);
-	if (prop == NULL || propLen != 4)
-		return B_ERROR;
-	uint32 regmapPhandle = B_BENDIAN_TO_HOST_INT32(*(const uint32*)prop);
+	uint32 regmapPhandle;
+	CHECK_RET(fFdtDevice->GetPropUint32("regmap", regmapPhandle));
 	// dprintf("  regmapPhandle: %" B_PRIu32 "\n", regmapPhandle);
 
-	prop = fFdtDevice->GetProp("offset", &propLen);
-	if (prop == NULL || propLen != 4)
-		return B_ERROR;
-	fOffset = B_BENDIAN_TO_HOST_INT32(*(const uint32*)prop);
+	CHECK_RET(fFdtDevice->GetPropUint32("offset", fOffset));
 	// dprintf("  fOffset: %" B_PRIu32 "\n", fOffset);
 
-	prop = fFdtDevice->GetProp("value", &propLen);
-	if (prop == NULL || propLen != 4)
-		return B_ERROR;
-	fValue = B_BENDIAN_TO_HOST_INT32(*(const uint32*)prop);
+	CHECK_RET(fFdtDevice->GetPropUint32("value", fValue));
 	// dprintf("  fValue: %" B_PRIu32 "\n", fValue);
 
-	prop = fFdtDevice->GetProp("mask", &propLen);
-	if (prop != NULL) {
-		if (propLen != 4)
-			return B_ERROR;
-
-		fMask = B_BENDIAN_TO_HOST_INT32(*(const uint32*)prop);
-		// dprintf("  fMask: %" B_PRIu32 "\n", fMask);
-	}
+	status_t res = fFdtDevice->GetPropUint32("mask", fMask);
+	if (res < B_OK && res != B_NAME_NOT_FOUND)
+		return res;
 
 	DeviceNodePutter fdtBusNode(fFdtDevice->GetBus());
 	FdtBus* fdtBus = fdtBusNode->QueryDriverInterface<FdtBus>();

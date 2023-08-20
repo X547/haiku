@@ -28,6 +28,7 @@ class DevFsNodeHandle;
 #define B_FIND_CHILD_ON_DEMAND		0x01
 #define B_FIND_MULTIPLE_CHILDREN	0x02
 #define B_KEEP_DRIVER_LOADED		0x04
+#define B_NO_DRIVER_ATTACHMENT		0x08
 
 /* DMA attributes */
 #define B_DMA_LOW_ADDRESS			"dma/low_address"

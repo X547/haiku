@@ -35,7 +35,7 @@ public:
 	void* QueryInterface(const char* name) final;
 
 	// InterruptControllerDevice
-	status_t GetVector(uint64 irq, long* vector);
+	status_t GetVector(const uint8* optInfo, uint32 optInfoSize, long* vector);
 
 	// InterruptSource
 	void EnableIoInterrupt(int irq) final;
@@ -197,9 +197,13 @@ AplicInterruptController::QueryInterface(const char* name)
 
 
 status_t
-AplicInterruptController::GetVector(uint64 irq, long* vector)
+AplicInterruptController::GetVector(const uint8* optInfo, uint32 optInfoSize, long* vector)
 {
-	dprintf("AplicInterruptController::GetVector(%" B_PRIu64 ")\n", irq);
+	if (optInfoSize != 4)
+		return B_BAD_VALUE;
+
+	uint32 irq = B_BENDIAN_TO_HOST_INT32(*((const uint32*)optInfo));
+
 	if (irq < 1 || irq >= fIrqCount + 1)
 		return B_BAD_INDEX;
 

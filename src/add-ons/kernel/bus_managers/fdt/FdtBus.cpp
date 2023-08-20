@@ -11,6 +11,10 @@
 
 #include <ByteOrder.h>
 
+#include <dm2/device/InterruptController.h>
+#include <dm2/device/Clock.h>
+#include <dm2/device/Reset.h>
+
 #include <AutoDeleterDM2.h>
 #include <debug.h>
 
@@ -73,17 +77,17 @@ fdt_get_size_cells(const void* fdt, int node)
 
 
 static uint32
-fdt_get_interrupt_parent(int node)
+fdt_get_interrupt_parent(const void* fdt, int node)
 {
 	while (node >= 0) {
 		uint32* prop;
 		int propLen;
-		prop = (uint32*)fdt_getprop(gFDT, node, "interrupt-parent", &propLen);
+		prop = (uint32*)fdt_getprop(fdt, node, "interrupt-parent", &propLen);
 		if (prop != NULL && propLen == 4) {
 			return fdt32_to_cpu(*prop);
 		}
 
-		node = fdt_parent_offset(gFDT, node);
+		node = fdt_parent_offset(fdt, node);
 	}
 
 	return 0;
@@ -91,20 +95,37 @@ fdt_get_interrupt_parent(int node)
 
 
 static uint32
-fdt_get_interrupt_cells(uint32 interrupt_parent_phandle)
+fdt_get_interrupt_cells(const void* fdt, uint32 interrupt_parent_phandle)
 {
 	if (interrupt_parent_phandle > 0) {
-		int node = fdt_node_offset_by_phandle(gFDT, interrupt_parent_phandle);
+		int node = fdt_node_offset_by_phandle(fdt, interrupt_parent_phandle);
 		if (node >= 0) {
 			uint32* prop;
 			int propLen;
-			prop  = (uint32*)fdt_getprop(gFDT, node, "#interrupt-cells", &propLen);
+			prop  = (uint32*)fdt_getprop(fdt, node, "#interrupt-cells", &propLen);
 			if (prop != NULL && propLen == 4) {
 				return fdt32_to_cpu(*prop);
 			}
 		}
 	}
 	return 1;
+}
+
+
+static int32
+fdt_find_string(const char* prop, int size, const char* name)
+{
+	int32 index = 0;
+	int nameLen = strlen(name);
+	const char* propEnd = prop + size;
+	while (propEnd - prop > 0) {
+		int curLen = strlen(prop);
+		if (curLen == nameLen && memcmp(prop, name, curLen + 1) == 0)
+			return index;
+		prop += curLen + 1;
+		index++;
+	}
+	return B_NAME_NOT_FOUND;
 }
 
 
@@ -161,15 +182,14 @@ FdtBusImpl::Init()
 		return ENODEV;
 
 	size_t size = fdt_totalsize(gFDT);
-	void* newFDT = malloc(size);
-	if (newFDT == NULL)
+	fFDT.SetTo(malloc(size));
+	if (!fFDT.IsSet())
 		return B_NO_MEMORY;
 
-	memcpy(newFDT, gFDT, size);
-	gFDT = newFDT;
+	memcpy(fFDT.Get(), gFDT, size);
 
 	int node = -1, depth = -1;
-	node = fdt_next_node(gFDT, node, &depth);
+	node = fdt_next_node(fFDT.Get(), node, &depth);
 	CHECK_RET(Traverse(node, depth, fNode));
 
 	return B_OK;
@@ -182,13 +202,13 @@ FdtBusImpl::Traverse(int &node, int &depth, DeviceNode* parentDev)
 	int curDepth = depth;
 #if 0
 	for (int i = 0; i < depth; i++) dprintf("  ");
-	dprintf("node('%s')\n", fdt_get_name(gFDT, node, NULL));
+	dprintf("node('%s')\n", fdt_get_name(fFDT.Get(), node, NULL));
 #endif
 	DeviceNode* curDev {};
 	CHECK_RET(RegisterNode(node, parentDev, curDev));
 	DeviceNodePutter curDevDeleter(curDev);
 
-	node = fdt_next_node(gFDT, node, &depth);
+	node = fdt_next_node(fFDT.Get(), node, &depth);
 	while (node >= 0 && depth == curDepth + 1) {
 		CHECK_RET(Traverse(node, depth, curDev));
 	}
@@ -199,11 +219,11 @@ FdtBusImpl::Traverse(int &node, int &depth, DeviceNode* parentDev)
 status_t
 FdtBusImpl::RegisterNode(int node, DeviceNode* parentDev, DeviceNode*& curDev)
 {
-	TRACE("%s('%s', %p)\n", __func__, fdt_get_name(gFDT, node, NULL), parentDev);
+	TRACE("%s('%s', %p)\n", __func__, fdt_get_name(fFDT.Get(), node, NULL), parentDev);
 
 	const void* prop; int propLen;
 
-	ObjectDeleter<FdtDeviceImpl> fdtDev(new(std::nothrow) FdtDeviceImpl(fNode, node));
+	ObjectDeleter<FdtDeviceImpl> fdtDev(new(std::nothrow) FdtDeviceImpl(this, node));
 	if (!fdtDev.IsSet()) {
 		return B_NO_MEMORY;
 	}
@@ -212,7 +232,7 @@ FdtBusImpl::RegisterNode(int node, DeviceNode* parentDev, DeviceNode*& curDev)
 	CHECK_RET(fdtDev->BuildAttrs(attrs));
 	CHECK_RET(parentDev->RegisterNode(this, static_cast<BusDriver*>(fdtDev.Detach()), &attrs[0], &curDev));
 
-	prop = fdt_getprop(gFDT, node, "phandle", &propLen);
+	prop = fdt_getprop(fFDT.Get(), node, "phandle", &propLen);
 	if (prop != NULL)
 		fPhandles.Put(fdt32_to_cpu(*(uint32_t*)prop), curDev);
 
@@ -227,7 +247,7 @@ FdtDeviceImpl::BuildAttrs(Vector<device_attr>& attrs)
 {
 	const void* prop; int propLen;
 	int nameLen = 0;
-	const char *name = fdt_get_name(gFDT, fFdtNode, &nameLen);
+	const char *name = fdt_get_name(fBus->GetFDT(), fFdtNode, &nameLen);
 
 	if (name == NULL) {
 		dprintf("%s ERROR: fdt_get_name: %s\n", __func__, fdt_strerror(nameLen));
@@ -240,12 +260,12 @@ FdtDeviceImpl::BuildAttrs(Vector<device_attr>& attrs)
 	CHECK_RET(attrs.Add({ B_FDT_DEVICE_NODE, B_UINT32_TYPE, {.ui32 = (uint32)fFdtNode}}));
 	CHECK_RET(attrs.Add({ B_FDT_DEVICE_NAME, B_STRING_TYPE, {.string = name}}));
 
-	prop = fdt_getprop(gFDT, fFdtNode, "device_type", &propLen);
+	prop = GetProp("device_type", &propLen);
 	if (prop != NULL) {
 		CHECK_RET(attrs.Add({ B_FDT_DEVICE_TYPE, B_STRING_TYPE, { .string = (const char*)prop }}));
 	}
 
-	prop = fdt_getprop(gFDT, fFdtNode, "compatible", &propLen);
+	prop = GetProp("compatible", &propLen);
 
 	if (prop != NULL) {
 		const char* propStr = (const char*)prop;
@@ -293,22 +313,22 @@ FdtDeviceImpl::QueryInterface(const char* name)
 DeviceNode*
 FdtDeviceImpl::GetBus()
 {
-	fBusNode->AcquireReference();
-	return fBusNode;
+	fBus->GetNode()->AcquireReference();
+	return fBus->GetNode();
 }
 
 
 const char*
 FdtDeviceImpl::GetName()
 {
-	return fdt_get_name(gFDT, fFdtNode, NULL);
+	return fdt_get_name(fBus->GetFDT(), fFdtNode, NULL);
 }
 
 
 const void*
 FdtDeviceImpl::GetProp(const char* name, int* len)
 {
-	return fdt_getprop(gFDT, fFdtNode, name, len);
+	return fdt_getprop(fBus->GetFDT(), fFdtNode, name, len);
 }
 
 
@@ -316,12 +336,12 @@ bool
 FdtDeviceImpl::GetReg(uint32 ord, uint64* regs, uint64* len)
 {
 	int propLen;
-	const void* prop = fdt_getprop(gFDT, fFdtNode, "reg", &propLen);
+	const void* prop = GetProp("reg", &propLen);
 	if (prop == NULL)
 		return false;
 
-	uint32 addressCells = fdt_get_address_cells(gFDT, fFdtNode);
-	uint32 sizeCells = fdt_get_size_cells(gFDT, fFdtNode);
+	uint32 addressCells = fdt_get_address_cells(fBus->GetFDT(), fFdtNode);
+	uint32 sizeCells = fdt_get_size_cells(fBus->GetFDT(), fFdtNode);
 	size_t entrySize = 4 * (addressCells + sizeCells);
 
 	if ((ord + 1) * entrySize > (uint32)propLen)
@@ -355,6 +375,24 @@ FdtDeviceImpl::GetReg(uint32 ord, uint64* regs, uint64* len)
 }
 
 
+status_t
+FdtDeviceImpl::GetRegByName(const char* name, uint64* regs, uint64* len)
+{
+	int propLen;
+	const void* prop = GetProp("reg-names", &propLen);
+	if (prop == NULL)
+		return B_NAME_NOT_FOUND;
+
+	int32 index = fdt_find_string((const char*)prop, propLen, name);
+	CHECK_RET(index);
+
+	if (!GetReg(index, regs, len))
+		return B_BAD_INDEX;
+
+	return B_OK;
+}
+
+
 bool
 FdtDeviceImpl::GetInterrupt(uint32 index, DeviceNode** outInterruptController, uint64* interrupt)
 {
@@ -362,12 +400,12 @@ FdtDeviceImpl::GetInterrupt(uint32 index, DeviceNode** outInterruptController, u
 	uint32 interruptNumber = 0;
 
 	int propLen;
-	const uint32 *prop = (uint32*)fdt_getprop(gFDT, fFdtNode, "interrupts-extended", &propLen);
+	const uint32 *prop = (uint32*)GetProp("interrupts-extended", &propLen);
 	if (prop == NULL) {
-		interruptParent = fdt_get_interrupt_parent(fFdtNode);
-		uint32 interruptCells = fdt_get_interrupt_cells(interruptParent);
+		interruptParent = fdt_get_interrupt_parent(fBus->GetFDT(), fFdtNode);
+		uint32 interruptCells = fdt_get_interrupt_cells(fBus->GetFDT(), interruptParent);
 
-		prop = (uint32*)fdt_getprop(gFDT, (int)fFdtNode, "interrupts", &propLen);
+		prop = (uint32*)GetProp("interrupts", &propLen);
 		if (prop == NULL)
 			return false;
 
@@ -398,8 +436,7 @@ FdtDeviceImpl::GetInterrupt(uint32 index, DeviceNode** outInterruptController, u
 	}
 
 	if (outInterruptController != NULL) {
-		FdtBus* bus = fBusNode->QueryDriverInterface<FdtBus>();
-		DeviceNode* intCtrlFdtNode = bus->NodeByPhandle(interruptParent);
+		DeviceNode* intCtrlFdtNode = fBus->NodeByPhandle(interruptParent);
 		if (intCtrlFdtNode != NULL)
 			intCtrlFdtNode->AcquireReference();
 
@@ -410,6 +447,24 @@ FdtDeviceImpl::GetInterrupt(uint32 index, DeviceNode** outInterruptController, u
 		*interrupt = interruptNumber;
 
 	return true;
+}
+
+
+status_t
+FdtDeviceImpl::GetInterruptByName(const char* name, DeviceNode** interruptController, uint64* interrupt)
+{
+	int propLen;
+	const void* prop = GetProp("interrupt-names", &propLen);
+	if (prop == NULL)
+		return B_NAME_NOT_FOUND;
+
+	int32 index = fdt_find_string((const char*)prop, propLen, name);
+	CHECK_RET(index);
+
+	if (!GetInterrupt(index, interruptController, interrupt))
+		return B_BAD_INDEX;
+
+	return B_OK;
 }
 
 
@@ -424,8 +479,7 @@ FdtDeviceImpl::GetInterruptMap()
 		return NULL;
 
 	int intMapMaskLen;
-	const void* intMapMask = fdt_getprop(gFDT, fFdtNode, "interrupt-map-mask",
-		&intMapMaskLen);
+	const void* intMapMask = GetProp("interrupt-map-mask", &intMapMaskLen);
 
 	if (intMapMask == NULL || intMapMaskLen != 4 * 4) {
 		dprintf("  interrupt-map-mask property not found or invalid\n");
@@ -436,7 +490,7 @@ FdtDeviceImpl::GetInterruptMap()
 	interruptMap->fChildIrqMask = B_BENDIAN_TO_HOST_INT32(*((uint32*)intMapMask + 3));
 
 	int intMapLen;
-	const void* intMapAddr = fdt_getprop(gFDT, fFdtNode, "interrupt-map", &intMapLen);
+	const void* intMapAddr = GetProp("interrupt-map", &intMapLen);
 	if (intMapAddr == NULL) {
 		dprintf("  interrupt-map property not found\n");
 		return NULL;
@@ -448,11 +502,11 @@ FdtDeviceImpl::GetInterruptMap()
 
 	const void *property;
 
-	property = fdt_getprop(gFDT, fFdtNode, "#address-cells", NULL);
+	property = GetProp("#address-cells", NULL);
 	if (property != NULL)
 		addressCells = B_BENDIAN_TO_HOST_INT32(*(uint32*)property);
 
-	property = fdt_getprop(gFDT, fFdtNode, "#interrupt-cells", NULL);
+	property = GetProp("#interrupt-cells", NULL);
 	if (property != NULL)
 		interruptCells = B_BENDIAN_TO_HOST_INT32(*(uint32*)property);
 
@@ -472,13 +526,13 @@ FdtDeviceImpl::GetInterruptMap()
 		int parentAddressCells = 0;
 		int parentInterruptCells = 1;
 
-		int interruptParent = fdt_node_offset_by_phandle(gFDT, irqEntry.parentIrqCtrl);
+		int interruptParent = fdt_node_offset_by_phandle(fBus->GetFDT(), irqEntry.parentIrqCtrl);
 		if (interruptParent >= 0) {
-			property = fdt_getprop(gFDT, interruptParent, "#address-cells", NULL);
+			property = fdt_getprop(fBus->GetFDT(), interruptParent, "#address-cells", NULL);
 			if (property != NULL)
 				parentAddressCells = B_BENDIAN_TO_HOST_INT32(*(uint32*)property);
 
-			property = fdt_getprop(gFDT, interruptParent, "#interrupt-cells", NULL);
+			property = fdt_getprop(fBus->GetFDT(), interruptParent, "#interrupt-cells", NULL);
 			if (property != NULL)
 				parentInterruptCells = B_BENDIAN_TO_HOST_INT32(*(uint32*)property);
 		}
@@ -505,6 +559,146 @@ FdtDeviceImpl::GetInterruptMap()
 
 	fInterruptMap.SetTo(interruptMap.Detach());
 	return fInterruptMap.Get();
+}
+
+
+status_t
+FdtDeviceImpl::GetClock(uint32 ord, ClockDevice** outClock)
+{
+	int clocksPropLen;
+	const uint8* clocksProp = (const uint8*)GetProp("clocks", &clocksPropLen);
+	if (clocksProp == NULL)
+		return B_BAD_INDEX;
+
+	for (;;) {
+		if (clocksPropLen < 4)
+			return B_BAD_INDEX;
+
+		uint32 phandle = B_BENDIAN_TO_HOST_INT32(*(const uint32*)clocksProp);
+		clocksProp    += 4;
+		clocksPropLen -= 4;
+
+		DeviceNode* clockCtrlNode = fBus->NodeByPhandle(phandle);
+		if (clockCtrlNode == NULL)
+			return B_ERROR;
+
+		FdtDevice* clockCtrlDev = clockCtrlNode->QueryBusInterface<FdtDevice>();
+		int propLen;
+		const void* prop = clockCtrlDev->GetProp("#clock-cells", &propLen);
+		uint32 clockCells = 0;
+		if (prop != NULL) {
+			if (propLen != 4)
+				return B_ERROR;
+
+			clockCells = B_BENDIAN_TO_HOST_INT32(*(const uint32*)prop);
+		}
+
+		if ((uint32)clocksPropLen < 4*clockCells)
+			return B_BAD_INDEX;
+
+		if (ord == 0) {
+			ClockController* clockCtrl = clockCtrlNode->QueryDriverInterface<ClockController>();
+			if (clockCtrl == NULL)
+				return B_ERROR;
+
+			ClockDevice* clock = clockCtrl->GetDevice(clocksProp, 4*clockCells);
+			if (clock == NULL)
+				return ENODEV;
+
+			*outClock = clock;
+			return B_OK;
+		}
+
+		clocksProp    += 4*clockCells;
+		clocksPropLen -= 4*clockCells;
+
+		ord--;
+	}
+}
+
+
+status_t
+FdtDeviceImpl::GetClockByName(const char* name, ClockDevice** clock)
+{
+	int propLen;
+	const void* prop = GetProp("clock-names", &propLen);
+	if (prop == NULL)
+		return B_NAME_NOT_FOUND;
+
+	int32 index = fdt_find_string((const char*)prop, propLen, name);
+	CHECK_RET(index);
+
+	return GetClock(index, clock);
+}
+
+
+status_t
+FdtDeviceImpl::GetReset(uint32 ord, ResetDevice** outReset)
+{
+	int resetsPropLen;
+	const uint8* resetsProp = (const uint8*)GetProp("resets", &resetsPropLen);
+	if (resetsProp == NULL)
+		return B_BAD_INDEX;
+
+	for (;;) {
+		if (resetsPropLen < 4)
+			return B_BAD_INDEX;
+
+		uint32 phandle = B_BENDIAN_TO_HOST_INT32(*(const uint32*)resetsProp);
+		resetsProp    += 4;
+		resetsPropLen -= 4;
+
+		DeviceNode* resetCtrlNode = fBus->NodeByPhandle(phandle);
+		if (resetCtrlNode == NULL)
+			return B_ERROR;
+
+		FdtDevice* resetCtrlDev = resetCtrlNode->QueryBusInterface<FdtDevice>();
+		int propLen;
+		const void* prop = resetCtrlDev->GetProp("#reset-cells", &propLen);
+		uint32 resetCells = 0;
+		if (prop != NULL) {
+			if (propLen != 4)
+				return B_ERROR;
+
+			resetCells = B_BENDIAN_TO_HOST_INT32(*(const uint32*)prop);
+		}
+
+		if ((uint32)resetsPropLen < 4*resetCells)
+			return B_BAD_INDEX;
+
+		if (ord == 0) {
+			ResetController* resetCtrl = resetCtrlNode->QueryDriverInterface<ResetController>();
+			if (resetCtrl == NULL)
+				return B_ERROR;
+
+			ResetDevice* reset = resetCtrl->GetDevice(resetsProp, 4*resetCells);
+			if (reset == NULL)
+				return ENODEV;
+
+			*outReset = reset;
+			return B_OK;
+		}
+
+		resetsProp    += 4*resetCells;
+		resetsPropLen -= 4*resetCells;
+
+		ord--;
+	}
+}
+
+
+status_t
+FdtDeviceImpl::GetResetByName(const char* name, ResetDevice** reset)
+{
+	int propLen;
+	const void* prop = GetProp("reset-names", &propLen);
+	if (prop == NULL)
+		return B_NAME_NOT_FOUND;
+
+	int32 index = fdt_find_string((const char*)prop, propLen, name);
+	CHECK_RET(index);
+
+	return GetReset(index, reset);
 }
 
 

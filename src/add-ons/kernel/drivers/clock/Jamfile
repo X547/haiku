@@ -1,0 +1,4 @@
+SubDir HAIKU_TOP src add-ons kernel drivers clock ;
+
+SubInclude HAIKU_TOP src add-ons kernel drivers clock fixed ;
+SubInclude HAIKU_TOP src add-ons kernel drivers clock jh7110 ;

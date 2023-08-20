@@ -4,6 +4,5 @@ UsePrivateKernelHeaders ;
 UsePrivateHeaders drivers ;
 
 KernelAddon mmc :
-	mmc_module.cpp
 	mmc_bus.cpp
 	;

@@ -1,0 +1,10 @@
+SubDir HAIKU_TOP src add-ons kernel busses mmc designware ;
+
+SubDirC++Flags -fno-rtti -fvisibility=hidden ;
+
+UsePrivateHeaders drivers ;
+UsePrivateKernelHeaders ;
+
+KernelAddon designware_mmc :
+	designware_mmc.cpp
+	;

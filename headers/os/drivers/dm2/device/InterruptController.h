@@ -7,7 +7,7 @@ class InterruptControllerDevice {
 public:
 	static inline const char ifaceName[] = "interrupt_controller";
 
-	virtual status_t GetVector(uint64 irq, long* vector) = 0;
+	virtual status_t GetVector(const uint8* optInfo, uint32 optInfoSize, long* vector) = 0;
 
 protected:
 	~InterruptControllerDevice() = default;
