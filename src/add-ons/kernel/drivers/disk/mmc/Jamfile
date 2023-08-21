@@ -4,6 +4,8 @@ UsePrivateKernelHeaders ;
 UsePrivateHeaders drivers ;
 SubDirHdrs $(HAIKU_TOP) src system kernel device_manager ;
 
+SubDirC++Flags -fvisibility=hidden -std=c++20 ;
+
 KernelAddon mmc_disk :
 	mmc_disk.cpp
 ;

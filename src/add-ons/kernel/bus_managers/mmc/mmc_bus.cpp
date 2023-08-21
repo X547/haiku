@@ -128,9 +128,9 @@ MmcBusDriver::Init()
 	// FIXME MMC cards will not reply to this! They expect CMD1 instead
 	// SD v1 cards will also not reply, but we can proceed to ACMD41
 	// If ACMD41 also does not work, it may be an SDIO card, too
-	uint32_t probe = (HOST_27_36V << 8) | kVoltageCheckPattern;
-	uint32_t hcs = 1 << 30;
-	uint32_t response;
+	uint32 probe = (HOST_27_36V << 8) | kVoltageCheckPattern;
+	uint32 hcs = 1 << 30;
+	uint32 response;
 	if (fMmcBus->ExecuteCommand(SD_SEND_IF_COND, probe, &response) != B_OK) {
 		TRACE("Card does not implement CMD8, may be a V1 SD card\n");
 		// Do not check for SDHC support in this case
@@ -144,10 +144,10 @@ MmcBusDriver::Init()
 	// Probe OCR, waiting for card to become ready
 	// We keep repeating ACMD41 until the card replies that it is
 	// initialized.
-	uint32_t ocr = 0;
+	uint32 ocr = 0;
 	if (hcs != 0) {
 		do {
-			uint32_t cardStatus {};
+			uint32 cardStatus {};
 			while (fMmcBus->ExecuteCommand(SD_APP_CMD, 0, &cardStatus) == B_TIMED_OUT) {
 				ERROR("Card locked after CMD8...\n");
 				snooze(1000000);
@@ -168,7 +168,7 @@ MmcBusDriver::Init()
 
 	// FIXME this should be asked to each card, when there are multiple
 	// ones. So ACMD41 should be moved inside the probing loop below?
-	uint8_t cardType = CARD_TYPE_SD;
+	uint8 cardType = CARD_TYPE_SD;
 
 	if ((ocr & hcs) != 0)
 		cardType = CARD_TYPE_SDHC;
@@ -187,7 +187,7 @@ MmcBusDriver::Init()
 	// that first card, and repeat the process with the remaining ones
 	// until no one answers to CMD2. Then we know all cards have an RCA
 	// (and a matching published device on our side).
-	uint32_t cid[4];
+	uint32 cid[4];
 
 	while (fMmcBus->ExecuteCommand(SD_ALL_SEND_CID, 0, cid) == B_OK) {
 		fMmcBus->ExecuteCommand(SD_SEND_RELATIVE_ADDR, 0, &response);
@@ -205,25 +205,34 @@ MmcBusDriver::Init()
 		// means our initializing job is over, we can pass it on to the
 		// mmc_disk driver.
 
-		uint32_t vendor = cid[3] & 0xFFFFFF;
-		char name[6] = {(char)(cid[2] >> 24), (char)(cid[2] >> 16),
-			(char)(cid[2] >> 8), (char)cid[2], (char)(cid[1] >> 24), 0};
-		uint32_t serial = (cid[1] << 16) | (cid[0] >> 16);
-		uint16_t revision = (cid[1] >> 20) & 0xF;
+		uint32 vendor = cid[3] >> 8;
+		char name[7] = {
+			(char) cid[3],
+			(char)(cid[2] >> 24),
+			(char)(cid[2] >> 16),
+			(char)(cid[2] >> 8),
+			(char) cid[2],
+			(char)(cid[1] >> 24),
+			0
+		};
+		uint32 serial = (cid[1] << 16) | (cid[0] >> 16);
+		uint16 revision = (cid[1] >> 20) & 0xF;
 		revision *= 100;
 		revision += (cid[1] >> 16) & 0xF;
-		uint8_t month = cid[0] & 0xF;
-		uint16_t year = 2000 + ((cid[0] >> 4) & 0xFF);
-		uint16_t rca = response >> 16;
+		uint8 month = (cid[0] >> 8) & 0xF;
+		uint16 year = 2000 + ((cid[0] >> 12) & 0xFF);
+		uint16 rca = response >> 16;
 
 		TRACE("vendor: %#" B_PRIx32 "\n", vendor);
 		TRACE("name: \"%s\"\n", name);
 		TRACE("serial: %#" B_PRIx32 "\n", serial);
-		TRACE("revision: %#" B_PRIx16 "\n", revision);
+		TRACE("revision: %" B_PRIu16 "\n", revision);
+		TRACE("month: %" B_PRIu8 "\n", month);
+		TRACE("year: %" B_PRIu16 "\n", year);
 
 		device_attr attrs[] = {
 			{ B_DEVICE_BUS, B_STRING_TYPE, {.string = "mmc" }},
-			{ B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "mmc device" }},
+			{ B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "MMC Device" }},
 			{ "mmc/vendor", B_UINT32_TYPE, {.ui32 = vendor}},
 			{ "mmc/id", B_STRING_TYPE, {.string = name}},
 			{ B_DEVICE_UNIQUE_ID, B_UINT32_TYPE, {.ui32 = serial}},
@@ -238,11 +247,6 @@ MmcBusDriver::Init()
 		// publish child device for the card
 		fNode->RegisterNode(this, new(std::nothrow) MmcDeviceImpl(*this, rca), attrs, NULL);
 	}
-
-	// TODO if there is a single card active, check if it supports CMD6
-	// (spec version 1.10 or later in SCR). If it does, check if CMD6 can
-	// enable high speed mode, use that to go to 50MHz instead of 25.
-	fMmcBus->SetClock(25000);
 
 	// FIXME we also need to unpublish devices that are gone. Probably need
 	// to "ping" all RCAs somehow? Or is there an interrupt we can look for
@@ -259,7 +263,7 @@ MmcBusDriver::ActivateDevice(uint16 rca)
 	if (fActiveDevice == rca)
 		return B_OK;
 
-	uint32_t response;
+	uint32 response;
 	CHECK_RET(fMmcBus->ExecuteCommand(SD_SELECT_DESELECT_CARD, ((uint32)rca) << 16, &response));
 
 	fActiveDevice = rca;
@@ -284,7 +288,7 @@ status_t
 MmcDeviceImpl::ExecuteCommand(uint8 command, uint32 argument, uint32* result)
 {
 	MutexLocker lock(fBase.GetBusLock());
-	CHECK_RET(fBase.ActivateDevice(fRca));
+	//CHECK_RET(fBase.ActivateDevice(fRca));
 	return fBase.GetMmcBus()->ExecuteCommand(command, argument, result);
 }
 

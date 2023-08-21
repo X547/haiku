@@ -363,7 +363,7 @@ VirtioBlockDevFsNodeHandle::Control(uint32 op, void *buffer, size_t length)
 			if (buffer == NULL || length > sizeof(device_geometry))
 				return B_BAD_VALUE;
 
-		 	device_geometry geometry;
+		 	device_geometry geometry {};
 			status_t status = fDriver.GetGeometry(&geometry);
 			if (status != B_OK)
 				return status;

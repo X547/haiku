@@ -70,8 +70,19 @@ public:
 private:
 	DeviceNode* fNode {};
 	MmcDevice* fMmcDevice {};
-	ObjectDeleter<IOScheduler> fIoScheduler;
+
+	uint16 fRca {};
+	uint8 fCardType {};
+
+	uint64 fCapacity {};
+	uint32 fBlockSize {};
+	uint32 fPhysicalBlockSize {};
+
+	bool fIsHighCapacity: 1 = false;
+	bool fIoCommandOffsetAsSectors: 1 = false;
+
 	ObjectDeleter<DMAResource> fDmaResource;
+	ObjectDeleter<IOScheduler> fIoScheduler;
 
 	MmcDiskDevFsNode fDevFsNode;
 

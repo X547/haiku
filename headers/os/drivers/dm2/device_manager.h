@@ -105,6 +105,7 @@ public:
 	virtual status_t GetNextAttr(const device_attr** attr) const = 0;
 	virtual status_t FindAttr(const char* name, type_code type, int32 index, const void** value, size_t* size) const = 0;
 
+	inline status_t FindAttrUint8 (const char* name, uint8*  outValue, bool recursive = false) const;
 	inline status_t FindAttrUint16(const char* name, uint16* outValue, bool recursive = false) const;
 	inline status_t FindAttrUint32(const char* name, uint32* outValue, bool recursive = false) const;
 	inline status_t FindAttrUint64(const char* name, uint64* outValue, bool recursive = false) const;
@@ -225,6 +226,22 @@ inline Iface*
 DeviceNode::QueryDriverInterface(DeviceNode* dep)
 {
 	return (Iface*)QueryDriverInterface(Iface::ifaceName, dep);
+}
+
+
+inline status_t
+DeviceNode::FindAttrUint8(const char* name, uint8* outValue, bool recursive) const
+{
+	// TODO: implement recursive
+	(void)recursive;
+
+	const void* value {};
+	status_t res = FindAttr(name, B_UINT8_TYPE, 0, &value, NULL);
+	if (res < B_OK)
+		return res;
+
+	*outValue = *(const uint8*)value;
+	return res;
 }
 
 

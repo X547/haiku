@@ -4,6 +4,7 @@ SubDirC++Flags -fno-rtti -fvisibility=hidden ;
 
 UsePrivateHeaders drivers ;
 UsePrivateKernelHeaders ;
+SubDirHdrs $(HAIKU_TOP) src system kernel device_manager ;
 
 KernelAddon designware_mmc :
 	designware_mmc.cpp
