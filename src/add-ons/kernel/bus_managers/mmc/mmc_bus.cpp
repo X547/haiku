@@ -41,9 +41,7 @@ public:
 	void* QueryInterface(const char* name) final;
 
 	// MmcDevice
-	status_t ExecuteCommand(uint8 command, uint32 argument, uint32* result) final;
-	status_t DoIO(uint8 command, IOOperation* operation, bool offsetAsSectors) final;
-	status_t SetBusWidth(int width) final;
+	MmcBus* GetBus() final;
 
 private:
 	MmcBusDriver& fBase;
@@ -284,28 +282,10 @@ MmcDeviceImpl::QueryInterface(const char* name)
 }
 
 
-status_t
-MmcDeviceImpl::ExecuteCommand(uint8 command, uint32 argument, uint32* result)
+MmcBus*
+MmcDeviceImpl::GetBus()
 {
-	MutexLocker lock(fBase.GetBusLock());
-	//CHECK_RET(fBase.ActivateDevice(fRca));
-	return fBase.GetMmcBus()->ExecuteCommand(command, argument, result);
-}
-
-
-status_t
-MmcDeviceImpl::DoIO(uint8 command, IOOperation* operation, bool offsetAsSectors)
-{
-	MutexLocker lock(fBase.GetBusLock());
-	CHECK_RET(fBase.ActivateDevice(fRca));
-	return fBase.GetMmcBus()->DoIO(command, operation, offsetAsSectors);
-}
-
-
-status_t
-MmcDeviceImpl::SetBusWidth(int width)
-{
-	return fBase.GetMmcBus()->SetBusWidth(width);
+	return fBase.GetMmcBus();
 }
 
 

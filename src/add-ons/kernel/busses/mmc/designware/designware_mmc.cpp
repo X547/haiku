@@ -1,4 +1,6 @@
+#include <assert.h>
 #include <string.h>
+#include <algorithm>
 #include <new>
 
 #include <KernelExport.h>
@@ -196,6 +198,7 @@ public:
 
 private:
 	status_t Init();
+	status_t ExecuteCommand(const mmc_command& cmd, const mmc_data* data);
 
 private:
 	DeviceNode* fNode;
@@ -229,6 +232,9 @@ private:
 		status_t ExecuteCommand(uint8 command, uint32 argument, uint32* result) final;
 		status_t DoIO(uint8 command, IOOperation* operation, bool offsetAsSectors) final;
 		status_t SetBusWidth(int width) final;
+
+		status_t ExecuteCommand(const mmc_command& cmd, const mmc_data* data) final;
+		status_t ExecuteCommand(const mmc_command& cmd, const mmc_data_bounce& data) final;
 
 	public:
 		DesignwareMmcDriver& fBase;
@@ -356,7 +362,7 @@ DesignwareMmcDriver::Init()
 	fRegs->tmout = 0xFFFFFFFF;
 
 	fRegs->idinten = 0;
-	fRegs->bmod = 0;
+	fRegs->bmod = 1;
 
 	fRegs->fifoth = fFifothVal;
 
@@ -372,6 +378,200 @@ DesignwareMmcDriver::Init()
 	};
 
 	CHECK_RET(fNode->RegisterNode(this, static_cast<BusDriver*>(&fMmcBus), attrs, NULL));
+
+	return B_OK;
+}
+
+
+status_t
+DesignwareMmcDriver::ExecuteCommand(const mmc_command& cmd, const mmc_data* data)
+{
+	AreaDeleter idmacsArea;
+	phys_addr_t idmacsPhysAdr {};
+
+	auto PrepareIdmacs = [this, data, &idmacsArea, &idmacsPhysAdr]() -> status_t {
+		// TODO: Do not allocate an area for each IO operation.
+		DesignwareMmcIdmac* idmacs;
+		idmacsArea.SetTo(create_area(
+			"idmac",
+			(void**)&idmacs, B_ANY_ADDRESS,
+			ROUNDUP(data->vecCount * sizeof(DesignwareMmcIdmac), B_PAGE_SIZE),
+			B_32_BIT_CONTIGUOUS,
+			B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA
+		));
+		CHECK_RET(idmacsArea.Get());
+
+		physical_entry pe;
+		CHECK_RET(get_memory_map(idmacs, B_PAGE_SIZE, &pe, 1));
+		idmacsPhysAdr = pe.address;
+
+		for (uint32 i = 0; i < data->vecCount; i++) {
+			DesignwareMmcIdmac& idmac = idmacs[i];
+			generic_io_vec& vec = data->vecs[i];
+			dprintf("  vec[%" B_PRIu32 "]: %#" B_PRIxPHYSADDR ", %#" B_PRIxPHYSADDR "\n", i, vec.base, vec.length);
+			idmac.flags = {
+				.ld = i == data->vecCount - 1,
+				.fs = i == 0,
+				.ch = true,
+				.own = true
+			};
+			idmac.cnt = vec.length / data->blockSize;
+			idmac.addr = vec.base;
+			idmac.nextAddr = idmacsPhysAdr + sizeof(DesignwareMmcIdmac)*(i + 1);
+		}
+
+		return B_OK;
+	};
+
+	auto SetupDma = [this, data, &idmacsPhysAdr] {
+		dprintf("  idmacsPhysAdr: %#" B_PRIxPHYSADDR "\n", idmacsPhysAdr);
+
+		fRegs->ctrl = DWMCI_CTRL_FIFO_RESET;
+		if (retry_count([this] {return (fRegs->ctrl & DWMCI_RESET_ALL) == 0;}, 1000) < B_OK) {
+			dprintf("[!] FIFO reset failed\n");
+		}
+
+		fRegs->idsts = 0xFFFFFFFF;
+		fRegs->dbaddr = idmacsPhysAdr;
+
+		uint32 ctrl = fRegs->ctrl;
+		ctrl |= DWMCI_IDMAC_EN | DWMCI_DMA_EN;
+		fRegs->ctrl = ctrl;
+
+		uint32 bmod = fRegs->bmod;
+		bmod |= DWMCI_BMOD_IDMAC_FB | DWMCI_BMOD_IDMAC_EN;
+		fRegs->bmod = bmod;
+
+		fRegs->blksiz = data->blockSize;
+		fRegs->bytcnt = data->blockSize * data->blockCnt;
+	};
+
+	auto WaitForDma = [this, data]() -> status_t {
+		bigtime_t startTime = system_time();
+		bigtime_t timeout = startTime + /*GetTimeout()*/ 5000000;
+		status_t res = B_OK;
+		uint32 mask;
+
+		dprintf("  rintsts: %#08" B_PRIx32 "\n", fRegs->rintsts);
+
+		for (;;) {
+			mask = fRegs->rintsts;
+			if ((mask & (DWMCI_DATA_ERR | DWMCI_DATA_TOUT)) != 0) {
+				dprintf("[!] data error\n");
+				dprintf("  rintsts: %#08" B_PRIx32 "\n", mask);
+				res = B_IO_ERROR;
+				break;
+			}
+
+			if ((mask & DWMCI_INTMSK_DTO) != 0) {
+				break;
+			}
+
+			if (system_time() > timeout) {
+				dprintf("[!] timeout waiting for data\n");
+				dprintf("  rintsts: %#08" B_PRIx32 "\n", mask);
+				res = B_TIMED_OUT;
+				break;
+			}
+		}
+		fRegs->rintsts = mask;
+
+		dprintf("  idsts: %#08" B_PRIx32 "\n", fRegs->idsts);
+
+		mask = data->isWrite ? DWMCI_IDINTEN_TI : DWMCI_IDINTEN_RI;
+		status_t res2 = retry_count([this, mask] {
+			return (fRegs->idsts & mask) != 0;
+		}, 100000);
+		if (res2 < B_OK)
+			res = res2;
+
+		dprintf("  idsts: %#08" B_PRIx32 "\n", fRegs->idsts);
+
+		fRegs->idsts = DWMCI_IDINTEN_MASK;
+
+		uint32 ctrl = fRegs->ctrl;
+		ctrl &= ~DWMCI_DMA_EN;
+		fRegs->ctrl = ctrl;
+
+		return res;
+	};
+
+
+	if (data != NULL) {
+		CHECK_RET(PrepareIdmacs());
+	}
+
+	bigtime_t startTime = system_time();
+	CHECK_RET(retry_timeout([this] {return (fRegs->status & DWMCI_BUSY) == 0;}, startTime + 500000));
+
+	fRegs->rintsts = DWMCI_INTMSK_ALL;
+
+	if (data != NULL)
+		SetupDma();
+
+	fRegs->cmdarg = cmd.argument;
+
+	uint32 flags = 0;
+	if (cmd.command == SD_STOP_TRANSMISSION)
+		flags |= DWMCI_CMD_ABORT_STOP;
+	else
+		flags |= DWMCI_CMD_PRV_DAT_WAIT;
+
+	if (cmd.response != NULL) {
+		flags |= DWMCI_CMD_RESP_EXP;
+		if (cmd.isWideResponse)
+			flags |= DWMCI_CMD_RESP_LENGTH;
+	}
+
+	if (cmd.doCheckCrc)
+		flags |= DWMCI_CMD_CHECK_CRC;
+
+	if (fNeedInit) {
+		fNeedInit = false;
+		flags |= DWMCI_CMD_SEND_INIT;
+	}
+
+	flags |= (cmd.command | DWMCI_CMD_START | DWMCI_CMD_USE_HOLD_REG);
+	fRegs->cmd = flags;
+
+	uint32 mask;
+	CHECK_RET(retry_count([this, &mask] {
+		mask = fRegs->rintsts;
+		return (mask & DWMCI_INTMSK_CDONE) != 0;
+	}, 100000));
+	fRegs->rintsts = mask;
+
+	if ((mask & DWMCI_INTMSK_RTO) != 0) {
+		dprintf("[!] MmcDriver::ExecuteCommand(%" B_PRIu8 ", %#" B_PRIx32 "): Response Timeout.\n", cmd.command, cmd.argument);
+		return B_TIMED_OUT;
+	} else if ((mask & DWMCI_INTMSK_RE) != 0) {
+		dprintf("[!] MmcDriver::ExecuteCommand(%" B_PRIu8 ", %#" B_PRIx32 "): Response Error.\n", cmd.command, cmd.argument);
+		return B_IO_ERROR;
+	} else if (cmd.doCheckCrc && (mask & DWMCI_INTMSK_RCRC) != 0) {
+		dprintf("[!] MmcDriver::ExecuteCommand(%" B_PRIu8 ", %#" B_PRIx32 "): Response CRC Error.\n", cmd.command, cmd.argument);
+		return B_IO_ERROR;
+	}
+
+	dprintf("MmcDriver::ExecuteCommand(%" B_PRIu8 ", %#" B_PRIx32 ")", cmd.command, cmd.argument);
+	if (cmd.response != NULL) {
+		if (cmd.isWideResponse) {
+			cmd.response[3] = fRegs->resp3;
+			cmd.response[2] = fRegs->resp2;
+			cmd.response[1] = fRegs->resp1;
+			cmd.response[0] = fRegs->resp0;
+			dprintf(" -> (%08" B_PRIx32 " %08" B_PRIx32 " %08" B_PRIx32 " %08" B_PRIx32 ")", cmd.response[3], cmd.response[2], cmd.response[1], cmd.response[0]);
+		} else {
+			cmd.response[0] = fRegs->resp0;
+			dprintf(" -> (%#08" B_PRIx32")", cmd.response[0]);
+		}
+	}
+	dprintf(")\n");
+
+	if (data != NULL) {
+		CHECK_RET(WaitForDma());
+	}
+
+	snooze(100);
 
 	return B_OK;
 }
@@ -427,250 +627,37 @@ DesignwareMmcDriver::MmcBusImpl::SetClock(uint32 kilohertz)
 status_t
 DesignwareMmcDriver::MmcBusImpl::ExecuteCommand(uint8 command, uint32 argument, uint32* result)
 {
-	bigtime_t startTime = system_time();
-
-	CHECK_RET(retry_timeout([this] {return (fBase.fRegs->status & DWMCI_BUSY) == 0;}, startTime + 500));
-
-	fBase.fRegs->rintsts = DWMCI_INTMSK_ALL;
-
-	fBase.fRegs->cmdarg = argument;
-
-	bool isLongResponse = false;
-	switch (command) {
-		case SD_ALL_SEND_CID:
-		case SD_SEND_CSD:
-			isLongResponse = true;
-			break;
-	}
-
-	uint32 flags = 0;
-	if (command == SD_STOP_TRANSMISSION)
-		flags |= DWMCI_CMD_ABORT_STOP;
-	else
-		flags |= DWMCI_CMD_PRV_DAT_WAIT;
-
-	if (result != NULL) {
-		flags |= DWMCI_CMD_RESP_EXP;
-		if (isLongResponse)
-			flags |= DWMCI_CMD_RESP_LENGTH;
-	}
-
-	if (fBase.fNeedInit) {
-		fBase.fNeedInit = false;
-		flags |= DWMCI_CMD_SEND_INIT;
-	}
-
-	flags |= (command | DWMCI_CMD_START | DWMCI_CMD_USE_HOLD_REG);
-	fBase.fRegs->cmd = flags;
-
-	uint32 mask;
-	CHECK_RET(retry_count([this, &mask] {
-		mask = fBase.fRegs->rintsts;
-		return (mask & DWMCI_INTMSK_CDONE) != 0;
-	}, 100000));
-	fBase.fRegs->rintsts = mask;
-
-	if (mask & DWMCI_INTMSK_RTO) {
-		dprintf("[!] MmcBusImpl::ExecuteCommand(%" B_PRIu8 ", %#" B_PRIx32 "): Response Timeout.\n", command, argument);
-		return B_TIMED_OUT;
-	} else if (mask & DWMCI_INTMSK_RE) {
-		dprintf("[!] MmcBusImpl::ExecuteCommand(%" B_PRIu8 ", %#" B_PRIx32 "): Response Error.\n", command, argument);
-		return B_IO_ERROR;
-	}
-
-	dprintf("MmcBusImpl::ExecuteCommand(%" B_PRIu8 ", %#" B_PRIx32, command, argument);
-	if (result != NULL) {
-		if (isLongResponse) {
-			result[3] = fBase.fRegs->resp3;
-			result[2] = fBase.fRegs->resp2;
-			result[1] = fBase.fRegs->resp1;
-			result[0] = fBase.fRegs->resp0;
-			dprintf(", (%08" B_PRIx32 " %08" B_PRIx32 " %08" B_PRIx32 " %08" B_PRIx32 ")", result[3], result[2], result[1], result[0]);
-		} else {
-			*result = fBase.fRegs->resp0;
-			dprintf(", (%#08" B_PRIx32")", *result);
-		}
-	}
-	dprintf(")\n");
-
-	snooze(100);
-
-	return B_OK;
+	mmc_command cmd {
+		.command = command,
+		.argument = argument,
+		.isWideResponse = command == SD_ALL_SEND_CID || command == SD_SEND_CSD,
+		.response = result
+	};
+	return fBase.ExecuteCommand(cmd, NULL);
 }
 
 
 status_t
 DesignwareMmcDriver::MmcBusImpl::DoIO(uint8 command, IOOperation* operation, bool offsetAsSectors)
 {
-	dprintf("MmcBusImpl::DoIO()\n");
-	ScopeExit scopeExit1([] {
-		dprintf("-MmcBusImpl::DoIO()\n");
-	});
-
 	uint32 blockSize = 512; // !!!
 
-	DesignwareMmcIdmac* idmacs;
-	AreaDeleter idmacsArea(create_area(
-		"idmac",
-		(void**)&idmacs, B_ANY_ADDRESS,
-		ROUNDUP(operation->VecCount(), B_PAGE_SIZE),
-		B_32_BIT_CONTIGUOUS,
-		B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA
-	));
-	CHECK_RET(idmacsArea.Get());
-
-	physical_entry pe;
-	CHECK_RET(get_memory_map(idmacs, B_PAGE_SIZE, &pe, 1));
-	phys_addr_t idmacsPhysAdr = pe.address;
-
-	uint8* buffer;
-	size_t bufferSize = blockSize;
-	AreaDeleter bufferArea(create_area(
-		"mmc buffer",
-		(void**)&buffer, B_ANY_ADDRESS,
-		ROUNDUP(bufferSize, B_PAGE_SIZE),
-		B_32_BIT_CONTIGUOUS,
-		B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA
-	));
-	CHECK_RET(bufferArea.Get());
-
-	CHECK_RET(get_memory_map(buffer, B_PAGE_SIZE, &pe, 1));
-	phys_addr_t bufferPhysAdr = pe.address;
-
-	// FIXME: something is wrong with address and size alignment
-#if 0
-	generic_io_vec* vecs = operation->Vecs();
-	uint32 vecCount = operation->VecCount();
-#endif
-
-	generic_io_vec vecs[] = {
-		{.base = bufferPhysAdr, .length = bufferSize}
-	};
-	uint32 vecCount = 1;
-
-	for (uint32 i = 0; i < vecCount; i++) {
-		DesignwareMmcIdmac& idmac = idmacs[i];
-		generic_io_vec& vec = vecs[i];
-		dprintf("  vec[%" B_PRIu32 "]: %#" B_PRIxPHYSADDR ", %#" B_PRIxPHYSADDR "\n", i, vec.base, vec.length);
-		idmac.flags = {
-			.ld = i == vecCount - 1,
-			.fs = i == 0,
-			.ch = true,
-			.own = true
-		};
-		idmac.cnt = vec.length / blockSize;
-		idmac.addr = vec.base;
-		idmac.nextAddr = idmacsPhysAdr + sizeof(DesignwareMmcIdmac)*(i + 1);
-	}
-
-
-	auto GetTimeout = [this, operation, bufferSize] {
-		bigtime_t timeout;
-
-		timeout = /*operation->Length()*/ bufferSize * 8; /* counting in bits */
-		timeout *= 10;                     /* wait 10 times as long */
-		timeout /= fBase.fClockFreq;
-		timeout /= fBase.fBusWidth;
-		timeout /= fBase.fDdrMode ? 2 : 1;
-		timeout *= 1000000;                /* counting in usec */
-		timeout = (timeout < 1000000) ? 1000000 : timeout;
-
-		return timeout;
+	uint32 response;
+	mmc_command cmd {
+		.command = command,
+		.argument = (uint32)(operation->Offset() / blockSize),
+		.response = &response
 	};
 
-	bigtime_t startTime = system_time();
+	mmc_data data {
+		.isWrite = operation->IsWrite(),
+		.blockSize = blockSize,
+		.blockCnt = (uint32)(operation->Length() / blockSize),
+		.vecCount = operation->VecCount(),
+		.vecs = operation->Vecs()
+	};
 
-	CHECK_RET(retry_timeout([this] {return (fBase.fRegs->status & DWMCI_BUSY) == 0;}, startTime + 500));
-
-	fBase.fRegs->rintsts = DWMCI_INTMSK_ALL;
-
-
-	fBase.fRegs->idsts = 0xFFFFFFFF;
-	fBase.fRegs->dbaddr = idmacsPhysAdr;
-
-	uint32 ctrl = fBase.fRegs->ctrl;
-	ctrl |= DWMCI_IDMAC_EN | DWMCI_DMA_EN;
-	fBase.fRegs->ctrl = ctrl;
-
-	uint32 bmod = fBase.fRegs->bmod;
-	bmod |= DWMCI_BMOD_IDMAC_FB | DWMCI_BMOD_IDMAC_EN;
-	fBase.fRegs->bmod = bmod;
-
-	fBase.fRegs->blksiz = blockSize;
-	fBase.fRegs->bytcnt = /*operation->Length()*/ bufferSize;
-
-
-	fBase.fRegs->cmdarg = 0;
-
-	uint32 flags = DWMCI_CMD_DATA_EXP;
-	if (operation->IsWrite())
-		flags |= DWMCI_CMD_RW;
-
-	flags |= (command | DWMCI_CMD_START | DWMCI_CMD_USE_HOLD_REG);
-	fBase.fRegs->cmd = flags;
-
-	uint32 mask;
-	CHECK_RET(retry_count([this, &mask] {
-		mask = fBase.fRegs->rintsts;
-		return (mask & DWMCI_INTMSK_CDONE) != 0;
-	}, 100000));
-	fBase.fRegs->rintsts = mask;
-
-	if (mask & DWMCI_INTMSK_RTO) {
-		dprintf("[!] MmcBusImpl::ExecuteCommand(%" B_PRIu8 "): Response Timeout.\n", command);
-		return B_TIMED_OUT;
-	} else if (mask & DWMCI_INTMSK_RE) {
-		dprintf("[!] MmcBusImpl::ExecuteCommand(%" B_PRIu8 "): Response Error.\n", command);
-		return B_IO_ERROR;
-	}
-
-	startTime = system_time();
-	bigtime_t timeout = startTime + /*GetTimeout()*/ 5000000;
-	status_t res = B_OK;
-	for (;;) {
-		mask = fBase.fRegs->rintsts;
-		if ((mask & (DWMCI_DATA_ERR | DWMCI_DATA_TOUT)) != 0) {
-			dprintf("[!] data error\n");
-			res = B_IO_ERROR;
-			break;
-		}
-
-		if ((mask & DWMCI_INTMSK_DTO) != 0) {
-			break;
-		}
-
-		if (system_time() > timeout) {
-			dprintf("[!] timeout waiting for data\n");
-			res = B_TIMED_OUT;
-			break;
-		}
-	}
-	fBase.fRegs->rintsts = mask;
-
-	mask = operation->IsRead() ? DWMCI_IDINTEN_RI : DWMCI_IDINTEN_TI;
-	status_t res2 = retry_count([this, mask] {
-		return (fBase.fRegs->rintsts & mask) != 0;
-	}, 100000);
-	if (res2 < B_OK)
-		res = res2;
-
-	fBase.fRegs->idsts = DWMCI_IDINTEN_MASK;
-
-	ctrl = fBase.fRegs->ctrl;
-	ctrl &= ~DWMCI_DMA_EN;
-	fBase.fRegs->ctrl = ctrl;
-
-	if (res >= B_OK) {
-		dprintf("  buffer:\n");
-		for (uint32 i = 0; i < 16; i++) {
-			dprintf(" %02x", buffer[i]);
-		}
-		dprintf("\n");
-	}
-
-	snooze(100);
-
-	return res;
+	return fBase.ExecuteCommand(cmd, &data);
 }
 
 
@@ -698,6 +685,75 @@ DesignwareMmcDriver::MmcBusImpl::SetBusWidth(int width)
 	else
 		uhsReg |= ~DWMCI_DDR_MODE;
 	fBase.fRegs->uhsReg = uhsReg;
+
+	return B_OK;
+}
+
+
+status_t
+DesignwareMmcDriver::MmcBusImpl::ExecuteCommand(const mmc_command& cmd, const mmc_data* data)
+{
+	return fBase.ExecuteCommand(cmd, data);
+}
+
+
+status_t
+DesignwareMmcDriver::MmcBusImpl::ExecuteCommand(const mmc_command& cmd, const mmc_data_bounce& data)
+{
+	uint8* buffer;
+	uint32 blockCnt = (data.dataSize + (data.blockSize - 1)) / data.blockSize;
+	size_t bufferSize = data.blockSize * blockCnt;
+
+	AreaDeleter bufferArea(create_area(
+		"dw mmc bounce buffer",
+		(void**)&buffer, B_ANY_ADDRESS,
+		ROUNDUP(bufferSize, B_PAGE_SIZE),
+		B_32_BIT_CONTIGUOUS,
+		B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA
+	));
+	CHECK_RET(bufferArea.Get());
+
+	physical_entry pe;
+	CHECK_RET(get_memory_map(buffer, B_PAGE_SIZE, &pe, 1));
+	phys_addr_t bufferPhysAdr = pe.address;
+
+	uint32 vecCount = (blockCnt + 7) / 8;
+	ArrayDeleter<generic_io_vec> vecs(new(std::nothrow) generic_io_vec[vecCount]);
+	if (!vecs.IsSet())
+		return B_NO_MEMORY;
+
+	uint32 remainBlockCnt = blockCnt;
+	for (uint32 i = 0; remainBlockCnt > 0; i++) {
+		uint32 curBlockCnt = std::min<uint32>(remainBlockCnt, 8);
+		vecs[i] = {
+			.base = bufferPhysAdr + i * data.blockSize * 8,
+			.length = curBlockCnt * data.blockSize
+		};
+		remainBlockCnt -= curBlockCnt;
+	}
+
+	mmc_data dataVecs {
+		.isWrite = data.isWrite,
+		.blockSize = data.blockSize,
+		.blockCnt = blockCnt,
+		.vecCount = vecCount,
+		.vecs = &vecs[0]
+	};
+
+	if (data.isWrite) {
+		CHECK_RET(user_memcpy(buffer, data.data, data.dataSize));
+	}
+
+	status_t res = fBase.ExecuteCommand(cmd, &dataVecs);
+	if (data.dataSize >= 8) {
+		uint32* arr = (uint32*)data.data;
+		dprintf("  data: %08" B_PRIx32 ", %08" B_PRIx32 "\n", arr[0], arr[1]);
+	}
+	CHECK_RET(res);
+
+	if (!data.isWrite) {
+		CHECK_RET(user_memcpy(data.data, buffer, data.dataSize));
+	}
 
 	return B_OK;
 }

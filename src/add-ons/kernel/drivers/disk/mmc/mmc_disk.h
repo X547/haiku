@@ -70,6 +70,7 @@ public:
 private:
 	DeviceNode* fNode {};
 	MmcDevice* fMmcDevice {};
+	MmcBus* fMmcBus {};
 
 	uint16 fRca {};
 	uint8 fCardType {};

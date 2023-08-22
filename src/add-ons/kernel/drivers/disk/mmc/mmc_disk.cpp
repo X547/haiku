@@ -83,6 +83,7 @@ status_t MmcDiskDriver::Init()
 	CALLED();
 
 	fMmcDevice = fNode->QueryBusInterface<MmcDevice>();
+	fMmcBus = fMmcDevice->GetBus();
 
 	CHECK_RET(fNode->FindAttrUint16(MMC_DEVICE_RCA, &fRca));
 	CHECK_RET(fNode->FindAttrUint8(MMC_DEVICE_TYPE, &fCardType));
@@ -138,7 +139,7 @@ status_t MmcDiskDriver::Init()
 	}
 
 	MmcDiskCsd csd {.isHighCapacity = fIsHighCapacity};
-	CHECK_RET(fMmcDevice->ExecuteCommand(SD_SEND_CSD, fRca << 16, csd.csd));
+	CHECK_RET(fMmcBus->ExecuteCommand(SD_SEND_CSD, fRca << 16, csd.csd));
 
 	dprintf("  version: %" B_PRIu32 "\n", csd.Version());
 	dprintf("  freqBase: %" B_PRIu32 "\n", csd.FreqBase());
@@ -154,6 +155,38 @@ status_t MmcDiskDriver::Init()
 	fCapacity = csd.Capacity();
 	fBlockSize = csd.ReadBlLen();
 	fPhysicalBlockSize = csd.ReadBlLen();
+
+	uint32 response;
+	CHECK_RET(fMmcBus->ExecuteCommand(SD_SELECT_DESELECT_CARD, fRca << 16, &response));
+
+	CHECK_RET(fMmcBus->ExecuteCommand(SD_APP_CMD, fRca << 16, &response));
+
+	uint32 scr[2];
+	{
+		mmc_command cmd {
+			.command = SD_SEND_SCR,
+			.response = &response
+		};
+		mmc_data_bounce data {
+			.isWrite = false,
+			.blockSize = 8,
+			.dataSize = sizeof(scr),
+			.data = (uint8*)&scr[0]
+		};
+		CHECK_RET(fMmcBus->ExecuteCommand(cmd, data));
+		dprintf("  scr: %#08" B_PRIx32 ", %#08" B_PRIx32 "\n", scr[0], scr[1]);
+	}
+
+	CHECK_RET(fMmcBus->ExecuteCommand(SD_SET_BUS_WIDTH, 0xfffff1, &response));
+
+	CHECK_RET(fMmcBus->ExecuteCommand(SD_APP_CMD, fRca << 16, &response));
+	CHECK_RET(fMmcBus->ExecuteCommand(SD_SET_BUS_WIDTH, 2, &response));
+	CHECK_RET(fMmcBus->SetBusWidth(4));
+	CHECK_RET(fMmcBus->ExecuteCommand(SD_SET_BUS_WIDTH, 0x80fffff1, &response));
+	CHECK_RET(fMmcBus->SetClock(49500));
+
+	CHECK_RET(fMmcBus->ExecuteCommand(SD_APP_CMD, fRca << 16, &response));
+	CHECK_RET(fMmcBus->ExecuteCommand(SD_SEND_STATUS, 0, &response));
 
 	fDmaResource.SetTo(new(std::nothrow) DMAResource);
 	if (!fDmaResource.IsSet())
@@ -189,17 +222,20 @@ MmcDiskDriver::DoIO(IOOperation* operation)
 {
 	CALLED();
 
-	uint8_t command = operation->IsWrite() ? SD_WRITE_MULTIPLE_BLOCKS : SD_READ_MULTIPLE_BLOCKS;
+	auto DoIO = [this, operation]() -> status_t {
+		uint32 response;
+		CHECK_RET(fMmcBus->ExecuteCommand(SD_SET_BLOCKLEN, fBlockSize, &response));
 
-	status_t error = fMmcDevice->DoIO(command, operation, fIoCommandOffsetAsSectors);
+		uint8_t command = operation->IsWrite() ? SD_WRITE_MULTIPLE_BLOCKS : SD_READ_MULTIPLE_BLOCKS;
+		CHECK_RET(fMmcBus->DoIO(command, operation, fIoCommandOffsetAsSectors));
 
-	if (error != B_OK) {
-		fIoScheduler->OperationCompleted(operation, error, 0);
-		return error;
-	}
+		return B_OK;
+	};
 
-	fIoScheduler->OperationCompleted(operation, B_OK, operation->Length());
-	return B_OK;
+	status_t res = DoIO();
+
+	fIoScheduler->OperationCompleted(operation, res, res < B_OK ? 0 : operation->Length());
+	return res;
 }
 
 

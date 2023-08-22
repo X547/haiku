@@ -3,12 +3,12 @@
 #include <dm2/device_manager.h>
 
 
-
 // Device attribute paths for the MMC device
 #define MMC_DEVICE_RCA	"mmc/rca"	/* uint16 */
 #define MMC_DEVICE_TYPE	"mmc/type"	/* uint8 */
 
 
+struct generic_io_vec;
 class IOOperation;
 
 
@@ -35,6 +35,8 @@ enum SD_COMMANDS {
 	SD_SEND_IF_COND			= 8,
 	SD_SEND_CSD				= 9,
 	SD_STOP_TRANSMISSION	= 12,
+	SD_SEND_STATUS			= 13,
+	SD_SET_BLOCKLEN			= 16,
 
 	// Block oriented read and write commands, class 2
 	SD_READ_SINGLE_BLOCK = 17,
@@ -59,6 +61,31 @@ enum SD_COMMANDS {
 enum SDHCI_APPLICATION_COMMANDS {
 	SD_SET_BUS_WIDTH = 6,
 	SD_SEND_OP_COND = 41,
+	SD_SEND_SCR = 51,
+};
+
+
+struct mmc_command {
+	uint8 command;
+	uint32 argument;
+	bool isWideResponse: 1;
+	bool doCheckCrc: 1;
+	uint32* response;
+};
+
+struct mmc_data {
+	bool isWrite;
+	uint32 blockSize;
+	uint32 blockCnt;
+	uint32 vecCount;
+	generic_io_vec* vecs;
+};
+
+struct mmc_data_bounce {
+	bool isWrite;
+	uint32 blockSize;
+	size_t dataSize;
+	uint8* data;
 };
 
 
@@ -78,6 +105,9 @@ public:
 	virtual status_t SetBusWidth(int width) = 0;
 		// Set the data bus width to 1, 4 or 8 bit mode.
 
+	virtual status_t ExecuteCommand(const mmc_command& cmd, const mmc_data* data) = 0;
+	virtual status_t ExecuteCommand(const mmc_command& cmd, const mmc_data_bounce& data) = 0;
+
 protected:
 	~MmcBus() = default;
 };
@@ -87,12 +117,7 @@ class MmcDevice {
 public:
 	static inline const char ifaceName[] = "bus_managers/mmc/device";
 
-	virtual status_t ExecuteCommand(uint8 command, uint32 argument, uint32* result) = 0;
-		// Execute a command with no I/O phase
-	virtual status_t DoIO(uint8 command, IOOperation* operation, bool offsetAsSectors) = 0;
-		// Execute a command that involves a data transfer.
-	virtual status_t SetBusWidth(int width) = 0;
-		// Set the data bus width to 1, 4 or 8 bit mode.
+	virtual MmcBus* GetBus() = 0;
 
 protected:
 	~MmcDevice() = default;
