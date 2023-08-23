@@ -17,15 +17,163 @@
 #include "IORequest.h"
 
 #include <kernel.h>
+#include <condition_variable.h>
 
 #define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
+
+#define VOLATILE_ASSIGN_QUIRKS(Type) \
+	void operator=(const Type& rhs) volatile \
+	{ \
+		value = rhs.value; \
+	} \
+	 \
+	void operator=(const volatile Type& rhs) volatile \
+	{ \
+		value = rhs.value; \
+	} \
 
 
 #define DESIGNWARE_MMC_DRIVER_MODULE_NAME "busses/mmc/designware_mmc/driver/v1"
 
 
+union DesignwareMmcCmd {
+	struct {
+		uint32 indx:       6; //  0
+		uint32 respExp:    1; //  6
+		uint32 respLong:   1; //  7
+		uint32 respCrc:    1; //  8
+		uint32 datExp:     1; //  9
+		uint32 datWr:      1; // 10
+		uint32 strmMode:   1; // 11
+		uint32 sendStop:   1; // 12
+		uint32 prvDatWait: 1; // 13
+		uint32 stop:       1; // 14
+		uint32 init:       1; // 15
+		uint32 unknown1:   5; // 16
+		uint32 updClk:     1; // 21
+		uint32 ceataRd:    1; // 22
+		uint32 ccsExp:     1; // 23
+		uint32 unknown2:   4; // 24
+		uint32 voltSwitch: 1; // 28
+		uint32 useHoldReg: 1; // 29
+		uint32 unknown3:   1; // 30
+		uint32 start:      1; // 31
+	};
+	uint32 value;
+
+	VOLATILE_ASSIGN_QUIRKS(DesignwareMmcCmd)
+};
+
+union DesignwareMmcCtrl {
+	struct {
+		uint32 reset:        1; //  0
+		uint32 fifoReset:    1; //  1
+		uint32 dmaReset:     1; //  2
+		uint32 unknown2:     1; //  3
+		uint32 intEnable:    1; //  4
+		uint32 dmaEnable:    1; //  5
+		uint32 readWait:     1; //  6
+		uint32 sendIrqResp:  1; //  7
+		uint32 abrtReadData: 1; //  8
+		uint32 sendCcsd:     1; //  9
+		uint32 sendAsCcsd:   1; // 10
+		uint32 ceataIntEn:   1; // 11
+		uint32 unknown3:    13; // 12
+		uint32 useIdmac:     1; // 25
+		uint32 unknown4:     6; // 26
+	};
+	uint32 value;
+
+	VOLATILE_ASSIGN_QUIRKS(DesignwareMmcCtrl)
+};
+
+static const DesignwareMmcCtrl kDesignwareMmcCtrlResetAll = {
+	.reset = true,
+	.fifoReset = true,
+	.dmaReset = true,
+};
+
+union DesignwareMmcStatus {
+	struct {
+		uint32 unknown1:   2; //  0
+		uint32 fifoEmpty:  1; //  2
+		uint32 fifoFull:   1; //  3
+		uint32 unknown2:   5; //  4
+		uint32 busy:       1; //  9
+		uint32 unknown3:   7; // 10
+		uint32 fcnt:      13; // 17
+		uint32 unknown4:   1; // 30
+		uint32 dmaReq:     1; // 31
+	};
+	uint32 value;
+
+	VOLATILE_ASSIGN_QUIRKS(DesignwareMmcStatus)
+};
+
+union DesignwareMmcInt {
+	struct {
+		uint32 cd:        1; //  0
+		uint32 respError: 1; //  1
+		uint32 cmdDone:   1; //  2
+		uint32 dataOver:  1; //  3
+		uint32 txdr:      1; //  4
+		uint32 rxdr:      1; //  5
+		uint32 rcrc:      1; //  6
+		uint32 dcrc:      1; //  7
+		uint32 rto:       1; //  8
+		uint32 drto:      1; //  9
+		uint32 hto:       1; // 10
+		uint32 frun:      1; // 11
+		uint32 hle:       1; // 12
+		uint32 sbe:       1; // 13
+		uint32 acd:       1; // 14
+		uint32 ebe:       1; // 15
+		uint32 unknown1: 16; // 16
+	};
+	uint32 value;
+
+	VOLATILE_ASSIGN_QUIRKS(DesignwareMmcInt)
+};
+
+static const DesignwareMmcInt kDesignwareMmcIntAll = {
+	.value = 0xffffffff
+};
+
+static const DesignwareMmcInt kDesignwareMmcIntDataError = {
+	.dcrc = true,
+	.frun = true,
+	.hle = true,
+	.sbe = true,
+	.ebe = true,
+};
+
+static const DesignwareMmcInt kDesignwareMmcIntDataTimeout = {
+	.drto = true,
+	.hto = true,
+};
+
+static const DesignwareMmcInt kDesignwareMmcIntCmdError = {
+	.respError = true,
+	.rcrc = true,
+	.rto = true,
+	.hle = true,
+};
+
+union DesignwareMmcFifoth {
+	struct {
+		uint32 txWmark: 12; //  0
+		uint32 unknown1: 4; // 12
+		uint32 rxWmark: 12; // 16
+		uint32 mSize:    3; // 28
+		uint32 unknown2: 1; // 31
+	};
+	uint32 value;
+
+	VOLATILE_ASSIGN_QUIRKS(DesignwareMmcFifoth)
+};
+
 struct DesignwareMmcRegs {
-	uint32 ctrl;
+	DesignwareMmcCtrl ctrl;
 	uint32 pwren;
 	uint32 clkdiv;
 	uint32 clksrc;
@@ -34,17 +182,17 @@ struct DesignwareMmcRegs {
 	uint32 ctype;
 	uint32 blksiz;
 	uint32 bytcnt;
-	uint32 intmask;
+	DesignwareMmcInt intmask;
 	uint32 cmdarg;
-	uint32 cmd;
+	DesignwareMmcCmd cmd;
 	uint32 resp0;
 	uint32 resp1;
 	uint32 resp2;
 	uint32 resp3;
-	uint32 mintsts;
-	uint32 rintsts;
-	uint32 status;
-	uint32 fifoth;
+	DesignwareMmcInt mintsts;
+	DesignwareMmcInt rintsts;
+	DesignwareMmcStatus status;
+	DesignwareMmcFifoth fifoth;
 	uint32 cdetect;
 	uint32 wrtprt;
 	uint32 gpio;
@@ -93,7 +241,7 @@ union DesignwareMmcIdmacFlags {
 		uint32 unknown2: 26; //  5
 		uint32 own: 1;       // 31
 	};
-	uint32 val;
+	uint32 value;
 };
 
 struct DesignwareMmcIdmac {
@@ -104,51 +252,6 @@ struct DesignwareMmcIdmac {
 };
 
 
-/* Interrupt Mask register */
-#define DWMCI_INTMSK_ALL	0xffffffff
-#define DWMCI_INTMSK_RE		(1 << 1)
-#define DWMCI_INTMSK_CDONE	(1 << 2)
-#define DWMCI_INTMSK_DTO	(1 << 3)
-#define DWMCI_INTMSK_TXDR	(1 << 4)
-#define DWMCI_INTMSK_RXDR	(1 << 5)
-#define DWMCI_INTMSK_RCRC	(1 << 6)
-#define DWMCI_INTMSK_DCRC	(1 << 7)
-#define DWMCI_INTMSK_RTO	(1 << 8)
-#define DWMCI_INTMSK_DRTO	(1 << 9)
-#define DWMCI_INTMSK_HTO	(1 << 10)
-#define DWMCI_INTMSK_FRUN	(1 << 11)
-#define DWMCI_INTMSK_HLE	(1 << 12)
-#define DWMCI_INTMSK_SBE	(1 << 13)
-#define DWMCI_INTMSK_ACD	(1 << 14)
-#define DWMCI_INTMSK_EBE	(1 << 15)
-
-/* Raw interrupt Regsiter */
-#define DWMCI_DATA_ERR	(DWMCI_INTMSK_EBE | DWMCI_INTMSK_SBE | DWMCI_INTMSK_HLE | DWMCI_INTMSK_FRUN | DWMCI_INTMSK_EBE | DWMCI_INTMSK_DCRC)
-#define DWMCI_DATA_TOUT	(DWMCI_INTMSK_HTO | DWMCI_INTMSK_DRTO)
-
-/* CTRL register */
-#define DWMCI_CTRL_RESET		(1 << 0)
-#define DWMCI_CTRL_FIFO_RESET	(1 << 1)
-#define DWMCI_CTRL_DMA_RESET	(1 << 2)
-#define DWMCI_DMA_EN			(1 << 5)
-#define DWMCI_CTRL_SEND_AS_CCSD	(1 << 10)
-#define DWMCI_IDMAC_EN			(1 << 25)
-#define DWMCI_RESET_ALL			(DWMCI_CTRL_RESET | DWMCI_CTRL_FIFO_RESET | DWMCI_CTRL_DMA_RESET)
-
-/* CMD register */
-#define DWMCI_CMD_RESP_EXP		(1 << 6)
-#define DWMCI_CMD_RESP_LENGTH	(1 << 7)
-#define DWMCI_CMD_CHECK_CRC		(1 << 8)
-#define DWMCI_CMD_DATA_EXP		(1 << 9)
-#define DWMCI_CMD_RW			(1 << 10)
-#define DWMCI_CMD_SEND_STOP		(1 << 12)
-#define DWMCI_CMD_ABORT_STOP	(1 << 14)
-#define DWMCI_CMD_SEND_INIT		(1 << 15)
-#define DWMCI_CMD_PRV_DAT_WAIT	(1 << 13)
-#define DWMCI_CMD_UPD_CLK		(1 << 21)
-#define DWMCI_CMD_USE_HOLD_REG	(1 << 29)
-#define DWMCI_CMD_START			(1 << 31)
-
 /* CLKENA register */
 #define DWMCI_CLKEN_ENABLE		(1 << 0)
 #define DWMCI_CLKEN_LOW_PWR		(1 << 16)
@@ -157,20 +260,6 @@ struct DesignwareMmcIdmac {
 #define DWMCI_CTYPE_1BIT		0
 #define DWMCI_CTYPE_4BIT		(1 << 0)
 #define DWMCI_CTYPE_8BIT		(1 << 16)
-
-/* Status Register */
-#define DWMCI_FIFO_EMPTY		(1 << 2)
-#define DWMCI_FIFO_FULL			(1 << 3)
-#define DWMCI_BUSY				(1 << 9)
-#define DWMCI_FIFO_MASK			0x1fff
-#define DWMCI_FIFO_SHIFT		17
-
-/* FIFOTH Register */
-#define MSIZE(x)				((x) << 28)
-#define RX_WMARK(x)				((x) << 16)
-#define TX_WMARK(x)				(x)
-#define RX_WMARK_SHIFT			16
-#define RX_WMARK_MASK			(0xfff << RX_WMARK_SHIFT)
 
 /*  Bus Mode Register */
 #define DWMCI_BMOD_IDMAC_RESET	(1 << 0)
@@ -181,10 +270,11 @@ struct DesignwareMmcIdmac {
 #define DWMCI_DDR_MODE			(1 << 16)
 
 /* Internal IDMAC interrupt defines */
+#define DWMCI_IDINTEN_NI		(1 << 8)
 #define DWMCI_IDINTEN_RI		(1 << 1)
 #define DWMCI_IDINTEN_TI		(1 << 0)
 
-#define DWMCI_IDINTEN_MASK		(DWMCI_IDINTEN_TI | DWMCI_IDINTEN_RI)
+#define DWMCI_IDINTEN_MASK		(DWMCI_IDINTEN_TI | DWMCI_IDINTEN_RI | DWMCI_IDINTEN_NI)
 
 
 class DesignwareMmcDriver: public DeviceDriver {
@@ -199,6 +289,8 @@ public:
 private:
 	status_t Init();
 	status_t ExecuteCommand(const mmc_command& cmd, const mmc_data* data);
+	static int32 HandleInterrupt(void* arg);
+	inline int32 HandleInterruptInt();
 
 private:
 	DeviceNode* fNode;
@@ -208,17 +300,23 @@ private:
 	DesignwareMmcRegs volatile* fRegs {};
 	uint64 fRegsLen {};
 
+	long fIrqVector = -1;
+	bool fInterruptHandlerInstalled = false;
+
 	ClockDevice* fCiuClock {};
 
 	uint32 fFifoDepth {};
 	uint32 fBusWidth = 4;
 	uint32 fMaxFrequency {};
 	uint64 fBusFreq {};
-	uint32 fFifothVal {};
+	DesignwareMmcFifoth fFifothVal {};
 
 	uint64 fClockFreq {};
 	bool fDdrMode {};
 	bool fNeedInit = true;
+
+	ConditionVariable fCmdCompletedCond;
+	ConditionVariable fDataOverCond;
 
 	class MmcBusImpl: public BusDriver, public MmcBus {
 	public:
@@ -273,6 +371,36 @@ status_t retry_timeout(Proc&& proc, bigtime_t absTimeout)
 }
 
 
+static void
+dump_status(DesignwareMmcStatus status)
+{
+	bool isFirst = true;
+	auto WriteSep = [&isFirst] {if (isFirst) {isFirst = false;} else {dprintf(", ");}};
+	dprintf("(");
+	if (status.fifoEmpty) {
+		WriteSep();
+		dprintf("fifoEmpty");
+	}
+	if (status.fifoFull) {
+		WriteSep();
+		dprintf("fifoFull");
+	}
+	if (status.busy) {
+		WriteSep();
+		dprintf("busy");
+	}
+	if (status.fcnt > 0) {
+		WriteSep();
+		dprintf("fcnt: %" B_PRIu32, status.fcnt);
+	}
+	if (status.dmaReq) {
+		WriteSep();
+		dprintf("dmaReq");
+	}
+	dprintf(")");
+}
+
+
 // #pragma mark - DesignwareMmcDriver
 
 status_t
@@ -297,6 +425,9 @@ DesignwareMmcDriver::~DesignwareMmcDriver()
 	ResetDevice* reset;
 	for (uint32 i = 0; fFdtDevice->GetReset(i, &reset) >= B_OK; i++)
 		reset->SetAsserted(true);
+
+	if (fInterruptHandlerInstalled)
+		remove_io_interrupt_handler(fIrqVector, HandleInterrupt, this);
 }
 
 
@@ -304,6 +435,9 @@ status_t
 DesignwareMmcDriver::Init()
 {
 	dprintf("DesignwareMmcDriver::Init()\n");
+
+	fCmdCompletedCond.Init(this, "fCmdCompletedCond");
+	fDataOverCond.Init(this, "fDataOverCond");
 
 	fFdtDevice = fNode->QueryBusInterface<FdtDevice>();
 
@@ -313,10 +447,26 @@ DesignwareMmcDriver::Init()
 
 	dprintf("  regs: %#" B_PRIx64 "\n", regs);
 
+	switch (regs) {
+		case 0x16010000:
+			fIrqVector = 74;
+			break;
+		case 0x16020000:
+			fIrqVector = 75;
+			break;
+	}
+
+	dprintf("  irqVector: %ld\n", fIrqVector);
+
 	fRegsArea.SetTo(map_physical_memory("Designware MMC MMIO", regs, fRegsLen, B_ANY_KERNEL_ADDRESS,
 		B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA, (void**)&fRegs));
 	if (!fRegsArea.IsSet())
 		return fRegsArea.Get();
+
+	if (fIrqVector >= 0) {
+		CHECK_RET(install_io_interrupt_handler(fIrqVector, HandleInterrupt, this, 0));
+		fInterruptHandlerInstalled = true;
+	}
 
 	CHECK_RET(fFdtDevice->GetClockByName("ciu", &fCiuClock));
 
@@ -338,26 +488,28 @@ DesignwareMmcDriver::Init()
 	if (fFifoDepth < 8 || fFifoDepth > 4096)
 		return B_BAD_VALUE;
 
-	fFifothVal =
-		MSIZE(0x2) |
-		RX_WMARK(fFifoDepth / 2 - 1) |
-		TX_WMARK(fFifoDepth / 2);
+	fFifothVal = {
+		.txWmark = fFifoDepth / 2,
+		.rxWmark = fFifoDepth / 2 - 1,
+		.mSize = 2,
+	};
+	dprintf("  fFifothVal: %#" B_PRIx32 "\n", fFifothVal.value);
 
 	fFdtDevice->GetPropUint32("bus-width", fBusWidth);
 	fFdtDevice->GetPropUint32("max-frequency", fMaxFrequency);
 
 	fRegs->pwren = 1;
 
-	fRegs->ctrl = DWMCI_RESET_ALL;
-	if (retry_count([this] {return (fRegs->ctrl & DWMCI_RESET_ALL) == 0;}, 1000) < B_OK) {
+	fRegs->ctrl = kDesignwareMmcCtrlResetAll;
+	if (retry_count([this] {return (fRegs->ctrl.value & kDesignwareMmcCtrlResetAll.value) == 0;}, 1000) < B_OK) {
 		dprintf("[!] reset failed\n");
 		return B_IO_ERROR;
 	}
 
 	CHECK_RET(fMmcBus.SetClock(400));
 
-	fRegs->rintsts = 0xFFFFFFFF;
-	fRegs->intmask = 0;
+	fRegs->rintsts = kDesignwareMmcIntAll;
+	fRegs->intmask = {};
 
 	fRegs->tmout = 0xFFFFFFFF;
 
@@ -369,7 +521,25 @@ DesignwareMmcDriver::Init()
 	fRegs->clkena = 0;
 	fRegs->clksrc = 0;
 
-	fRegs->idinten = DWMCI_IDINTEN_MASK;
+
+	fRegs->intmask.value = DesignwareMmcInt {
+			.cmdDone = true,
+			.dataOver = true,
+/*
+			.txdr = true,
+			.rxdr = true,
+*/
+	}.value
+		| kDesignwareMmcIntDataError.value
+		| kDesignwareMmcIntDataTimeout.value
+		| kDesignwareMmcIntCmdError.value;
+
+	dprintf("fRegs->intmask: %#" B_PRIx32 "\n", fRegs->intmask.value);
+
+  fRegs->idsts = 0xffffffff;
+ 	fRegs->idinten = DWMCI_IDINTEN_MASK;
+
+  fRegs->ctrl = DesignwareMmcCtrl {.intEnable = true};
 
 	device_attr attrs[] = {
 		{B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "MMC Bus Manager"}},
@@ -386,6 +556,8 @@ DesignwareMmcDriver::Init()
 status_t
 DesignwareMmcDriver::ExecuteCommand(const mmc_command& cmd, const mmc_data* data)
 {
+	dprintf("MmcDriver::ExecuteCommand(%" B_PRIu8 ", %#" B_PRIx32 ")\n", cmd.command, cmd.argument);
+
 	AreaDeleter idmacsArea;
 	phys_addr_t idmacsPhysAdr {};
 
@@ -415,7 +587,7 @@ DesignwareMmcDriver::ExecuteCommand(const mmc_command& cmd, const mmc_data* data
 				.ch = true,
 				.own = true
 			};
-			idmac.cnt = vec.length / data->blockSize;
+			idmac.cnt = vec.length;
 			idmac.addr = vec.base;
 			idmac.nextAddr = idmacsPhysAdr + sizeof(DesignwareMmcIdmac)*(i + 1);
 		}
@@ -423,149 +595,110 @@ DesignwareMmcDriver::ExecuteCommand(const mmc_command& cmd, const mmc_data* data
 		return B_OK;
 	};
 
-	auto SetupDma = [this, data, &idmacsPhysAdr] {
+	ConditionVariableEntry dataOverCvEntry;
+
+	auto SetupDma = [this, data, &idmacsPhysAdr, &dataOverCvEntry] {
 		dprintf("  idmacsPhysAdr: %#" B_PRIxPHYSADDR "\n", idmacsPhysAdr);
 
-		fRegs->ctrl = DWMCI_CTRL_FIFO_RESET;
-		if (retry_count([this] {return (fRegs->ctrl & DWMCI_RESET_ALL) == 0;}, 1000) < B_OK) {
-			dprintf("[!] FIFO reset failed\n");
-		}
+		fDataOverCond.Add(&dataOverCvEntry);
 
-		fRegs->idsts = 0xFFFFFFFF;
 		fRegs->dbaddr = idmacsPhysAdr;
 
-		uint32 ctrl = fRegs->ctrl;
-		ctrl |= DWMCI_IDMAC_EN | DWMCI_DMA_EN;
-		fRegs->ctrl = ctrl;
+		fRegs->ctrl.dmaEnable = true;
 
-		uint32 bmod = fRegs->bmod;
-		bmod |= DWMCI_BMOD_IDMAC_FB | DWMCI_BMOD_IDMAC_EN;
-		fRegs->bmod = bmod;
+		fRegs->ctrl.dmaReset = true;
+		if (retry_count([this] {return (fRegs->ctrl.value & kDesignwareMmcCtrlResetAll.value) == 0;;}, 1000) < B_OK) {
+			dprintf("[!] FIFO reset failed\n");
+		}
+		fRegs->bmod |= DWMCI_BMOD_IDMAC_RESET;
 
+		fRegs->ctrl.useIdmac = true;
+
+		fRegs->bmod |= DWMCI_BMOD_IDMAC_FB | DWMCI_BMOD_IDMAC_EN;
+
+#if 0
 		fRegs->blksiz = data->blockSize;
 		fRegs->bytcnt = data->blockSize * data->blockCnt;
+#endif
+		fRegs->pldmnd = 1;
+
+		dprintf("  status: "); dump_status({.value = fRegs->status.value}); dprintf("\n");
 	};
 
-	auto WaitForDma = [this, data]() -> status_t {
-		bigtime_t startTime = system_time();
-		bigtime_t timeout = startTime + /*GetTimeout()*/ 5000000;
-		status_t res = B_OK;
-		uint32 mask;
+	auto WaitForDma = [this, data, &dataOverCvEntry]() -> status_t {
+		status_t res = dataOverCvEntry.Wait(B_RELATIVE_TIMEOUT, 2000000);
 
-		dprintf("  rintsts: %#08" B_PRIx32 "\n", fRegs->rintsts);
+		dprintf("  status: "); dump_status({.value = fRegs->status.value}); dprintf("\n");
 
-		for (;;) {
-			mask = fRegs->rintsts;
-			if ((mask & (DWMCI_DATA_ERR | DWMCI_DATA_TOUT)) != 0) {
-				dprintf("[!] data error\n");
-				dprintf("  rintsts: %#08" B_PRIx32 "\n", mask);
-				res = B_IO_ERROR;
-				break;
-			}
-
-			if ((mask & DWMCI_INTMSK_DTO) != 0) {
-				break;
-			}
-
-			if (system_time() > timeout) {
-				dprintf("[!] timeout waiting for data\n");
-				dprintf("  rintsts: %#08" B_PRIx32 "\n", mask);
-				res = B_TIMED_OUT;
-				break;
-			}
-		}
-		fRegs->rintsts = mask;
-
+#if 0
 		dprintf("  idsts: %#08" B_PRIx32 "\n", fRegs->idsts);
 
-		mask = data->isWrite ? DWMCI_IDINTEN_TI : DWMCI_IDINTEN_RI;
-		status_t res2 = retry_count([this, mask] {
-			return (fRegs->idsts & mask) != 0;
+		uint32 idMask = data->isWrite ? DWMCI_IDINTEN_TI : DWMCI_IDINTEN_RI;
+		status_t res2 = retry_count([this, idMask] {
+			return (fRegs->idsts & idMask) != 0;
 		}, 100000);
 		if (res2 < B_OK)
 			res = res2;
 
 		dprintf("  idsts: %#08" B_PRIx32 "\n", fRegs->idsts);
 
-		fRegs->idsts = DWMCI_IDINTEN_MASK;
-
-		uint32 ctrl = fRegs->ctrl;
-		ctrl &= ~DWMCI_DMA_EN;
-		fRegs->ctrl = ctrl;
+		fRegs->ctrl &= ~DWMCI_DMA_EN;
+#endif
 
 		return res;
 	};
-
 
 	if (data != NULL) {
 		CHECK_RET(PrepareIdmacs());
 	}
 
-	bigtime_t startTime = system_time();
-	CHECK_RET(retry_timeout([this] {return (fRegs->status & DWMCI_BUSY) == 0;}, startTime + 500000));
+	dprintf("  status: "); dump_status({.value = fRegs->status.value}); dprintf("\n");
 
-	fRegs->rintsts = DWMCI_INTMSK_ALL;
+	bigtime_t startTime = system_time();
+	CHECK_RET(retry_timeout([this] {return !fRegs->status.busy;}, startTime + 500000));
+
+	dprintf("  status: "); dump_status({.value = fRegs->status.value}); dprintf("\n");
 
 	if (data != NULL)
 		SetupDma();
 
+	bool needInit = fNeedInit;
+	if (needInit)
+		fNeedInit = false;
+
 	fRegs->cmdarg = cmd.argument;
 
-	uint32 flags = 0;
-	if (cmd.command == SD_STOP_TRANSMISSION)
-		flags |= DWMCI_CMD_ABORT_STOP;
-	else
-		flags |= DWMCI_CMD_PRV_DAT_WAIT;
+	ConditionVariableEntry cvEntry;
+	fCmdCompletedCond.Add(&cvEntry);
 
-	if (cmd.response != NULL) {
-		flags |= DWMCI_CMD_RESP_EXP;
-		if (cmd.isWideResponse)
-			flags |= DWMCI_CMD_RESP_LENGTH;
-	}
+	fRegs->cmd = {
+		.indx       = cmd.command,
+		.respExp    = cmd.response != NULL,
+		.respLong   = cmd.isWideResponse,
+		.respCrc    = cmd.doCheckCrc,
+		.datExp     = data != NULL,
+		.datWr      = data != NULL && data->isWrite,
+		.prvDatWait = cmd.command != SD_STOP_TRANSMISSION,
+		.stop       = cmd.command == SD_STOP_TRANSMISSION,
+		.init       = needInit,
+		.useHoldReg = true,
+		.start      = true,
+	};
 
-	if (cmd.doCheckCrc)
-		flags |= DWMCI_CMD_CHECK_CRC;
+	CHECK_RET(cvEntry.Wait(B_RELATIVE_TIMEOUT, 2000000));
 
-	if (fNeedInit) {
-		fNeedInit = false;
-		flags |= DWMCI_CMD_SEND_INIT;
-	}
-
-	flags |= (cmd.command | DWMCI_CMD_START | DWMCI_CMD_USE_HOLD_REG);
-	fRegs->cmd = flags;
-
-	uint32 mask;
-	CHECK_RET(retry_count([this, &mask] {
-		mask = fRegs->rintsts;
-		return (mask & DWMCI_INTMSK_CDONE) != 0;
-	}, 100000));
-	fRegs->rintsts = mask;
-
-	if ((mask & DWMCI_INTMSK_RTO) != 0) {
-		dprintf("[!] MmcDriver::ExecuteCommand(%" B_PRIu8 ", %#" B_PRIx32 "): Response Timeout.\n", cmd.command, cmd.argument);
-		return B_TIMED_OUT;
-	} else if ((mask & DWMCI_INTMSK_RE) != 0) {
-		dprintf("[!] MmcDriver::ExecuteCommand(%" B_PRIu8 ", %#" B_PRIx32 "): Response Error.\n", cmd.command, cmd.argument);
-		return B_IO_ERROR;
-	} else if (cmd.doCheckCrc && (mask & DWMCI_INTMSK_RCRC) != 0) {
-		dprintf("[!] MmcDriver::ExecuteCommand(%" B_PRIu8 ", %#" B_PRIx32 "): Response CRC Error.\n", cmd.command, cmd.argument);
-		return B_IO_ERROR;
-	}
-
-	dprintf("MmcDriver::ExecuteCommand(%" B_PRIu8 ", %#" B_PRIx32 ")", cmd.command, cmd.argument);
 	if (cmd.response != NULL) {
 		if (cmd.isWideResponse) {
 			cmd.response[3] = fRegs->resp3;
 			cmd.response[2] = fRegs->resp2;
 			cmd.response[1] = fRegs->resp1;
 			cmd.response[0] = fRegs->resp0;
-			dprintf(" -> (%08" B_PRIx32 " %08" B_PRIx32 " %08" B_PRIx32 " %08" B_PRIx32 ")", cmd.response[3], cmd.response[2], cmd.response[1], cmd.response[0]);
+			dprintf("  -> (%08" B_PRIx32 " %08" B_PRIx32 " %08" B_PRIx32 " %08" B_PRIx32 ")\n", cmd.response[3], cmd.response[2], cmd.response[1], cmd.response[0]);
 		} else {
 			cmd.response[0] = fRegs->resp0;
-			dprintf(" -> (%#08" B_PRIx32")", cmd.response[0]);
+			dprintf("  -> (%#08" B_PRIx32")\n", cmd.response[0]);
 		}
 	}
-	dprintf(")\n");
 
 	if (data != NULL) {
 		CHECK_RET(WaitForDma());
@@ -574,6 +707,61 @@ DesignwareMmcDriver::ExecuteCommand(const mmc_command& cmd, const mmc_data* data
 	snooze(100);
 
 	return B_OK;
+}
+
+
+int32
+DesignwareMmcDriver::HandleInterrupt(void* arg)
+{
+	return static_cast<DesignwareMmcDriver*>(arg)->HandleInterruptInt();
+}
+
+
+int32
+DesignwareMmcDriver::HandleInterruptInt()
+{
+	dprintf("DesignwareMmcDriver::HandleInterrupt()\n");
+
+	DesignwareMmcInt ints {.value = fRegs->mintsts.value};
+	uint32 idInts = fRegs->idsts;
+
+	dprintf("  ints: %#" B_PRIx32 "\n", ints.value);
+	dprintf("  idInts: %#" B_PRIx32 "\n", idInts);
+
+	if (ints.value != 0) {
+		fRegs->rintsts = ints;
+
+		if (ints.cmdDone) {
+			status_t res = B_OK;
+			if (ints.rto) {
+				dprintf("[!] Response timeout.\n");
+				res = /*B_TIMED_OUT*/ B_IO_ERROR;
+			} else if (ints.respError) {
+				dprintf("[!] Response rrror.\n");
+				res = B_IO_ERROR;
+			} else if (/*cmd.doCheckCrc &&*/ ints.rcrc) {
+				dprintf("[!] Response CRC error.\n");
+				res = B_IO_ERROR;
+			}
+			fCmdCompletedCond.NotifyOne(res);
+		}
+
+		bool isDataError = (ints.value & (kDesignwareMmcIntDataError.value | kDesignwareMmcIntDataTimeout.value)) != 0;
+		if (ints.dataOver || isDataError) {
+			status_t res = B_OK;
+			if (isDataError) {
+				dprintf("[!] Data error.\n");
+				res = B_IO_ERROR;
+			}
+			fDataOverCond.NotifyOne(res);
+		}
+	}
+
+	if (idInts != 0) {
+		fRegs->idsts = idInts;
+	}
+
+	return B_HANDLED_INTERRUPT;
 }
 
 
@@ -606,18 +794,21 @@ DesignwareMmcDriver::MmcBusImpl::SetClock(uint32 kilohertz)
 	fBase.fRegs->clksrc = 0;
 
 	fBase.fRegs->clkdiv = div;
-	fBase.fRegs->cmd = DWMCI_CMD_PRV_DAT_WAIT | DWMCI_CMD_UPD_CLK | DWMCI_CMD_START;
-
-	CHECK_RET(retry_count([this]() {
-		return (fBase.fRegs->cmd & DWMCI_CMD_START) == 0;
-	}, 10000));
+	fBase.fRegs->cmd = {
+		.prvDatWait = true,
+		.updClk = true,
+		.start = true
+	};
+	CHECK_RET(retry_count([this]() {return !fBase.fRegs->cmd.start;}, 10000));
 
 	fBase.fRegs->clkena = DWMCI_CLKEN_ENABLE | DWMCI_CLKEN_LOW_PWR;
-	fBase.fRegs->cmd = DWMCI_CMD_PRV_DAT_WAIT | DWMCI_CMD_UPD_CLK | DWMCI_CMD_START;
 
-	CHECK_RET(retry_count([this]() {
-		return (fBase.fRegs->cmd & DWMCI_CMD_START) == 0;
-	}, 10000));
+	fBase.fRegs->cmd = {
+		.prvDatWait = true,
+		.updClk = true,
+		.start = true
+	};
+	CHECK_RET(retry_count([this]() {return !fBase.fRegs->cmd.start;}, 10000));
 
 	fBase.fClockFreq = freq;
 	return B_OK;
@@ -746,7 +937,7 @@ DesignwareMmcDriver::MmcBusImpl::ExecuteCommand(const mmc_command& cmd, const mm
 
 	status_t res = fBase.ExecuteCommand(cmd, &dataVecs);
 	if (data.dataSize >= 8) {
-		uint32* arr = (uint32*)data.data;
+		uint32* arr = (uint32*)buffer;
 		dprintf("  data: %08" B_PRIx32 ", %08" B_PRIx32 "\n", arr[0], arr[1]);
 	}
 	CHECK_RET(res);
