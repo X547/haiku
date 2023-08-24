@@ -156,9 +156,18 @@ status_t MmcDiskDriver::Init()
 	fBlockSize = csd.ReadBlLen();
 	fPhysicalBlockSize = csd.ReadBlLen();
 
+	fMmcBus->SetClock(25000);
+
 	uint32 response;
 	CHECK_RET(fMmcBus->ExecuteCommand(SD_SELECT_DESELECT_CARD, fRca << 16, &response));
 
+	const uint32 k4BitMode = 2;
+	CHECK_RET(fMmcBus->ExecuteCommand(SD_APP_CMD, fRca << 16, &response));
+	CHECK_RET(fMmcBus->ExecuteCommand(SD_SET_BUS_WIDTH, k4BitMode, &response));
+	CHECK_RET(fMmcBus->SetBusWidth(4));
+
+
+#if 0
 	CHECK_RET(fMmcBus->ExecuteCommand(SD_APP_CMD, fRca << 16, &response));
 
 	uint32 scr[2];
@@ -187,6 +196,7 @@ status_t MmcDiskDriver::Init()
 
 	CHECK_RET(fMmcBus->ExecuteCommand(SD_APP_CMD, fRca << 16, &response));
 	CHECK_RET(fMmcBus->ExecuteCommand(SD_SEND_STATUS, 0, &response));
+#endif
 
 	fDmaResource.SetTo(new(std::nothrow) DMAResource);
 	if (!fDmaResource.IsSet())
@@ -228,6 +238,8 @@ MmcDiskDriver::DoIO(IOOperation* operation)
 
 		uint8_t command = operation->IsWrite() ? SD_WRITE_MULTIPLE_BLOCKS : SD_READ_MULTIPLE_BLOCKS;
 		CHECK_RET(fMmcBus->DoIO(command, operation, fIoCommandOffsetAsSectors));
+
+		CHECK_RET(fMmcBus->ExecuteCommand(SD_STOP_TRANSMISSION, 0, &response));
 
 		return B_OK;
 	};

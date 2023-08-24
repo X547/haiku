@@ -172,6 +172,19 @@ union DesignwareMmcFifoth {
 	VOLATILE_ASSIGN_QUIRKS(DesignwareMmcFifoth)
 };
 
+union DesignwareMmcDmacBmod {
+	struct {
+		uint32 swReset:   1; //  0
+		uint32 fb:        1; //  1
+		uint32 unknown1:  5; //  2
+		uint32 enable:    1; //  7
+		uint32 unknown2: 24; //  8
+	};
+	uint32 value;
+
+	VOLATILE_ASSIGN_QUIRKS(DesignwareMmcDmacBmod)
+};
+
 struct DesignwareMmcRegs {
 	DesignwareMmcCtrl ctrl;
 	uint32 pwren;
@@ -204,7 +217,7 @@ struct DesignwareMmcRegs {
 	uint32 hcon;
 	uint32 uhsReg;
 	uint32 unknown1[2];
-	uint32 bmod;
+	DesignwareMmcDmacBmod bmod;
 	uint32 pldmnd;
 	union {
 		struct {
@@ -260,11 +273,6 @@ struct DesignwareMmcIdmac {
 #define DWMCI_CTYPE_1BIT		0
 #define DWMCI_CTYPE_4BIT		(1 << 0)
 #define DWMCI_CTYPE_8BIT		(1 << 16)
-
-/*  Bus Mode Register */
-#define DWMCI_BMOD_IDMAC_RESET	(1 << 0)
-#define DWMCI_BMOD_IDMAC_FB		(1 << 1)
-#define DWMCI_BMOD_IDMAC_EN		(1 << 7)
 
 /* UHS register */
 #define DWMCI_DDR_MODE			(1 << 16)
@@ -514,7 +522,7 @@ DesignwareMmcDriver::Init()
 	fRegs->tmout = 0xFFFFFFFF;
 
 	fRegs->idinten = 0;
-	fRegs->bmod = 1;
+	fRegs->bmod = {.swReset = 1};
 
 	fRegs->fifoth = fFifothVal;
 
@@ -580,7 +588,7 @@ DesignwareMmcDriver::ExecuteCommand(const mmc_command& cmd, const mmc_data* data
 		for (uint32 i = 0; i < data->vecCount; i++) {
 			DesignwareMmcIdmac& idmac = idmacs[i];
 			generic_io_vec& vec = data->vecs[i];
-			dprintf("  vec[%" B_PRIu32 "]: %#" B_PRIxPHYSADDR ", %#" B_PRIxPHYSADDR "\n", i, vec.base, vec.length);
+			//dprintf("  vec[%" B_PRIu32 "]: %#" B_PRIxPHYSADDR ", %#" B_PRIxPHYSADDR "\n", i, vec.base, vec.length);
 			idmac.flags = {
 				.ld = i == data->vecCount - 1,
 				.fs = i == 0,
@@ -598,7 +606,7 @@ DesignwareMmcDriver::ExecuteCommand(const mmc_command& cmd, const mmc_data* data
 	ConditionVariableEntry dataOverCvEntry;
 
 	auto SetupDma = [this, data, &idmacsPhysAdr, &dataOverCvEntry] {
-		dprintf("  idmacsPhysAdr: %#" B_PRIxPHYSADDR "\n", idmacsPhysAdr);
+		//dprintf("  idmacsPhysAdr: %#" B_PRIxPHYSADDR "\n", idmacsPhysAdr);
 
 		fDataOverCond.Add(&dataOverCvEntry);
 
@@ -610,54 +618,24 @@ DesignwareMmcDriver::ExecuteCommand(const mmc_command& cmd, const mmc_data* data
 		if (retry_count([this] {return (fRegs->ctrl.value & kDesignwareMmcCtrlResetAll.value) == 0;;}, 1000) < B_OK) {
 			dprintf("[!] FIFO reset failed\n");
 		}
-		fRegs->bmod |= DWMCI_BMOD_IDMAC_RESET;
+		fRegs->bmod.swReset |= true;
 
 		fRegs->ctrl.useIdmac = true;
 
-		fRegs->bmod |= DWMCI_BMOD_IDMAC_FB | DWMCI_BMOD_IDMAC_EN;
+		fRegs->bmod.value |= DesignwareMmcDmacBmod{.fb = true, .enable = true}.value;
 
-#if 0
 		fRegs->blksiz = data->blockSize;
 		fRegs->bytcnt = data->blockSize * data->blockCnt;
-#endif
+
 		fRegs->pldmnd = 1;
-
-		dprintf("  status: "); dump_status({.value = fRegs->status.value}); dprintf("\n");
-	};
-
-	auto WaitForDma = [this, data, &dataOverCvEntry]() -> status_t {
-		status_t res = dataOverCvEntry.Wait(B_RELATIVE_TIMEOUT, 2000000);
-
-		dprintf("  status: "); dump_status({.value = fRegs->status.value}); dprintf("\n");
-
-#if 0
-		dprintf("  idsts: %#08" B_PRIx32 "\n", fRegs->idsts);
-
-		uint32 idMask = data->isWrite ? DWMCI_IDINTEN_TI : DWMCI_IDINTEN_RI;
-		status_t res2 = retry_count([this, idMask] {
-			return (fRegs->idsts & idMask) != 0;
-		}, 100000);
-		if (res2 < B_OK)
-			res = res2;
-
-		dprintf("  idsts: %#08" B_PRIx32 "\n", fRegs->idsts);
-
-		fRegs->ctrl &= ~DWMCI_DMA_EN;
-#endif
-
-		return res;
 	};
 
 	if (data != NULL) {
 		CHECK_RET(PrepareIdmacs());
 	}
 
-	dprintf("  status: "); dump_status({.value = fRegs->status.value}); dprintf("\n");
-
 	bigtime_t startTime = system_time();
 	CHECK_RET(retry_timeout([this] {return !fRegs->status.busy;}, startTime + 500000));
-
-	dprintf("  status: "); dump_status({.value = fRegs->status.value}); dprintf("\n");
 
 	if (data != NULL)
 		SetupDma();
@@ -701,7 +679,7 @@ DesignwareMmcDriver::ExecuteCommand(const mmc_command& cmd, const mmc_data* data
 	}
 
 	if (data != NULL) {
-		CHECK_RET(WaitForDma());
+		CHECK_RET(dataOverCvEntry.Wait(B_RELATIVE_TIMEOUT, 2000000));
 	}
 
 	snooze(100);

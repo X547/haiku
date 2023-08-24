@@ -11,7 +11,7 @@
 #include "IOSchedulerSimple.h"
 
 
-#define TRACE_MMC_DISK
+// #define TRACE_MMC_DISK
 #ifdef TRACE_MMC_DISK
 #	define TRACE(x...) dprintf("\33[33mmmc_disk:\33[0m " x)
 #else
