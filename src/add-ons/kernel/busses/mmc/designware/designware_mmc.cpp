@@ -21,6 +21,15 @@
 
 #define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
+#define CHECK_RET_MSG(err, msg...) \
+	{ \
+		status_t _err = (err); \
+		if (_err < B_OK) { \
+			dprintf(msg); \
+			return _err; \
+		} \
+	} \
+
 #define VOLATILE_ASSIGN_QUIRKS(Type) \
 	void operator=(const Type& rhs) volatile \
 	{ \
@@ -340,7 +349,6 @@ private:
 		status_t SetBusWidth(int width) final;
 
 		status_t ExecuteCommand(const mmc_command& cmd, const mmc_data* data) final;
-		status_t ExecuteCommand(const mmc_command& cmd, const mmc_data_bounce& data) final;
 
 	public:
 		DesignwareMmcDriver& fBase;
@@ -564,7 +572,7 @@ DesignwareMmcDriver::Init()
 status_t
 DesignwareMmcDriver::ExecuteCommand(const mmc_command& cmd, const mmc_data* data)
 {
-	dprintf("MmcDriver::ExecuteCommand(%" B_PRIu8 ", %#" B_PRIx32 ")\n", cmd.command, cmd.argument);
+	//dprintf("MmcDriver::ExecuteCommand(%" B_PRIu8 ", %#" B_PRIx32 ")\n", cmd.command, cmd.argument);
 
 	AreaDeleter idmacsArea;
 	phys_addr_t idmacsPhysAdr {};
@@ -663,7 +671,7 @@ DesignwareMmcDriver::ExecuteCommand(const mmc_command& cmd, const mmc_data* data
 		.start      = true,
 	};
 
-	CHECK_RET(cvEntry.Wait(B_RELATIVE_TIMEOUT, 2000000));
+	CHECK_RET_MSG(cvEntry.Wait(B_RELATIVE_TIMEOUT, 2000000), "[!] MmcDriver::ExecuteCommand: timeout when executing command\n");
 
 	if (cmd.response != NULL) {
 		if (cmd.isWideResponse) {
@@ -671,15 +679,15 @@ DesignwareMmcDriver::ExecuteCommand(const mmc_command& cmd, const mmc_data* data
 			cmd.response[2] = fRegs->resp2;
 			cmd.response[1] = fRegs->resp1;
 			cmd.response[0] = fRegs->resp0;
-			dprintf("  -> (%08" B_PRIx32 " %08" B_PRIx32 " %08" B_PRIx32 " %08" B_PRIx32 ")\n", cmd.response[3], cmd.response[2], cmd.response[1], cmd.response[0]);
+			//dprintf("  -> (%08" B_PRIx32 " %08" B_PRIx32 " %08" B_PRIx32 " %08" B_PRIx32 ")\n", cmd.response[3], cmd.response[2], cmd.response[1], cmd.response[0]);
 		} else {
 			cmd.response[0] = fRegs->resp0;
-			dprintf("  -> (%#08" B_PRIx32")\n", cmd.response[0]);
+			//dprintf("  -> (%#08" B_PRIx32")\n", cmd.response[0]);
 		}
 	}
 
 	if (data != NULL) {
-		CHECK_RET(dataOverCvEntry.Wait(B_RELATIVE_TIMEOUT, 2000000));
+		CHECK_RET_MSG(dataOverCvEntry.Wait(B_RELATIVE_TIMEOUT, 2000000), "[!] MmcDriver::ExecuteCommand: timeout when transferring data\n");
 	}
 
 	snooze(100);
@@ -698,13 +706,13 @@ DesignwareMmcDriver::HandleInterrupt(void* arg)
 int32
 DesignwareMmcDriver::HandleInterruptInt()
 {
-	dprintf("DesignwareMmcDriver::HandleInterrupt()\n");
+	//dprintf("DesignwareMmcDriver::HandleInterrupt()\n");
 
 	DesignwareMmcInt ints {.value = fRegs->mintsts.value};
 	uint32 idInts = fRegs->idsts;
 
-	dprintf("  ints: %#" B_PRIx32 "\n", ints.value);
-	dprintf("  idInts: %#" B_PRIx32 "\n", idInts);
+	//dprintf("  ints: %#" B_PRIx32 "\n", ints.value);
+	//dprintf("  idInts: %#" B_PRIx32 "\n", idInts);
 
 	if (ints.value != 0) {
 		fRegs->rintsts = ints;
@@ -833,6 +841,8 @@ DesignwareMmcDriver::MmcBusImpl::DoIO(uint8 command, IOOperation* operation, boo
 status_t
 DesignwareMmcDriver::MmcBusImpl::SetBusWidth(int width)
 {
+	dprintf("MmcBusImpl::SetBusWidth(%d)\n", width);
+
 	uint32 ctype;
 	switch (width) {
 	case 8:
@@ -863,68 +873,6 @@ status_t
 DesignwareMmcDriver::MmcBusImpl::ExecuteCommand(const mmc_command& cmd, const mmc_data* data)
 {
 	return fBase.ExecuteCommand(cmd, data);
-}
-
-
-status_t
-DesignwareMmcDriver::MmcBusImpl::ExecuteCommand(const mmc_command& cmd, const mmc_data_bounce& data)
-{
-	uint8* buffer;
-	uint32 blockCnt = (data.dataSize + (data.blockSize - 1)) / data.blockSize;
-	size_t bufferSize = data.blockSize * blockCnt;
-
-	AreaDeleter bufferArea(create_area(
-		"dw mmc bounce buffer",
-		(void**)&buffer, B_ANY_ADDRESS,
-		ROUNDUP(bufferSize, B_PAGE_SIZE),
-		B_32_BIT_CONTIGUOUS,
-		B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA
-	));
-	CHECK_RET(bufferArea.Get());
-
-	physical_entry pe;
-	CHECK_RET(get_memory_map(buffer, B_PAGE_SIZE, &pe, 1));
-	phys_addr_t bufferPhysAdr = pe.address;
-
-	uint32 vecCount = (blockCnt + 7) / 8;
-	ArrayDeleter<generic_io_vec> vecs(new(std::nothrow) generic_io_vec[vecCount]);
-	if (!vecs.IsSet())
-		return B_NO_MEMORY;
-
-	uint32 remainBlockCnt = blockCnt;
-	for (uint32 i = 0; remainBlockCnt > 0; i++) {
-		uint32 curBlockCnt = std::min<uint32>(remainBlockCnt, 8);
-		vecs[i] = {
-			.base = bufferPhysAdr + i * data.blockSize * 8,
-			.length = curBlockCnt * data.blockSize
-		};
-		remainBlockCnt -= curBlockCnt;
-	}
-
-	mmc_data dataVecs {
-		.isWrite = data.isWrite,
-		.blockSize = data.blockSize,
-		.blockCnt = blockCnt,
-		.vecCount = vecCount,
-		.vecs = &vecs[0]
-	};
-
-	if (data.isWrite) {
-		CHECK_RET(user_memcpy(buffer, data.data, data.dataSize));
-	}
-
-	status_t res = fBase.ExecuteCommand(cmd, &dataVecs);
-	if (data.dataSize >= 8) {
-		uint32* arr = (uint32*)buffer;
-		dprintf("  data: %08" B_PRIx32 ", %08" B_PRIx32 "\n", arr[0], arr[1]);
-	}
-	CHECK_RET(res);
-
-	if (!data.isWrite) {
-		CHECK_RET(user_memcpy(data.data, buffer, data.dataSize));
-	}
-
-	return B_OK;
 }
 
 

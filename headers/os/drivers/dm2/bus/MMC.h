@@ -81,13 +81,6 @@ struct mmc_data {
 	generic_io_vec* vecs;
 };
 
-struct mmc_data_bounce {
-	bool isWrite;
-	uint32 blockSize;
-	size_t dataSize;
-	uint8* data;
-};
-
 
 class MmcBus {
 public:
@@ -106,7 +99,6 @@ public:
 		// Set the data bus width to 1, 4 or 8 bit mode.
 
 	virtual status_t ExecuteCommand(const mmc_command& cmd, const mmc_data* data) = 0;
-	virtual status_t ExecuteCommand(const mmc_command& cmd, const mmc_data_bounce& data) = 0;
 
 protected:
 	~MmcBus() = default;
