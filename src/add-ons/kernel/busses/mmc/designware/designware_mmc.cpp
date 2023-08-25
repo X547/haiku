@@ -690,8 +690,6 @@ DesignwareMmcDriver::ExecuteCommand(const mmc_command& cmd, const mmc_data* data
 		CHECK_RET_MSG(dataOverCvEntry.Wait(B_RELATIVE_TIMEOUT, 2000000), "[!] MmcDriver::ExecuteCommand: timeout when transferring data\n");
 	}
 
-	snooze(100);
-
 	return B_OK;
 }
 
@@ -715,9 +713,12 @@ DesignwareMmcDriver::HandleInterruptInt()
 	//dprintf("  idInts: %#" B_PRIx32 "\n", idInts);
 
 	if (ints.value != 0) {
-		fRegs->rintsts = ints;
 
 		if (ints.cmdDone) {
+			fRegs->rintsts.value
+				= DesignwareMmcInt {.cmdDone = true}.value
+				| kDesignwareMmcIntCmdError.value;
+
 			status_t res = B_OK;
 			if (ints.rto) {
 				dprintf("[!] Response timeout.\n");
@@ -734,6 +735,11 @@ DesignwareMmcDriver::HandleInterruptInt()
 
 		bool isDataError = (ints.value & (kDesignwareMmcIntDataError.value | kDesignwareMmcIntDataTimeout.value)) != 0;
 		if (ints.dataOver || isDataError) {
+			fRegs->rintsts.value
+				= DesignwareMmcInt {.dataOver = true}.value
+				| kDesignwareMmcIntDataError.value
+				| kDesignwareMmcIntDataTimeout.value;
+
 			status_t res = B_OK;
 			if (isDataError) {
 				dprintf("[!] Data error.\n");
