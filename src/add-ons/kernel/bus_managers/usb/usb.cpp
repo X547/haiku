@@ -18,10 +18,11 @@
 #define USB_DRIVER_MODULE_NAME "bus_managers/usb/driver/v1"
 
 
-class UsnBusManager: public DeviceDriver {
+// TODO: better class naming
+class UsbBusManagerImpl2: public DeviceDriver {
 public:
-	UsnBusManager(DeviceNode* node): fNode(node) {}
-	virtual ~UsnBusManager();
+	UsbBusManagerImpl2(DeviceNode* node): fNode(node) {}
+	virtual ~UsbBusManagerImpl2();
 
 	// DeviceDriver
 	static status_t Probe(DeviceNode* node, DeviceDriver** driver);
@@ -32,19 +33,20 @@ private:
 
 private:
 	DeviceNode* fNode;
-	PciDevice* fPciDevice {};
+	UsbHostController* fHostCtrl {};
+	ObjectDeleter<BusManager> fBusManager {};
 };
 
 
-UsnBusManager::~UsnBusManager()
+UsbBusManagerImpl2::~UsbBusManagerImpl2()
 {
 }
 
 
 status_t
-UsnBusManager::Probe(DeviceNode* node, DeviceDriver** outDriver)
+UsbBusManagerImpl2::Probe(DeviceNode* node, DeviceDriver** outDriver)
 {
-	ObjectDeleter<UsnBusManager> driver(new(std::nothrow) UsnBusManager(node));
+	ObjectDeleter<UsbBusManagerImpl2> driver(new(std::nothrow) UsbBusManagerImpl2(node));
 	if (!driver.IsSet())
 		return B_NO_MEMORY;
 
@@ -55,9 +57,17 @@ UsnBusManager::Probe(DeviceNode* node, DeviceDriver** outDriver)
 
 
 status_t
-UsnBusManager::Init()
+UsbBusManagerImpl2::Init()
 {
-	fPciDevice = fNode->QueryBusInterface<PciDevice>();
+	fHostCtrl = fNode->QueryBusInterface<UsbHostController>();
+
+	fBusManager.SetTo(new(std::nothrow) BusManager(fHostCtrl, fNode));
+	if (!fBusManager.IsSet())
+		return B_NO_MEMORY;
+
+	CHECK_RET(fBusManager->InitCheck());
+
+	fHostCtrl->SetBusManager(fBusManager->GetBusManagerIface());
 
 	// TODO: implement
 
@@ -77,7 +87,7 @@ usb_std_ops(int32 op, ...)
 				Stack::Instance().~Stack();
 			});
 
-			CHECK_RET(Stack::Instance().Init());
+			CHECK_RET(Stack::Instance().InitCheck());
 
 			stackDeleter.Detach();
 			return B_OK;
@@ -98,7 +108,7 @@ static driver_module_info sUsbDriverModule = {
 		.name = USB_DRIVER_MODULE_NAME,
 		.std_ops = usb_std_ops,
 	},
-	.probe = UsnBusManager::Probe
+	.probe = UsbBusManagerImpl2::Probe
 };
 
 

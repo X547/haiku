@@ -19,9 +19,9 @@
 	}
 */
 
-#define TRACE_OUTPUT(x, y, z...) ;
+#define TRACE_OUTPUT(x, y, z...) dprintf(z)
 
-//#define TRACE_USB
+#define TRACE_USB
 #ifdef TRACE_USB
 #define TRACE(x...)					TRACE_OUTPUT(this, "", x)
 #define TRACE_STATIC(x, y...)		TRACE_OUTPUT(x, "", y)
@@ -106,13 +106,19 @@ typedef struct xhci_device {
 } xhci_device;
 
 
-class XHCI: public UsbHostController {
+class XHCI: public DeviceDriver, public UsbHostController {
 public:
+					XHCI(DeviceNode* node): fNode(node), fBusManagerDriver(*this) {}
 	virtual 		~XHCI();
 
+	// DeviceDriver
+	static status_t Probe(DeviceNode* node, DeviceDriver** driver);
+	void Free() final {delete this;}
+
+	// UsbHostController
 	void			SetBusManager(UsbBusManager* busManager) final;
 
-	UsbBusDevice*	AllocateDevice(UsbBusHub* parent,
+	UsbBusDevice*	AllocateDevice(UsbBusDevice* parent,
 								int8 hubAddress, uint8 hubPort,
 								usb_speed speed) final;
 	void			FreeDevice(UsbBusDevice* device) final;
@@ -249,6 +255,7 @@ private:
 
 
 private:
+			DeviceNode*			fNode;
 			UsbBusManager*		fBusManager {};
 
 			area_id				fRegisterArea;
@@ -258,7 +265,7 @@ private:
 			uint32				fRuntimeRegisterOffset;
 			uint32				fDoorbellRegisterOffset;
 
-			pci_info*			fPCIInfo;
+			pci_info			fPCIInfo;
 			PciDevice*			fDevice;
 
 			UsbStack*			fStack;
@@ -281,7 +288,7 @@ private:
 			bool				fStopThreads;
 
 			// Root Hub
-			UsbBusHub*			fRootHub;
+			UsbBusDevice*		fRootHub;
 
 			// Port management
 			uint8				fPortCount;
@@ -313,14 +320,23 @@ private:
 			uint8				fCmdCcs;
 
 			uint32				fExitLatMax;
+
+
+	class BusManager: public BusDriver {
+	public:
+		BusManager(XHCI& base): fBase(base) {}
+
+		void* QueryInterface(const char* name) final;
+
+	private:
+		XHCI& fBase;
+	} fBusManagerDriver;
 };
-
-
 
 
 class XHCIRootHub {
 public:
-static	status_t					Create(UsbBusHub*& outHub, UsbBusObject *rootObject,
+static	status_t					Create(UsbBusDevice*& outHub, UsbBusManager *busManager,
 										int8 deviceAddress);
 
 static	status_t					ProcessTransfer(XHCI *xhci, UsbBusTransfer *transfer);

@@ -67,18 +67,20 @@ public:
 	 *	Standard device requests - convenience functions
 	 *	The provided handle may be a usb_device, usb_pipe or usb_interface
 	 */
-	status_t SetFeature(uint16 selector);
-	status_t ClearFeature(uint16 selector);
-	status_t GetStatus(uint16 *status);
+	virtual status_t SetFeature(uint16 selector) = 0;
+	virtual status_t ClearFeature(uint16 selector) = 0;
+	virtual status_t GetStatus(uint16 *status) = 0;
 
 protected:
 	~UsbObject() = default;
 };
 
 
-class UsbDevice: public UsbObject {
+class UsbDevice {
 public:
 	static inline const char ifaceName[] = "bus_managers/usb/device";
+
+	virtual UsbObject 	*GetObject() = 0;
 
 	/* Get the device descriptor of a device. */
 	virtual const usb_device_descriptor
@@ -125,8 +127,10 @@ protected:
 };
 
 
-class UsbHub: public UsbDevice {
+class UsbHub {
 public:
+	virtual UsbDevice 	*GetDevice() = 0;
+
 	/*
 	 * Hub interaction - These commands are only valid when used with a hub
 	 * device handle. Use reset_port to trigger a reset of the port with index
@@ -143,14 +147,19 @@ protected:
 };
 
 
-class UsbInterface: public UsbObject {
+class UsbInterface {
+public:
+	virtual UsbObject 	*GetObject() = 0;
+
 protected:
 	~UsbInterface() = default;
 };
 
 
-class UsbPipe: public UsbObject {
+class UsbPipe {
 public:
+	virtual UsbObject 	*GetObject() = 0;
+
 	/*
 	 *	Asynchronous request queueing. These functions return immediately
 	 *	and the return code only tells whether the _queuing_ of the request
@@ -214,20 +223,11 @@ struct usb_request_data;
 struct generic_io_vec;
 
 class UsbStack;
-class UsbBusObject;
 class UsbBusDevice;
-class UsbBusHub;
 class UsbBusPipe;
 class UsbBusControlPipe;
 class UsbBusManager;
 class UsbBusTransfer;
-
-
-struct change_item {
-	bool added;
-	UsbBusDevice *device;
-	change_item *link;
-};
 
 
 typedef enum {
@@ -246,208 +246,96 @@ typedef enum {
 } usb_change;
 
 
-#define USB_OBJECT_NONE					0x00000000
-#define USB_OBJECT_PIPE					0x00000001
 #define USB_OBJECT_CONTROL_PIPE			0x00000002
 #define USB_OBJECT_INTERRUPT_PIPE		0x00000004
 #define USB_OBJECT_BULK_PIPE			0x00000008
 #define USB_OBJECT_ISO_PIPE				0x00000010
-#define USB_OBJECT_INTERFACE			0x00000020
-#define USB_OBJECT_DEVICE				0x00000040
-#define USB_OBJECT_HUB					0x00000080
 
-class UsbBusObject {
+
+class UsbBusDevice {
 public:
-virtual	UsbBusObject *						Parent() const = 0;
+	virtual void			Free() = 0;
 
-virtual		UsbBusManager *					GetBusManager() const = 0;
-virtual		UsbStack *							GetStack() const = 0;
+	// NULL for root hub
+	virtual UsbBusDevice *	Parent() = 0;
 
-virtual		usb_id							USBID() const = 0;
-virtual		void							SetBusy(bool busy) = 0;
+	virtual	int8			DeviceAddress() const = 0;
+	virtual	usb_speed		Speed() const  = 0;
 
-virtual	uint32							Type() const = 0;
-virtual	const char *					TypeName() const = 0;
+	virtual	DeviceNode *	RegisterNode(DeviceNode* parent = NULL) = 0;
 
-		// Convenience functions for standard requests
-virtual	status_t						SetFeature(uint16 selector) = 0;
-virtual	status_t						ClearFeature(uint16 selector) = 0;
-virtual	status_t						GetStatus(uint16 *status) = 0;
+	virtual	int8			HubAddress() const = 0;
+	virtual	uint8			HubPort() const = 0;
 
-protected:
-	~UsbBusObject() = default;
-};
-
-
-class UsbBusDevice: public UsbBusObject {
-public:
-	virtual void Free() = 0;
-
-virtual	status_t						Changed(change_item **changeList,
-											bool added) = 0;
-
-virtual	uint32							Type() const = 0;
-virtual	const char *					TypeName() const  = 0;
-
-virtual UsbBusControlPipe *					DefaultPipe() const = 0;
-
-virtual	status_t						GetDescriptor(uint8 descriptorType,
-											uint8 index, uint16 languageID,
-											void *data, size_t dataLength,
-											size_t *actualLength) = 0;
-
-virtual		int8							DeviceAddress() const = 0;
-virtual		const usb_device_descriptor *	DeviceDescriptor() const = 0;
-virtual		usb_speed						Speed() const  = 0;
-
-virtual		const usb_configuration_info *	Configuration() const = 0;
-virtual		const usb_configuration_info *	ConfigurationAt(uint8 index) const = 0;
-virtual		status_t						SetConfiguration(
-											const usb_configuration_info *
-												configuration) = 0;
-virtual		status_t						SetConfigurationAt(uint8 index) = 0;
-virtual		status_t						Unconfigure(bool atDeviceLevel) = 0;
-
-virtual		status_t						SetAltInterface(
-											const usb_interface_info *
-												interface) = 0;
-
-virtual		void							InitEndpoints(int32 interfaceIndex) = 0;
-virtual		void							ClearEndpoints(int32 interfaceIndex) = 0;
-
-virtual	status_t						BuildDeviceName(char *string,
-											uint32 *index, size_t bufferSize,
-											UsbBusDevice *device) = 0;
-
-virtual		DeviceNode *					RegisterNode(DeviceNode* parent = NULL) = 0;
-
-virtual		int8							HubAddress() const = 0;
-virtual		uint8							HubPort() const = 0;
-
-virtual		void							SetControllerCookie(void *cookie) = 0;
-virtual		void *							ControllerCookie() const = 0;
-virtual		DeviceNode *					Node() const = 0;
-virtual		void							SetNode(DeviceNode* node) = 0;
+	virtual	void			SetControllerCookie(void *cookie) = 0;
+	virtual	void *			ControllerCookie() const = 0;
+	virtual	DeviceNode *	Node() const = 0;
+	virtual	void			SetNode(DeviceNode* node) = 0;
 
 protected:
 	~UsbBusDevice() = default;
 };
 
 
-class UsbBusHub: public UsbBusDevice {
-public:
-virtual	status_t						Changed(change_item **changeList,
-											bool added) = 0;
-
-virtual	uint32							Type() const = 0;
-virtual	const char *					TypeName() const = 0;
-
-virtual	status_t						GetDescriptor(uint8 descriptorType,
-											uint8 index, uint16 languageID,
-											void *data, size_t dataLength,
-											size_t *actualLength) = 0;
-
-virtual		UsbBusDevice *						ChildAt(uint8 index) const = 0;
-
-virtual		status_t						UpdatePortStatus(uint8 index) = 0;
-virtual		status_t						ResetPort(uint8 index) = 0;
-virtual		status_t						DisablePort(uint8 index) = 0;
-
-virtual		void							Explore(change_item **changeList) = 0;
-
-virtual	status_t						BuildDeviceName(char *string,
-											uint32 *index, size_t bufferSize,
-											UsbBusDevice *device) = 0;
-
-protected:
-	~UsbBusHub() = default;
-};
-
-
-class UsbBusPipe: public UsbBusObject {
+class UsbBusPipe {
 public:
 	enum pipeDirection { In, Out, Default };
 
 	virtual void Free() = 0;
 
-virtual	void							InitCommon(int8 deviceAddress,
-											uint8 endpointAddress,
-											usb_speed speed,
-											pipeDirection direction,
-											size_t maxPacketSize,
-											uint8 interval,
-											int8 hubAddress, uint8 hubPort) = 0;
-virtual void							InitSuperSpeed(uint8 maxBurst,
-											uint16 bytesPerInterval) = 0;
+	virtual UsbBusDevice 	*GetDevice() = 0;
+	virtual	uint32			Type() const = 0;
 
-virtual	uint32							Type() const = 0;
-virtual	const char *					TypeName() const = 0;
-
-virtual		int8							DeviceAddress() const = 0;
-virtual		usb_speed						Speed() const = 0;
-virtual		pipeDirection					Direction() const = 0;
-virtual		uint8							EndpointAddress() const = 0;
-virtual		size_t							MaxPacketSize() const = 0;
-virtual		uint8							Interval() const = 0;
+virtual		int8			DeviceAddress() const = 0;
+virtual		usb_speed		Speed() const = 0;
+virtual		pipeDirection	Direction() const = 0;
+virtual		uint8			EndpointAddress() const = 0;
+virtual		size_t			MaxPacketSize() const = 0;
+virtual		uint8			Interval() const = 0;
 
 		// SuperSpeed-only parameters
-virtual		uint8							MaxBurst() const = 0;
-virtual		uint16							BytesPerInterval() const = 0;
+virtual		uint8			MaxBurst() const = 0;
+virtual		uint16			BytesPerInterval() const = 0;
 
 		// Hub port being the one-based logical port number on the hub
-virtual		void							SetHubInfo(int8 address, uint8 port) = 0;
-virtual		int8							HubAddress() const = 0;
-virtual		uint8							HubPort() const = 0;
+virtual		void			SetHubInfo(int8 address, uint8 port) = 0;
+virtual		int8			HubAddress() const = 0;
+virtual		uint8			HubPort() const = 0;
 
-virtual	bool							DataToggle() const = 0;
-virtual	void							SetDataToggle(bool toggle) = 0;
+virtual		bool			DataToggle() const = 0;
+virtual		void			SetDataToggle(bool toggle) = 0;
 
-virtual		status_t						SubmitTransfer(UsbBusTransfer *transfer) = 0;
-virtual	status_t						CancelQueuedTransfers(bool force) = 0;
+virtual		status_t		SubmitTransfer(UsbBusTransfer *transfer) = 0;
+virtual		status_t		CancelQueuedTransfers(bool force) = 0;
 
-virtual		void							SetControllerCookie(void *cookie) = 0;
-virtual		void *							ControllerCookie() const = 0;
+virtual		void			SetControllerCookie(void *cookie) = 0;
+virtual		void *			ControllerCookie() const = 0;
 
+virtual status_t			SendRequest(uint8 requestType,
+								uint8 request, uint16 value,
+								uint16 index, uint16 length,
+								void *data, size_t dataLength,
+								size_t *actualLength) = 0;
 protected:
 	~UsbBusPipe() = default;
 };
 
 
-class UsbBusControlPipe: public UsbBusPipe {
-public:
-	virtual status_t SendRequest(uint8 requestType,
-				uint8 request, uint16 value,
-				uint16 index, uint16 length,
-				void *data, size_t dataLength,
-				size_t *actualLength) = 0;
-
-protected:
-	~UsbBusControlPipe() = default;
-};
-
-
 class UsbBusTransfer {
 public:
-	virtual void Free() = 0;
-
+virtual		void						Free() = 0;
 
 virtual		UsbBusPipe *				TransferPipe() const = 0;
 
-virtual		void						SetRequestData(usb_request_data *data) = 0;
 virtual		usb_request_data *			RequestData() const = 0;
 
-virtual		void						SetIsochronousData(
-										usb_isochronous_data *data) = 0;
 virtual		usb_isochronous_data *		IsochronousData() const = 0;
 
-virtual		void						SetData(uint8 *buffer, size_t length) = 0;
 virtual		uint8 *						Data() const = 0;
 virtual		size_t						DataLength() const = 0;
 
 virtual		bool						IsPhysical() const = 0;
 
-virtual		void						SetVector(iovec *vector, size_t vectorCount) = 0;
-virtual		void						SetVector(physical_entry *vector, size_t vectorCount) = 0;
 virtual		generic_io_vec *			Vector() = 0;
 virtual		size_t						VectorCount() const = 0;
 
@@ -466,9 +354,6 @@ virtual		void *						CallbackCookie() const = 0;
 
 virtual		void						Finished(uint32 status, size_t actualLength) = 0;
 
-virtual		usb_id						USBID() const = 0;
-virtual		const char *				TypeName() const = 0;
-
 protected:
 	~UsbBusTransfer() = default;
 };
@@ -481,24 +366,70 @@ public:
 	virtual bool Lock() = 0;
 	virtual void Unlock() = 0;
 
+	virtual int32 ID() = 0;
+
 	virtual	int8 AllocateAddress() = 0;
 	virtual	void FreeAddress(int8 address) = 0;
 
-	virtual UsbBusObject* RootObject() const = 0;
-	virtual UsbBusHub* GetRootHub() const = 0;
-	virtual void SetRootHub(UsbBusHub* hub) = 0;
+	virtual UsbBusDevice* GetRootHub() const = 0;
+	virtual void SetRootHub(UsbBusDevice* hub) = 0;
 	virtual	DeviceNode* Node() const = 0;
 
+
+	// new methods
+	virtual status_t	CreateDevice(UsbBusDevice*& outDevice, UsbBusDevice* parent, int8 hubAddress,
+							uint8 hubPort,
+							usb_device_descriptor& desc,
+							int8 deviceAddress,
+							usb_speed speed, bool isRootHub,
+							void *controllerCookie = NULL) = 0;
+
+	virtual status_t	CreateHub(UsbBusDevice*& outDevice, UsbBusDevice* parent, int8 hubAddress,
+							uint8 hubPort,
+							usb_device_descriptor& desc,
+							int8 deviceAddress,
+							usb_speed speed, bool isRootHub,
+							void* controllerCookie = NULL) = 0;
+
+	virtual status_t	CreateControlPipe(UsbBusPipe*& outPipe, UsbBusDevice* parent,
+							int8 deviceAddress,
+							uint8 endpointAddress,
+							usb_speed speed,
+							UsbBusPipe::pipeDirection direction,
+							size_t maxPacketSize,
+							uint8 interval,
+							int8 hubAddress, uint8 hubPort) = 0;
 protected:
 	~UsbBusManager() = default;
 };
 
 
+class UsbStack {
+public:
+	virtual bool			Lock() = 0;
+	virtual void			Unlock() = 0;
+
+	virtual status_t		AllocateChunk(void **logicalAddress,
+								phys_addr_t *physicalAddress,
+								size_t size) = 0;
+	virtual status_t		FreeChunk(void *logicalAddress,
+								phys_addr_t physicalAddress,
+								size_t size) = 0;
+	virtual area_id			AllocateArea(void **logicalAddress,
+								phys_addr_t *physicalAddress,
+								size_t size, const char *name) = 0;
+protected:
+	~UsbStack() = default;
+};
+
+
 class UsbHostController {
 public:
+	static inline const char ifaceName[] = "busses/usb/device";
+
 	virtual void			SetBusManager(UsbBusManager* busManager) = 0;
 
-	virtual	UsbBusDevice*	AllocateDevice(UsbBusHub* parent,
+	virtual	UsbBusDevice*	AllocateDevice(UsbBusDevice* parent,
 								int8 hubAddress, uint8 hubPort,
 								usb_speed speed) = 0;
 	virtual void			FreeDevice(UsbBusDevice* device) = 0;
@@ -519,67 +450,4 @@ public:
 
 protected:
 	~UsbHostController() = default;
-};
-
-
-class UsbStack {
-public:
-		virtual bool							Lock() = 0;
-		virtual void							Unlock() = 0;
-
-		virtual usb_id							GetUSBID(UsbBusObject *object) = 0;
-		virtual void							PutUSBID(UsbBusObject *object) = 0;
-
-		// This sets the object as busy; the caller must set it un-busy.
-		virtual UsbBusObject *						GetObject(usb_id id) = 0;
-
-		// only for the kernel debugger
-		virtual UsbBusObject *						GetObjectNoLock(usb_id id) const = 0;
-
-		virtual void							AddBusManager(UsbBusManager *bus) = 0;
-		virtual int32							IndexOfBusManager(UsbBusManager *bus) = 0;
-		virtual UsbBusManager *					BusManagerAt(int32 index) const = 0;
-
-		virtual status_t						AllocateChunk(void **logicalAddress,
-											phys_addr_t *physicalAddress,
-											size_t size) = 0;
-		virtual status_t						FreeChunk(void *logicalAddress,
-											phys_addr_t physicalAddress,
-											size_t size) = 0;
-
-		virtual area_id							AllocateArea(void **logicalAddress,
-											phys_addr_t *physicalAddress,
-											size_t size, const char *name) = 0;
-
-		virtual usb_id							USBID() const = 0;
-		virtual const char *					TypeName() const = 0;
-
-		virtual void							Explore() = 0;
-
-	// new methods
-	virtual status_t	CreateDevice(UsbBusDevice*& outDevice, UsbBusObject* parent, int8 hubAddress,
-							uint8 hubPort,
-							usb_device_descriptor& desc,
-							int8 deviceAddress,
-							usb_speed speed, bool isRootHub,
-							void *controllerCookie = NULL) = 0;
-
-	virtual status_t	CreateHub(UsbBusHub*& outHub, UsbBusObject* parent, int8 hubAddress,
-							uint8 hubPort,
-							usb_device_descriptor& desc,
-							int8 deviceAddress,
-							usb_speed speed, bool isRootHub,
-							void* controllerCookie = NULL) = 0;
-
-	virtual status_t	CreateControlPipe(UsbBusControlPipe*& outPipe, UsbBusObject* parent,
-							int8 deviceAddress,
-							uint8 endpointAddress,
-							usb_speed speed,
-							UsbBusPipe::pipeDirection direction,
-							size_t maxPacketSize,
-							uint8 interval,
-							int8 hubAddress, uint8 hubPort) = 0;
-
-protected:
-	~UsbStack() = default;
 };

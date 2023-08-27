@@ -3,13 +3,40 @@ SubDir HAIKU_TOP src add-ons kernel bus_managers usb ;
 SubDirC++Flags -fno-rtti ;
 
 UsePrivateKernelHeaders ;
+#
+#KernelStaticLibrary libusb.a :
+#	Stack.cpp
+#	Device.cpp
+#	Hub.cpp
+#	BusManager.cpp
+#	Transfer.cpp
+#	Pipe.cpp
+#	Interface.cpp
+#	Object.cpp
+#	PhysicalMemoryAllocator.cpp
+#	Dm2Interfaces.cpp
+#;
+#
+#KernelAddon usb :
+#	usb.cpp
+#	: libusb.a
+#	: usb.rdef
+#	;
 
 KernelAddon usb :
 	usb.cpp
-	PhysicalMemoryAllocator.cpp
+	compile_check.cpp
+	Dm2Interfaces.cpp
+	Dm2BusInterfaces.cpp
 	Stack.cpp
-#	Object.cpp
-#	Device.cpp
+	Device.cpp
+	Hub.cpp
+	BusManager.cpp
+	Transfer.cpp
+	Pipe.cpp
+	Interface.cpp
+	Object.cpp
+	PhysicalMemoryAllocator.cpp
 	:
 	: usb.rdef
 	;

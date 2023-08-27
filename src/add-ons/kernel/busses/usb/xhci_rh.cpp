@@ -137,10 +137,9 @@ static xhci_root_hub_string_s sXHCIRootHubStrings[3] = {
 
 
 status_t
-XHCIRootHub::Create(UsbBusHub*& outHub, UsbBusObject *rootObject, int8 deviceAddress)
+XHCIRootHub::Create(UsbBusDevice*& outHub, UsbBusManager *busManager, int8 deviceAddress)
 {
-	UsbStack* stack = rootObject->GetStack();
-	return stack->CreateHub(outHub, rootObject, 0, stack->IndexOfBusManager(rootObject->GetBusManager()),
+	return busManager->CreateHub(outHub, NULL, 0, busManager->ID(),
 			sXHCIRootHubDevice, deviceAddress, USB_SPEED_SUPERSPEED, true);
 }
 

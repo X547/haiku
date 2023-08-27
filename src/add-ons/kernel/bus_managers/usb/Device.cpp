@@ -12,6 +12,17 @@
 
 #include <StackOrHeapArray.h>
 
+// !!!
+#define B_DEVICE_VENDOR_ID	"usb/vendor"		/* uint16 */
+#define B_DEVICE_ID			"usb/id"			/* uint16 */
+
+
+class UsbDeviceStubImpl: public BusDriver {
+public:
+	virtual ~UsbDeviceStubImpl() = default;
+	void Free() {delete this;}
+};
+
 
 Device::Device(Object* parent, int8 hubAddress, uint8 hubPort,
 	usb_device_descriptor& desc, int8 deviceAddress, usb_speed speed,
@@ -29,7 +40,9 @@ Device::Device(Object* parent, int8 hubAddress, uint8 hubPort,
 	fHubAddress(hubAddress),
 	fHubPort(hubPort),
 	fControllerCookie(controllerCookie),
-	fNode(NULL)
+	fNode(NULL),
+	fDeviceIface(*this),
+	fBusDeviceIface(*this)
 {
 	TRACE("creating device\n");
 
@@ -209,7 +222,7 @@ Device::Device(Object* parent, int8 hubAddress, uint8 hubPort,
 						return;
 					}
 
-					interfaceInfo->handle = interface->USBID();
+					interfaceInfo->handle = interface->GetInterfaceIface();
 					currentInterface = interfaceInfo;
 					break;
 				}
@@ -341,7 +354,9 @@ Device::~Device()
 	// though, since we may be deleted because the device was unplugged already.
 	Unconfigure(false);
 
-	status_t error = gDeviceManager->unregister_node(fNode);
+	DeviceNode* parentNode = fNode->GetParent();
+	status_t error = parentNode->UnregisterNode(fNode);
+	parentNode->ReleaseReference();
 	if (error != B_OK && error != B_BUSY)
 		TRACE_ERROR("failed to unregister device node\n");
 	fNode = NULL;
@@ -360,8 +375,7 @@ Device::~Device()
 
 			for (size_t k = 0; k < interfaceList->alt_count; k++) {
 				usb_interface_info* interface = &interfaceList->alt[k];
-				Interface* interfaceObject =
-					(Interface*)GetStack()->GetObject(interface->handle);
+				Interface* interfaceObject = interface->handle == NULL ? NULL : static_cast<UsbInterfaceImpl*>(interface->handle)->Base();
 				if (interfaceObject != NULL)
 					interfaceObject->SetBusy(false);
 				delete interfaceObject;
@@ -594,7 +608,7 @@ Device::InitEndpoints(int32 interfaceIndex)
 				pipe->InitSuperSpeed(comp_descr->max_burst,
 					comp_descr->bytes_per_interval);
 			}
-			endpoint->handle = pipe->USBID();
+			endpoint->handle = pipe->GetPipeIface();
 		}
 	}
 }
@@ -644,7 +658,7 @@ Device::ClearEndpoints(int32 interfaceIndex)
 
 		for (size_t i = 0; i < interfaceInfo->endpoint_count; i++) {
 			usb_endpoint_info* endpoint = &interfaceInfo->endpoint[i];
-			Pipe* pipe = (Pipe*)GetStack()->GetObject(endpoint->handle);
+			Pipe* pipe = endpoint->handle == NULL ? NULL : static_cast<UsbPipeImpl*>(endpoint->handle)->Base();
 			if (pipe != NULL)
 				pipe->SetBusy(false);
 			delete pipe;
@@ -688,6 +702,7 @@ Device::DeviceDescriptor() const
 }
 
 
+#if 0
 status_t
 Device::ReportDevice(usb_support_descriptor* supportDescriptors,
 	uint32 supportDescriptorCount, const usb_notify_hooks* hooks,
@@ -785,6 +800,7 @@ Device::ReportDevice(usb_support_descriptor* supportDescriptors,
 
 	return B_OK;
 }
+#endif
 
 
 status_t
@@ -838,8 +854,8 @@ Device::GetStatus(uint16* status)
 }
 
 
-device_node*
-Device::RegisterNode(device_node *parent)
+DeviceNode*
+Device::RegisterNode(DeviceNode *parent)
 {
 	usb_id id = USBID();
 	if (parent == NULL)
@@ -938,9 +954,8 @@ Device::RegisterNode(device_node *parent)
 	attrs[attrCount].value.string = NULL;
 	attrCount++;
 
-	device_node* node = NULL;
-	if (gDeviceManager->register_node(parent, USB_DEVICE_MODULE_NAME, attrs,
-			NULL, &node) != B_OK) {
+	DeviceNode* node = NULL;
+	if (parent->RegisterNode(NULL, new(std::nothrow) UsbDeviceStubImpl(), attrs, &node) != B_OK) {
 		TRACE_ERROR("failed to register device node\n");
 	} else
 		fNode = node;

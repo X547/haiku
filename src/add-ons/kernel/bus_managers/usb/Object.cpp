@@ -14,17 +14,19 @@ Object::Object(Stack *stack, BusManager *bus)
 		fBusManager(bus),
 		fStack(stack),
 		fUSBID(fStack->GetUSBID(this)),
-		fBusy(0)
+		fBusy(0),
+		fObjectIface(*this)
 {
 }
 
 
 Object::Object(Object *parent)
 	:	fParent(parent),
-		fBusManager(static_cast<BusManager*>(parent->GetBusManager())),
-		fStack(static_cast<Stack*>(parent->GetStack())),
+		fBusManager(parent->GetBusManager()),
+		fStack(parent->GetStack()),
 		fUSBID(fStack->GetUSBID(this)),
-		fBusy(0)
+		fBusy(0),
+		fObjectIface(*this)
 {
 }
 

@@ -11,7 +11,7 @@
 
 
 #include <KernelExport.h>
-//#include <USB3.h>
+#include <dm2/bus/USB.h>
 
 
 #define USB_MAX_AREAS					8

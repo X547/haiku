@@ -36,13 +36,8 @@ Stack::Stack()
 		fAllocator(NULL),
 		fObjectIndex(1),
 		fObjectMaxCount(1024),
-		fObjectArray(NULL)
-{
-}
-
-
-status_t
-Stack::Init()
+		fObjectArray(NULL),
+		fStackIface(*this)
 {
 	TRACE("stack init\n");
 
@@ -51,15 +46,15 @@ Stack::Init()
 	fExploreSem = create_sem(0, "usb explore sem");
 	if (fExploreSem < B_OK) {
 		TRACE_ERROR("failed to create semaphore\n");
-		return fExploreSem;
+		return;
 	}
 
 
 	size_t objectArraySize = fObjectMaxCount * sizeof(Object *);
-	fObjectArray = (UsbBusObject **)malloc(objectArraySize);
+	fObjectArray = (Object **)malloc(objectArraySize);
 	if (fObjectArray == NULL) {
 		TRACE_ERROR("failed to allocate object array\n");
-		return B_NO_MEMORY;
+		return;
 	}
 
 	memset(fObjectArray, 0, objectArraySize);
@@ -70,15 +65,12 @@ Stack::Init()
 		TRACE_ERROR("failed to allocate the allocator\n");
 		delete fAllocator;
 		fAllocator = NULL;
-		return B_NO_MEMORY;
+		return;
 	}
 
 	fExploreThread = spawn_kernel_thread(ExploreThread, "usb explore",
 		B_LOW_PRIORITY, this);
-	CHECK_RET(fExploreThread);
 	resume_thread(fExploreThread);
-
-	return B_OK;
 }
 
 
@@ -95,13 +87,20 @@ Stack::~Stack()
 	mutex_destroy(&fExploreLock);
 
 	// Release the bus modules
-	for (Vector<UsbBusManager *>::Iterator i = fBusManagers.Begin();
+	for (Vector<BusManager *>::Iterator i = fBusManagers.Begin();
 		i != fBusManagers.End(); i++) {
-		(*i)->Free();
+		delete (*i);
 	}
 
 	delete fAllocator;
 	free(fObjectArray);
+}
+
+
+status_t
+Stack::InitCheck()
+{
+	return B_OK;
 }
 
 
@@ -120,7 +119,7 @@ Stack::Unlock()
 
 
 usb_id
-Stack::GetUSBID(UsbBusObject *object)
+Stack::GetUSBID(Object *object)
 {
 	if (!Lock())
 		return fObjectMaxCount;
@@ -145,7 +144,7 @@ Stack::GetUSBID(UsbBusObject *object)
 
 
 void
-Stack::PutUSBID(UsbBusObject *object)
+Stack::PutUSBID(Object *object)
 {
 	if (!Lock())
 		return;
@@ -179,7 +178,7 @@ Stack::PutUSBID(UsbBusObject *object)
 }
 
 
-UsbBusObject *
+Object *
 Stack::GetObject(usb_id id)
 {
 	if (!Lock())
@@ -191,7 +190,7 @@ Stack::GetObject(usb_id id)
 		return NULL;
 	}
 
-	UsbBusObject *result = fObjectArray[id];
+	Object *result = fObjectArray[id];
 
 	if (result != NULL)
 		result->SetBusy(true);
@@ -201,7 +200,7 @@ Stack::GetObject(usb_id id)
 }
 
 
-UsbBusObject *
+Object *
 Stack::GetObjectNoLock(usb_id id) const
 {
 	ASSERT(debug_debugger_running());
@@ -228,6 +227,9 @@ Stack::ExploreThread(void *data)
 void
 Stack::Explore()
 {
+	// Acquire the device manager lock before the explore lock, to prevent lock-order inversion.
+	//RecursiveLocker dmLocker(device_manager_get_lock());
+
 	if (mutex_lock(&fExploreLock) != B_OK)
 		return;
 
@@ -236,16 +238,18 @@ Stack::Explore()
 	if (semCount > 0)
 		acquire_sem_etc(fExploreSem, semCount, B_RELATIVE_TIMEOUT, 0);
 
-	//rescan_item *rescanList = NULL;
+	rescan_item *rescanList = NULL;
 	change_item *changeItem = NULL;
 	for (int32 i = 0; i < fBusManagers.Count(); i++) {
-		UsbBusHub *rootHub = fBusManagers.ElementAt(i)->GetRootHub();
+		Hub *rootHub = fBusManagers.ElementAt(i)->GetRootHub();
 		if (rootHub)
 			rootHub->Explore(&changeItem);
 	}
-/*
+
 	while (changeItem) {
+#if 0
 		NotifyDeviceChange(changeItem->device, &rescanList, changeItem->added);
+#endif
 		if (!changeItem->added) {
 			// everyone possibly holding a reference is now notified so we
 			// can delete the device
@@ -256,26 +260,26 @@ Stack::Explore()
 		delete changeItem;
 		changeItem = next;
 	}
-*/
+
 	mutex_unlock(&fExploreLock);
-	// RescanDrivers(rescanList);
+	RescanDrivers(rescanList);
 }
 
 void
-Stack::AddBusManager(UsbBusManager *busManager)
+Stack::AddBusManager(BusManager *busManager)
 {
 	fBusManagers.PushBack(busManager);
 }
 
 
 int32
-Stack::IndexOfBusManager(UsbBusManager *busManager)
+Stack::IndexOfBusManager(BusManager *busManager)
 {
 	return fBusManagers.IndexOf(busManager);
 }
 
 
-UsbBusManager *
+BusManager *
 Stack::BusManagerAt(int32 index) const
 {
 	return fBusManagers.ElementAt(index);
@@ -337,42 +341,202 @@ Stack::AllocateArea(void **logicalAddress, phys_addr_t *physicalAddress, size_t 
 }
 
 
-status_t
-Stack::CreateDevice(UsbBusDevice*& outDevice,
-		UsbBusObject* parent, int8 hubAddress,
-		uint8 hubPort,
-		usb_device_descriptor& desc,
-		int8 deviceAddress,
-		usb_speed speed, bool isRootHub,
-		void *controllerCookie)
+#if 0
+void
+Stack::NotifyDeviceChange(Device *device, rescan_item **rescanList, bool added)
 {
-	return ENOSYS;
+	TRACE("device %s\n", added ? "added" : "removed");
+
+	usb_driver_info *element = fDriverList;
+	while (element) {
+		status_t result = device->ReportDevice(element->support_descriptors,
+			element->support_descriptor_count, &element->notify_hooks,
+			&element->cookies, added, false);
+
+		if (result >= B_OK) {
+			const char *driverName = element->driver_name;
+			if (element->republish_driver_name)
+				driverName = element->republish_driver_name;
+
+			bool already = false;
+			rescan_item *rescanItem = *rescanList;
+			while (rescanItem) {
+				if (strcmp(rescanItem->name, driverName) == 0) {
+					// this driver is going to be rescanned already
+					already = true;
+					break;
+				}
+				rescanItem = rescanItem->link;
+			}
+
+			if (!already) {
+				rescanItem = new(std::nothrow) rescan_item;
+				if (!rescanItem)
+					return;
+
+				rescanItem->name = driverName;
+				rescanItem->link = *rescanList;
+				*rescanList = rescanItem;
+			}
+		}
+
+		element = element->link;
+	}
+}
+#endif
+
+
+void
+Stack::RescanDrivers(rescan_item *rescanItem)
+{
+	while (rescanItem) {
+		// the device is supported by this driver. it either got notified
+		// already by the hooks or it is not loaded at this time. in any
+		// case we will rescan the driver so it either is loaded and can
+		// scan for supported devices or its publish_devices hook will be
+		// called to expose changed devices.
+
+		// use the private devfs API to republish a device
+		devfs_rescan_driver(rescanItem->name);
+
+		rescan_item *next = rescanItem->link;
+		delete rescanItem;
+		rescanItem = next;
+	}
+}
+
+
+#if 0
+status_t
+Stack::RegisterDriver(const char *driverName,
+	const usb_support_descriptor *descriptors,
+	size_t descriptorCount, const char *republishDriverName)
+{
+	TRACE("register driver \"%s\"\n", driverName);
+	if (!driverName)
+		return B_BAD_VALUE;
+
+	if (!Lock())
+		return B_ERROR;
+
+	usb_driver_info *element = fDriverList;
+	while (element) {
+		if (strcmp(element->driver_name, driverName) == 0) {
+			// we already have an entry for this driver, just update it
+			free((char *)element->republish_driver_name);
+			element->republish_driver_name = strdup(republishDriverName);
+
+			free(element->support_descriptors);
+			size_t descriptorsSize = descriptorCount * sizeof(usb_support_descriptor);
+			element->support_descriptors = (usb_support_descriptor *)malloc(descriptorsSize);
+			memcpy(element->support_descriptors, descriptors, descriptorsSize);
+			element->support_descriptor_count = descriptorCount;
+
+			Unlock();
+			return B_OK;
+		}
+
+		element = element->link;
+	}
+
+	// this is a new driver, add it to the driver list
+	usb_driver_info *info = new(std::nothrow) usb_driver_info;
+	if (!info) {
+		Unlock();
+		return B_NO_MEMORY;
+	}
+
+	info->driver_name = strdup(driverName);
+	info->republish_driver_name = strdup(republishDriverName);
+
+	size_t descriptorsSize = descriptorCount * sizeof(usb_support_descriptor);
+	info->support_descriptors = (usb_support_descriptor *)malloc(descriptorsSize);
+	memcpy(info->support_descriptors, descriptors, descriptorsSize);
+	info->support_descriptor_count = descriptorCount;
+
+	info->notify_hooks.device_added = NULL;
+	info->notify_hooks.device_removed = NULL;
+	info->cookies = NULL;
+	info->link = NULL;
+
+	if (fDriverList) {
+		usb_driver_info *element = fDriverList;
+		while (element->link)
+			element = element->link;
+
+		element->link = info;
+	} else
+		fDriverList = info;
+
+	Unlock();
+	return B_OK;
 }
 
 
 status_t
-Stack::CreateHub(UsbBusHub*& outHub,
-		UsbBusObject* parent, int8 hubAddress,
-		uint8 hubPort,
-		usb_device_descriptor& desc,
-		int8 deviceAddress,
-		usb_speed speed, bool isRootHub,
-		void* controllerCookie)
+Stack::InstallNotify(const char *driverName, const usb_notify_hooks *hooks)
 {
-	return ENOSYS;
+	TRACE("installing notify hooks for driver \"%s\"\n", driverName);
+
+	usb_driver_info *element = fDriverList;
+	while (element) {
+		if (strcmp(element->driver_name, driverName) == 0) {
+			if (mutex_lock(&fExploreLock) != B_OK)
+				return B_ERROR;
+
+			// inform driver about any already present devices
+			for (int32 i = 0; i < fBusManagers.Count(); i++) {
+				Hub *rootHub = fBusManagers.ElementAt(i)->GetRootHub();
+				if (rootHub) {
+					// Report device will recurse down the whole tree
+					rootHub->ReportDevice(element->support_descriptors,
+						element->support_descriptor_count, hooks,
+						&element->cookies, true, true);
+				}
+			}
+
+			element->notify_hooks.device_added = hooks->device_added;
+			element->notify_hooks.device_removed = hooks->device_removed;
+			mutex_unlock(&fExploreLock);
+			return B_OK;
+		}
+
+		element = element->link;
+	}
+
+	return B_NAME_NOT_FOUND;
 }
 
 
 status_t
-Stack::CreateControlPipe(UsbBusControlPipe*& outPipe,
-		UsbBusObject* parent,
-		int8 deviceAddress,
-		uint8 endpointAddress,
-		usb_speed speed,
-		UsbBusPipe::pipeDirection direction,
-		size_t maxPacketSize,
-		uint8 interval,
-		int8 hubAddress, uint8 hubPort)
+Stack::UninstallNotify(const char *driverName)
 {
-	return ENOSYS;
+	TRACE("uninstalling notify hooks for driver \"%s\"\n", driverName);
+
+	usb_driver_info *element = fDriverList;
+	while (element) {
+		if (strcmp(element->driver_name, driverName) == 0) {
+			if (mutex_lock(&fExploreLock) != B_OK)
+				return B_ERROR;
+
+			// trigger the device removed hook
+			for (int32 i = 0; i < fBusManagers.Count(); i++) {
+				Hub *rootHub = fBusManagers.ElementAt(i)->GetRootHub();
+				if (rootHub)
+					rootHub->ReportDevice(element->support_descriptors,
+						element->support_descriptor_count,
+						&element->notify_hooks, &element->cookies, false, true);
+			}
+
+			element->notify_hooks.device_added = NULL;
+			element->notify_hooks.device_removed = NULL;
+			mutex_unlock(&fExploreLock);
+			return B_OK;
+		}
+
+		element = element->link;
+	}
+
+	return B_NAME_NOT_FOUND;
 }
+#endif
