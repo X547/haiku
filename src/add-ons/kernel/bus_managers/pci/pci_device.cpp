@@ -42,8 +42,8 @@ private:
 
 class PciDeviceImpl: public PciDevice, public BusDriver {
 public:
-				PciDeviceImpl(PciBusImpl* driver, uint32 domain, uint8 bus, PCIDev* device):
-					fDriver(driver), fDomain(domain), fBus(bus), fDevice(device) {}
+				PciDeviceImpl(PciBusImpl* driver, PCIDev* device):
+					fDriver(driver), fDevice(device) {}
 	virtual		~PciDeviceImpl() = default;
 
 	// BusDriver
@@ -83,8 +83,6 @@ public:
 
 private:
 	PciBusImpl* fDriver;
-	uint32 fDomain;
-	uint8 fBus;
 	PCIDev* fDevice;
 	DeviceNode* fNode {};
 };
@@ -110,11 +108,11 @@ PciBusImpl::Init()
 {
 	PciController* ctrl = fNode->QueryBusInterface<PciController>();
 
-	CHECK_RET(gPCI->AddController(ctrl, fNode));
-	CHECK_RET(pci_init_deferred());
+	int32 ctrlDomain = gPCI->AddController(ctrl, fNode);
+	CHECK_RET(ctrlDomain);
 
 	pci_info info;
-	for (int32 i = 0; pci_get_nth_pci_info(i, &info) == B_OK; i++) {
+	for (int32 i = 0; gPCI->GetNthInfo(i, &info) == B_OK; i++) {
 		uint8 domain;
 		uint8 bus;
 		if (gPCI->ResolveVirtualBus(info.bus, &domain, &bus) != B_OK) {
@@ -122,9 +120,12 @@ PciBusImpl::Init()
 			continue;
 		}
 
+		if (ctrlDomain != domain)
+			continue;
+
 		PCIDev* dev = gPCI->FindDevice(domain, bus, info.device, info.function);
 
-		ObjectDeleter<PciDeviceImpl> pciDev(new(std::nothrow) PciDeviceImpl(this, domain, bus, dev));
+		ObjectDeleter<PciDeviceImpl> pciDev(new(std::nothrow) PciDeviceImpl(this, dev));
 		if (!pciDev.IsSet()) {
 			return B_NO_MEMORY;
 		}

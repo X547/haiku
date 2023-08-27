@@ -52,6 +52,7 @@ struct domain_data {
 	// These two are set in PCI::AddController:
 	PciController *		controller;
 	DeviceNode *		root_node;
+	PCIBus *			bus;
 
 	// All the rest is set in PCI::InitDomainData
 	int					max_bus_devices;
@@ -69,9 +70,8 @@ public:
 							PCI();
 							~PCI();
 
-			void			InitDomainData();
-			void			InitBus();
-			status_t	Finalize();
+			void			InitDomainData(domain_data &data);
+			void			InitBus(PCIBus *bus);
 
 			status_t		AddController(PciController *controller, DeviceNode *root_node);
 
@@ -194,8 +194,6 @@ private:
 			status_t		_DisableMSIX(PCIDev *device);
 
 private:
-	PCIBus *				fRootBus;
-
 	enum { MAX_PCI_DOMAINS = 8 };
 
 	domain_data				fDomainData[MAX_PCI_DOMAINS];
