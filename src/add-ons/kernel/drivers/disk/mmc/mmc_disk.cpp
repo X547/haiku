@@ -234,18 +234,33 @@ MmcDiskDriver::DoIO(IOOperation* operation)
 
 	auto DoIO = [this, operation]() -> status_t {
 		uint32 response;
-		CHECK_RET(fMmcBus->ExecuteCommand(SD_SET_BLOCKLEN, fBlockSize, &response));
 
-		uint8_t command = operation->IsWrite() ? SD_WRITE_MULTIPLE_BLOCKS : SD_READ_MULTIPLE_BLOCKS;
-		CHECK_RET(fMmcBus->DoIO(command, operation, fIoCommandOffsetAsSectors));
+		CHECK_RET(fMmcBus->ExecuteCommand({
+			.command = SD_SET_BLOCKLEN,
+			.argument = fBlockSize,
+			.response = &response},
+		NULL));
 
-		CHECK_RET(fMmcBus->ExecuteCommand(SD_STOP_TRANSMISSION, 0, &response));
+		mmc_command cmd {
+			.command = operation->IsWrite() ? SD_WRITE_MULTIPLE_BLOCKS : SD_READ_MULTIPLE_BLOCKS,
+			.argument = (uint32)(operation->Offset() / fBlockSize),
+			.response = &response
+		};
+		mmc_data data {
+			.isWrite = operation->IsWrite(),
+			.blockSize = fBlockSize,
+			.blockCnt = (uint32)(operation->Length() / fBlockSize),
+			.vecCount = operation->VecCount(),
+			.vecs = operation->Vecs()
+		};
+		CHECK_RET(fMmcBus->ExecuteCommand(cmd, &data));
+
+		CHECK_RET(fMmcBus->ExecuteCommand({.command = SD_STOP_TRANSMISSION, .response = &response}, NULL));
 
 		return B_OK;
 	};
 
 	status_t res = DoIO();
-
 	fIoScheduler->OperationCompleted(operation, res, res < B_OK ? 0 : operation->Length());
 	return res;
 }

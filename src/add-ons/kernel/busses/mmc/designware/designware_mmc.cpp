@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <string.h>
+#include <sys/uio.h>
 #include <algorithm>
 #include <new>
 
@@ -14,10 +15,9 @@
 #include <AutoDeleterOS.h>
 #include <ScopeExit.h>
 
-#include "IORequest.h"
-
 #include <kernel.h>
 #include <condition_variable.h>
+#include <util/iovec_support.h>
 
 #define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
@@ -194,6 +194,31 @@ union DesignwareMmcDmacBmod {
 	VOLATILE_ASSIGN_QUIRKS(DesignwareMmcDmacBmod)
 };
 
+enum struct DesignwareMmcDmacHconTransMode: uint32 {
+	idma  = 0,
+	dwdma = 1,
+	gdma  = 2,
+	nodma = 3,
+};
+
+union DesignwareMmcDmacHcon {
+	struct {
+		uint32 unknown1:   1; //  0
+		uint32 slotNum:    5; //  1
+		uint32 unknown2:   1; //  6
+		uint32 hdataWidth: 3; //  7
+		uint32 unknown3:   6; // 10
+		DesignwareMmcDmacHconTransMode
+		       transMode:  2; // 16
+		uint32 unknown4:   9; // 18
+		uint32 addrConfig: 1; // 27
+		uint32 unknown5:   4; // 28
+	};
+	uint32 value;
+
+	VOLATILE_ASSIGN_QUIRKS(DesignwareMmcDmacHcon)
+};
+
 struct DesignwareMmcRegs {
 	DesignwareMmcCtrl ctrl;
 	uint32 pwren;
@@ -223,7 +248,7 @@ struct DesignwareMmcRegs {
 	uint32 debnce;
 	uint32 usrid;
 	uint32 verid;
-	uint32 hcon;
+	DesignwareMmcDmacHcon hcon;
 	uint32 uhsReg;
 	uint32 unknown1[2];
 	DesignwareMmcDmacBmod bmod;
@@ -254,7 +279,7 @@ struct DesignwareMmcRegs {
 	uint32 data;
 };
 
-union DesignwareMmcIdmacFlags {
+union DesignwareMmcIdmacDescFlags {
 	struct {
 		uint32 unknown1: 2;  //  0
 		uint32 ld: 1;        //  2
@@ -266,8 +291,8 @@ union DesignwareMmcIdmacFlags {
 	uint32 value;
 };
 
-struct DesignwareMmcIdmac {
-	DesignwareMmcIdmacFlags flags;
+struct DesignwareMmcIdmacDesc {
+	DesignwareMmcIdmacDescFlags flags;
 	uint32 cnt;
 	uint32 addr;
 	uint32 nextAddr;
@@ -345,7 +370,6 @@ private:
 		// MmcBus
 		status_t SetClock(uint32 kilohertz) final;
 		status_t ExecuteCommand(uint8 command, uint32 argument, uint32* result) final;
-		status_t DoIO(uint8 command, IOOperation* operation, bool offsetAsSectors) final;
 		status_t SetBusWidth(int width) final;
 
 		status_t ExecuteCommand(const mmc_command& cmd, const mmc_data* data) final;
@@ -537,25 +561,21 @@ DesignwareMmcDriver::Init()
 	fRegs->clkena = 0;
 	fRegs->clksrc = 0;
 
-
-	fRegs->intmask.value = DesignwareMmcInt {
+	fRegs->intmask.value
+		= DesignwareMmcInt {
 			.cmdDone = true,
-			.dataOver = true,
-/*
-			.txdr = true,
-			.rxdr = true,
-*/
-	}.value
+			.dataOver = true
+		}.value
 		| kDesignwareMmcIntDataError.value
 		| kDesignwareMmcIntDataTimeout.value
 		| kDesignwareMmcIntCmdError.value;
 
 	dprintf("fRegs->intmask: %#" B_PRIx32 "\n", fRegs->intmask.value);
 
-  fRegs->idsts = 0xffffffff;
+	fRegs->idsts = 0xffffffff;
  	fRegs->idinten = DWMCI_IDINTEN_MASK;
 
-  fRegs->ctrl = DesignwareMmcCtrl {.intEnable = true};
+	fRegs->ctrl = DesignwareMmcCtrl {.intEnable = true};
 
 	device_attr attrs[] = {
 		{B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "MMC Bus Manager"}},
@@ -574,27 +594,27 @@ DesignwareMmcDriver::ExecuteCommand(const mmc_command& cmd, const mmc_data* data
 {
 	//dprintf("MmcDriver::ExecuteCommand(%" B_PRIu8 ", %#" B_PRIx32 ")\n", cmd.command, cmd.argument);
 
-	AreaDeleter idmacsArea;
-	phys_addr_t idmacsPhysAdr {};
+	AreaDeleter dmaDescsArea;
+	phys_addr_t dmaDescsPhysAdr {};
 
-	auto PrepareIdmacs = [this, data, &idmacsArea, &idmacsPhysAdr]() -> status_t {
+	auto PrepareDmaDescs = [this, data, &dmaDescsArea, &dmaDescsPhysAdr]() -> status_t {
 		// TODO: Do not allocate an area for each IO operation.
-		DesignwareMmcIdmac* idmacs;
-		idmacsArea.SetTo(create_area(
+		DesignwareMmcIdmacDesc* dmaDescs;
+		dmaDescsArea.SetTo(create_area(
 			"idmac",
-			(void**)&idmacs, B_ANY_ADDRESS,
-			ROUNDUP(data->vecCount * sizeof(DesignwareMmcIdmac), B_PAGE_SIZE),
+			(void**)&dmaDescs, B_ANY_ADDRESS,
+			ROUNDUP(data->vecCount * sizeof(DesignwareMmcIdmacDesc), B_PAGE_SIZE),
 			B_32_BIT_CONTIGUOUS,
 			B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA
 		));
-		CHECK_RET(idmacsArea.Get());
+		CHECK_RET(dmaDescsArea.Get());
 
 		physical_entry pe;
-		CHECK_RET(get_memory_map(idmacs, B_PAGE_SIZE, &pe, 1));
-		idmacsPhysAdr = pe.address;
+		CHECK_RET(get_memory_map(dmaDescs, B_PAGE_SIZE, &pe, 1));
+		dmaDescsPhysAdr = pe.address;
 
 		for (uint32 i = 0; i < data->vecCount; i++) {
-			DesignwareMmcIdmac& idmac = idmacs[i];
+			DesignwareMmcIdmacDesc& idmac = dmaDescs[i];
 			generic_io_vec& vec = data->vecs[i];
 			//dprintf("  vec[%" B_PRIu32 "]: %#" B_PRIxPHYSADDR ", %#" B_PRIxPHYSADDR "\n", i, vec.base, vec.length);
 			idmac.flags = {
@@ -605,7 +625,7 @@ DesignwareMmcDriver::ExecuteCommand(const mmc_command& cmd, const mmc_data* data
 			};
 			idmac.cnt = vec.length;
 			idmac.addr = vec.base;
-			idmac.nextAddr = idmacsPhysAdr + sizeof(DesignwareMmcIdmac)*(i + 1);
+			idmac.nextAddr = dmaDescsPhysAdr + sizeof(DesignwareMmcIdmacDesc)*(i + 1);
 		}
 
 		return B_OK;
@@ -613,12 +633,12 @@ DesignwareMmcDriver::ExecuteCommand(const mmc_command& cmd, const mmc_data* data
 
 	ConditionVariableEntry dataOverCvEntry;
 
-	auto SetupDma = [this, data, &idmacsPhysAdr, &dataOverCvEntry] {
-		//dprintf("  idmacsPhysAdr: %#" B_PRIxPHYSADDR "\n", idmacsPhysAdr);
+	auto SetupDma = [this, data, &dmaDescsPhysAdr, &dataOverCvEntry] {
+		//dprintf("  dmaDescsPhysAdr: %#" B_PRIxPHYSADDR "\n", dmaDescsPhysAdr);
 
 		fDataOverCond.Add(&dataOverCvEntry);
 
-		fRegs->dbaddr = idmacsPhysAdr;
+		fRegs->dbaddr = dmaDescsPhysAdr;
 
 		fRegs->ctrl.dmaEnable = true;
 
@@ -639,7 +659,7 @@ DesignwareMmcDriver::ExecuteCommand(const mmc_command& cmd, const mmc_data* data
 	};
 
 	if (data != NULL) {
-		CHECK_RET(PrepareIdmacs());
+		CHECK_RET(PrepareDmaDescs());
 	}
 
 	bigtime_t startTime = system_time();
@@ -713,7 +733,6 @@ DesignwareMmcDriver::HandleInterruptInt()
 	//dprintf("  idInts: %#" B_PRIx32 "\n", idInts);
 
 	if (ints.value != 0) {
-
 		if (ints.cmdDone) {
 			fRegs->rintsts.value
 				= DesignwareMmcInt {.cmdDone = true}.value
@@ -817,30 +836,6 @@ DesignwareMmcDriver::MmcBusImpl::ExecuteCommand(uint8 command, uint32 argument, 
 		.response = result
 	};
 	return fBase.ExecuteCommand(cmd, NULL);
-}
-
-
-status_t
-DesignwareMmcDriver::MmcBusImpl::DoIO(uint8 command, IOOperation* operation, bool offsetAsSectors)
-{
-	uint32 blockSize = 512; // !!!
-
-	uint32 response;
-	mmc_command cmd {
-		.command = command,
-		.argument = (uint32)(operation->Offset() / blockSize),
-		.response = &response
-	};
-
-	mmc_data data {
-		.isWrite = operation->IsWrite(),
-		.blockSize = blockSize,
-		.blockCnt = (uint32)(operation->Length() / blockSize),
-		.vecCount = operation->VecCount(),
-		.vecs = operation->Vecs()
-	};
-
-	return fBase.ExecuteCommand(cmd, &data);
 }
 
 

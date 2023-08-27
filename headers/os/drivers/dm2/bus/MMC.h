@@ -93,8 +93,6 @@ public:
 		// accordingly.
 	virtual status_t ExecuteCommand(uint8 command, uint32 argument, uint32* result) = 0;
 		// Execute a command with no I/O phase
-	virtual status_t DoIO(uint8 command, IOOperation* operation, bool offsetAsSectors) = 0;
-		// Execute a command that involves a data transfer.
 	virtual status_t SetBusWidth(int width) = 0;
 		// Set the data bus width to 1, 4 or 8 bit mode.
 
