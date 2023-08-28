@@ -236,23 +236,23 @@ virtual	status_t						InitCheck();
 		int8							AllocateAddress();
 		void							FreeAddress(int8 address);
 
-virtual	Device *						AllocateDevice(Hub *parent,
+		Device *						AllocateDevice(Hub *parent,
 											int8 hubAddress, uint8 hubPort,
 											usb_speed speed);
-virtual void							FreeDevice(Device *device);
+		void							FreeDevice(Device *device);
 
-virtual	status_t						Start();
-virtual	status_t						Stop();
+		status_t						Start();
+		status_t						Stop();
 
-virtual	status_t						StartDebugTransfer(Transfer *transfer);
-virtual	status_t						CheckDebugTransfer(Transfer *transfer);
-virtual	void							CancelDebugTransfer(Transfer *transfer);
+		status_t						StartDebugTransfer(Transfer *transfer);
+		status_t						CheckDebugTransfer(Transfer *transfer);
+		void							CancelDebugTransfer(Transfer *transfer);
 
-virtual	status_t						SubmitTransfer(Transfer *transfer);
-virtual	status_t						CancelQueuedTransfers(Pipe *pipe,
+		status_t						SubmitTransfer(Transfer *transfer);
+		status_t						CancelQueuedTransfers(Pipe *pipe,
 											bool force);
 
-virtual	status_t						NotifyPipeChange(Pipe *pipe,
+		status_t						NotifyPipeChange(Pipe *pipe,
 											usb_change change);
 
 		Object *						RootObject() const

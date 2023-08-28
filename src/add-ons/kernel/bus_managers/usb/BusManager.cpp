@@ -119,6 +119,7 @@ Device *
 BusManager::AllocateDevice(Hub *parent, int8 hubAddress, uint8 hubPort,
 	usb_speed speed)
 {
+#if 0
 	// Check if there is a free entry in the device map (for the device number)
 	int8 deviceAddress = AllocateAddress();
 	if (deviceAddress < 0) {
@@ -245,20 +246,25 @@ BusManager::AllocateDevice(Hub *parent, int8 hubAddress, uint8 hubPort,
 	device->RegisterNode();
 
 	return device;
+#endif
+	UsbBusDevice *device = fHostController->AllocateDevice(parent->GetBusDeviceIface(), hubAddress, hubPort, speed);
+	return device == NULL ? NULL : static_cast<UsbBusDeviceImpl*>(device)->Base();
 }
 
 
 void
 BusManager::FreeDevice(Device *device)
 {
-	FreeAddress(device->DeviceAddress());
-	delete device;
+	// FreeAddress(device->DeviceAddress()); // !!!
+	return fHostController->FreeDevice(device->GetBusDeviceIface());
 }
 
 
 status_t
 BusManager::Start()
 {
+	CHECK_RET(fHostController->Start());
+	
 	Stack::Instance().AddBusManager(this);
 	fStackIndex = Stack::Instance().IndexOfBusManager(this);
 	Stack::Instance().Explore();
@@ -269,54 +275,50 @@ BusManager::Start()
 status_t
 BusManager::Stop()
 {
-	return B_OK;
+	// TODO: Stack::Instance().RemoveBusManager(this);
+	return fHostController->Stop();
 }
 
 
 status_t
 BusManager::StartDebugTransfer(Transfer *transfer)
 {
-	// virtual function to be overridden
-	return B_UNSUPPORTED;
+	return fHostController->StartDebugTransfer(transfer->GetBusTransferIface());
 }
 
 
 status_t
 BusManager::CheckDebugTransfer(Transfer *transfer)
 {
-	// virtual function to be overridden
-	return B_UNSUPPORTED;
+	return fHostController->CheckDebugTransfer(transfer->GetBusTransferIface());
 }
 
 
 void
 BusManager::CancelDebugTransfer(Transfer *transfer)
 {
-	// virtual function to be overridden
+	fHostController->CancelDebugTransfer(transfer->GetBusTransferIface());
 }
 
 
 status_t
 BusManager::SubmitTransfer(Transfer *transfer)
 {
-	// virtual function to be overridden
-	return B_ERROR;
+	return fHostController->SubmitTransfer(transfer->GetBusTransferIface());
 }
 
 
 status_t
 BusManager::CancelQueuedTransfers(Pipe *pipe, bool force)
 {
-	// virtual function to be overridden
-	return B_ERROR;
+	return fHostController->CancelQueuedTransfers(pipe->GetBusPipeIface(), force);
 }
 
 
 status_t
 BusManager::NotifyPipeChange(Pipe *pipe, usb_change change)
 {
-	// virtual function to be overridden
-	return B_ERROR;
+	return fHostController->NotifyPipeChange(pipe->GetBusPipeIface(), change);
 }
 
 

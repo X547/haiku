@@ -35,11 +35,14 @@ private:
 	DeviceNode* fNode;
 	UsbHostController* fHostCtrl {};
 	ObjectDeleter<BusManager> fBusManager {};
+	bool fIsStarted = false;
 };
 
 
 UsbBusManagerImpl2::~UsbBusManagerImpl2()
 {
+	if (fIsStarted)
+		fBusManager->Stop();
 }
 
 
@@ -68,8 +71,9 @@ UsbBusManagerImpl2::Init()
 	CHECK_RET(fBusManager->InitCheck());
 
 	fHostCtrl->SetBusManager(fBusManager->GetBusManagerIface());
-
-	// TODO: implement
+	
+	CHECK_RET(fBusManager->Start());
+	fIsStarted = true;
 
 	return B_OK;
 }

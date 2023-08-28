@@ -17,13 +17,6 @@
 #define B_DEVICE_ID			"usb/id"			/* uint16 */
 
 
-class UsbDeviceStubImpl: public BusDriver {
-public:
-	virtual ~UsbDeviceStubImpl() = default;
-	void Free() {delete this;}
-};
-
-
 Device::Device(Object* parent, int8 hubAddress, uint8 hubPort,
 	usb_device_descriptor& desc, int8 deviceAddress, usb_speed speed,
 	bool isRootHub, void* controllerCookie)
@@ -955,7 +948,7 @@ Device::RegisterNode(DeviceNode *parent)
 	attrCount++;
 
 	DeviceNode* node = NULL;
-	if (parent->RegisterNode(NULL, new(std::nothrow) UsbDeviceStubImpl(), attrs, &node) != B_OK) {
+	if (parent->RegisterNode(NULL, GetDeviceIface(), attrs, &node) != B_OK) {
 		TRACE_ERROR("failed to register device node\n");
 	} else
 		fNode = node;

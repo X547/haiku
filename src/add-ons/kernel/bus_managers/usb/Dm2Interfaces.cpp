@@ -28,6 +28,16 @@ UsbObjectImpl::GetStatus(uint16 *status)
 
 // #pragma mark - UsbDeviceImpl
 
+void*
+UsbDeviceImpl::QueryInterface(const char* name)
+{
+	if (strcmp(name, UsbDevice::ifaceName) == 0)
+		return static_cast<UsbDevice*>(this);
+
+	return NULL;
+}
+
+
 UsbObject *
 UsbDeviceImpl::GetObject()
 {

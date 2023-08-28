@@ -23,9 +23,12 @@ private:
 };
 
 
-class UsbDeviceImpl final: public UsbDevice {
+class UsbDeviceImpl final: public BusDriver, public UsbDevice {
 public:
 	UsbDeviceImpl(Device& base): fBase(base) {}
+
+	// BusDriver
+	void* QueryInterface(const char* name) final;
 
 	UsbObject 	*GetObject() final;
 
