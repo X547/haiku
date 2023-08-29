@@ -4,6 +4,7 @@
 
 #include <Referenceable.h>
 
+#include <lock.h>
 #include <util/DoublyLinkedList.h>
 #include <util/Vector.h>
 
@@ -90,6 +91,7 @@ private:
 		uint32 val;
 	};
 
+	mutex fLock = MUTEX_INITIALIZER("DeviceManager");
 	State fState {};
 	DeviceNodeImpl* fParent {};
 	ChildList fChildNodes;

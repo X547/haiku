@@ -491,14 +491,14 @@ DeviceNodeImpl::ProbeDriver(const char* moduleName, bool isChild)
 	}
 
 	driver_module_info* driverModule {};
-	CHECK_RET(get_module(moduleName, (module_info**)&driverModule));
+	CHECK_RET_MSG(get_module(moduleName, (module_info**)&driverModule), "[!] can't load driver module\n");
 	DetachableScopeExit modulePutter([moduleName]() {
 		put_module(moduleName);
 	});
 
 	// TODO: unregister nodes and DevFS nodes on probe fail
 	DeviceDriver* driver {};
-	CHECK_RET(driverModule->probe(this, &driver));
+	CHECK_RET_MSG(driverModule->probe(this, &driver), "[!] driver do not support device or internal driver error\n");
 	if (driver == NULL) {
 		panic("driver_module_info::probe successed, but returned NULL DeviceDriver");
 		return B_ERROR;

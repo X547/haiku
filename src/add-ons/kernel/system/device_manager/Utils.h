@@ -5,6 +5,15 @@
 
 #define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
+#define CHECK_RET_MSG(err, msg...) \
+	{ \
+		status_t _err = (err); \
+		if (_err < B_OK) { \
+			dprintf(msg); \
+			return _err; \
+		} \
+	} \
+
 
 template <class T, class M>
 static inline constexpr ptrdiff_t OffsetOf(const M T::*member)
