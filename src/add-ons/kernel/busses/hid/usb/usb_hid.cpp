@@ -34,8 +34,12 @@ private:
 private:
 	DeviceNode* fNode;
 	UsbDevice* fUsbDevice {};
+	UsbInterface* fInterface {};
+	UsbPipe* fInterruptPipe {};
 
 	ArrayDeleter<uint8> fReportDecriptor;
+
+	ArrayDeleter<uint8> fInputBuffer;
 
 	class HidDeviceImpl: public BusDriver, public HidDevice {
 	public:
@@ -92,14 +96,17 @@ UsbHidDriver::Init()
 
 	// TODO: implement
 
-	size_t interfaceIndex = 0;
 	size_t descriptorLength = 0;
 
-	CHECK_RET(fUsbDevice->SendRequest(
+	CHECK_RET(fInterface->SendRequest(
 		USB_REQTYPE_INTERFACE_IN | USB_REQTYPE_STANDARD,
 		USB_REQUEST_GET_DESCRIPTOR,
-		B_USB_HID_DESCRIPTOR_REPORT << 8, interfaceIndex, descriptorLength,
+		B_USB_HID_DESCRIPTOR_REPORT << 8, descriptorLength,
 		&fReportDecriptor[0], &descriptorLength));
+
+
+	//status_t result = fInterruptPipe->QueueInterrupt(fInputBuffer.Get(), fTransferBufferSize, _TransferCallback, this);
+
 
 	device_attr attrs[] = {
 		{B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "HID Device"}},
@@ -166,42 +173,78 @@ UsbHidDriver::HidDeviceImpl::Write(uint32 size, const uint8* data)
 status_t
 UsbHidDriver::HidDeviceImpl::GetReport(uint8 reportType, uint8 reportId, uint32 size, uint8 *data)
 {
-	return ENOSYS;
+	size_t actualLength = 0;
+	return fBase.fInterface->SendRequest(
+		USB_REQTYPE_INTERFACE_IN | USB_REQTYPE_CLASS,
+		B_USB_REQUEST_HID_GET_REPORT, (reportType << 8) | reportId,
+		size, data, &actualLength);
+
+	return B_OK;
 }
 
 
 status_t
 UsbHidDriver::HidDeviceImpl::SetReport(uint8 reportType, uint8 reportId, uint32 size, const uint8* data)
 {
-	return ENOSYS;
+	size_t actualLength;
+	return fBase.fInterface->SendRequest(
+		USB_REQTYPE_INTERFACE_OUT | USB_REQTYPE_CLASS,
+		B_USB_REQUEST_HID_SET_REPORT, (reportType << 8) | reportId,
+		size, (void*)data, &actualLength);
 }
 
 
 status_t
-UsbHidDriver::HidDeviceImpl::GetIdle(uint8 reportId, uint16* idle)
+UsbHidDriver::HidDeviceImpl::GetIdle(uint8 reportId, uint16* outIdle)
 {
-	return ENOSYS;
+	uint8 idle;
+	size_t actualLength = 0;
+	CHECK_RET(fBase.fInterface->SendRequest(
+		USB_REQTYPE_INTERFACE_IN | USB_REQTYPE_CLASS,
+		B_USB_REQUEST_HID_GET_IDLE, reportId,
+		sizeof(idle), &idle, &actualLength));
+	if (actualLength != sizeof(idle))
+		return B_BAD_VALUE;
+
+	*outIdle = idle;
+	return B_OK;
 }
 
 
 status_t
 UsbHidDriver::HidDeviceImpl::SetIdle(uint8 reportId, uint16 idle)
 {
-	return ENOSYS;
+	return fBase.fInterface->SendRequest(
+		USB_REQTYPE_INTERFACE_OUT | USB_REQTYPE_CLASS,
+		B_USB_REQUEST_HID_SET_IDLE, (idle << 8) + reportId,
+		0, NULL, NULL);
 }
 
 
 status_t
-UsbHidDriver::HidDeviceImpl::GetProtocol(uint16* protocol)
+UsbHidDriver::HidDeviceImpl::GetProtocol(uint16* outProtocol)
 {
-	return ENOSYS;
+	uint8 protocol;
+	size_t actualLength = 0;
+	CHECK_RET(fBase.fInterface->SendRequest(
+		USB_REQTYPE_INTERFACE_IN | USB_REQTYPE_CLASS,
+		B_USB_REQUEST_HID_GET_PROTOCOL, 0,
+		sizeof(protocol), &protocol, &actualLength));
+	if (actualLength != sizeof(protocol))
+		return B_BAD_VALUE;
+
+	*outProtocol = protocol;
+	return B_OK;
 }
 
 
 status_t
 UsbHidDriver::HidDeviceImpl::SetProtocol(uint16 protocol)
 {
-	return ENOSYS;
+	return fBase.fInterface->SendRequest(
+		USB_REQTYPE_INTERFACE_OUT | USB_REQTYPE_CLASS,
+		B_USB_REQUEST_HID_SET_PROTOCOL, protocol,
+		0, NULL, NULL);
 }
 
 
