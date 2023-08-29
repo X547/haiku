@@ -106,8 +106,9 @@ XHCI::Probe(DeviceNode* node, DeviceDriver** outDriver)
 
 
 void
-XHCI::SetBusManager(UsbBusManager* busManager)
+XHCI::SetBusManager(UsbStack* stack, UsbBusManager* busManager)
 {
+	fStack = stack;
 	fBusManager = busManager;
 }
 
@@ -301,7 +302,7 @@ XHCI::Init()
 	}
 
 	// Install the interrupt handler
-	TRACE("installing interrupt handler\n");
+	TRACE("installing interrupt handler, irq: %" B_PRIu8 "\n", fIRQ);
 	install_io_interrupt_handler(fIRQ, InterruptHandler, (void *)this, 0);
 
 	memset(fPortSpeeds, 0, sizeof(fPortSpeeds));
@@ -480,6 +481,12 @@ XHCI::Start()
 	WriteOpReg(XHCI_DCBAAP_HI, (uint32)(dmaAddress >> 32));
 
 	// allocate Event Ring Segment Table
+/*
+	Virt        Phys                       Size
+	fErst       XHCI_ERSTBA                sizeof(xhci_erst_element)
+	fEventRing  XHCI_ERDP, fErst->rs_addr  XHCI_MAX_EVENTS * sizeof(xhci_trb)
+	fCmdRing    XHCI_CRCR                  XHCI_MAX_COMMANDS * sizeof(xhci_trb)
+*/
 	uint8 *addr;
 	fErstArea = fStack->AllocateArea((void **)&addr, &dmaAddress,
 		(XHCI_MAX_COMMANDS + XHCI_MAX_EVENTS) * sizeof(xhci_trb)
@@ -569,9 +576,6 @@ XHCI::Start()
 
 	fBusManager->SetRootHub(fRootHub);
 
-	//!!!
-	//fRootHub->RegisterNode(Node());
-
 	TRACE_ALWAYS("successfully started the controller\n");
 
 #ifdef TRACE_USB
@@ -624,15 +628,18 @@ XHCI::SubmitControlRequest(UsbBusTransfer *transfer)
 		return B_NO_INIT;
 	}
 
+	dprintf("  (1)\n");
 	status_t status = transfer->InitKernelAccess();
 	if (status != B_OK)
 		return status;
 
+	dprintf("  (2)\n");
 	xhci_td *descriptor = CreateDescriptor(3, 1, requestData->Length);
 	if (descriptor == NULL)
 		return B_NO_MEMORY;
 	descriptor->transfer = transfer;
 
+	dprintf("  (3)\n");
 	// Setup Stage
 	uint8 index = 0;
 	memcpy(&descriptor->trbs[index].address, requestData,
@@ -681,11 +688,13 @@ XHCI::SubmitControlRequest(UsbBusTransfer *transfer)
 
 	descriptor->trb_used = index + 1;
 
+	dprintf("  (4)\n");
 	status = _LinkDescriptorForPipe(descriptor, endpoint);
 	if (status != B_OK) {
 		FreeDescriptor(descriptor);
 		return status;
 	}
+	dprintf("  (5)\n");
 
 	return B_OK;
 }
@@ -1321,6 +1330,9 @@ XHCI::AllocateDevice(UsbBusDevice* parent, int8 hubAddress, uint8 hubPort, usb_s
 	uint8 rhPort = hubPort;
 	uint32 route = 0;
 	for (UsbBusDevice *hubDevice = parent; hubDevice != NULL; hubDevice = hubDevice->Parent()) {
+		if (hubDevice->Parent() == NULL)
+			break;
+
 		if (rhPort > 15)
 			rhPort = 15;
 		route = route << 4;
@@ -1572,8 +1584,6 @@ XHCI::AllocateDevice(UsbBusDevice* parent, int8 hubAddress, uint8 hubPort, usb_s
 	// We don't want to disable the default endpoint, naturally, which would
 	// otherwise happen when this Pipe object is destroyed.
 	pipe->SetControllerCookie(NULL);
-
-	deviceObject->RegisterNode();
 
 	TRACE("AllocateDevice() port %d slot %d\n", hubPort, slot);
 	return deviceObject;

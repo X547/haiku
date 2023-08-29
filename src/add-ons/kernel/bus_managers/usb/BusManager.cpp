@@ -9,6 +9,8 @@
 
 #include "usb_private.h"
 
+#define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
+
 
 BusManager::BusManager(UsbHostController* hostCtrl, DeviceNode* node)
 	:	fInitOK(false),
@@ -247,15 +249,23 @@ BusManager::AllocateDevice(Hub *parent, int8 hubAddress, uint8 hubPort,
 
 	return device;
 #endif
-	UsbBusDevice *device = fHostController->AllocateDevice(parent->GetBusDeviceIface(), hubAddress, hubPort, speed);
-	return device == NULL ? NULL : static_cast<UsbBusDeviceImpl*>(device)->Base();
+	UsbBusDevice *deviceIface = fHostController->AllocateDevice(parent->GetBusDeviceIface(), hubAddress, hubPort, speed);
+	if (deviceIface == NULL)
+		return NULL;
+
+	Device *device = static_cast<UsbBusDeviceImpl*>(deviceIface)->Base();
+	device->RegisterNode();
+	return device;
 }
 
 
 void
 BusManager::FreeDevice(Device *device)
 {
-	// FreeAddress(device->DeviceAddress()); // !!!
+#if 0
+	FreeAddress(device->DeviceAddress());
+	delete device;
+#endif
 	return fHostController->FreeDevice(device->GetBusDeviceIface());
 }
 
@@ -264,7 +274,10 @@ status_t
 BusManager::Start()
 {
 	CHECK_RET(fHostController->Start());
-	
+	if (fRootHub != NULL) {
+		fRootHub->RegisterNode(fNode);
+	}
+
 	Stack::Instance().AddBusManager(this);
 	fStackIndex = Stack::Instance().IndexOfBusManager(this);
 	Stack::Instance().Explore();

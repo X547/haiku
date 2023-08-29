@@ -21,7 +21,7 @@
 
 #define TRACE_OUTPUT(x, y, z...) dprintf(z)
 
-#define TRACE_USB
+//#define TRACE_USB
 #ifdef TRACE_USB
 #define TRACE(x...)					TRACE_OUTPUT(this, "", x)
 #define TRACE_STATIC(x, y...)		TRACE_OUTPUT(x, "", y)
@@ -116,7 +116,7 @@ public:
 	void Free() final {delete this;}
 
 	// UsbHostController
-	void			SetBusManager(UsbBusManager* busManager) final;
+	void			SetBusManager(UsbStack* stack, UsbBusManager* busManager) final;
 
 	UsbBusDevice*	AllocateDevice(UsbBusDevice* parent,
 								int8 hubAddress, uint8 hubPort,
@@ -258,68 +258,68 @@ private:
 			DeviceNode*			fNode;
 			UsbBusManager*		fBusManager {};
 
-			area_id				fRegisterArea;
-			uint8*				fRegisters;
-			uint32				fCapabilityRegisterOffset;
-			uint32				fOperationalRegisterOffset;
-			uint32				fRuntimeRegisterOffset;
-			uint32				fDoorbellRegisterOffset;
+			area_id				fRegisterArea = -1;
+			uint8*				fRegisters {};
+			uint32				fCapabilityRegisterOffset {};
+			uint32				fOperationalRegisterOffset {};
+			uint32				fRuntimeRegisterOffset {};
+			uint32				fDoorbellRegisterOffset {};
 
-			pci_info			fPCIInfo;
-			PciDevice*			fDevice;
+			pci_info			fPCIInfo {};
+			PciDevice*			fDevice {};
 
-			UsbStack*			fStack;
-			uint8				fIRQ;
-			bool				fUseMSI;
+			UsbStack*			fStack {};
+			uint8				fIRQ {};
+			bool				fUseMSI {};
 
-			area_id				fErstArea;
-			xhci_erst_element*	fErst;
-			xhci_trb*			fEventRing;
-			xhci_trb*			fCmdRing;
-			uint64				fCmdAddr;
-			uint32				fCmdResult[2];
+			area_id				fErstArea = -1;
+			xhci_erst_element*	fErst {};
+			xhci_trb*			fEventRing {};
+			xhci_trb*			fCmdRing {};
+			uint64				fCmdAddr {};
+			uint32				fCmdResult[2] {};
 
-			area_id				fDcbaArea;
-			struct xhci_device_context_array* fDcba;
+			area_id				fDcbaArea = -1;
+			struct xhci_device_context_array* fDcba {};
 
-			spinlock			fSpinlock;
+			spinlock			fSpinlock {};
 
-			sem_id				fCmdCompSem;
-			bool				fStopThreads;
+			sem_id				fCmdCompSem = -1;
+			bool				fStopThreads {};
 
 			// Root Hub
-			UsbBusDevice*		fRootHub;
+			UsbBusDevice*		fRootHub {};
 
 			// Port management
-			uint8				fPortCount;
-			uint8				fSlotCount;
-			usb_speed			fPortSpeeds[XHCI_MAX_PORTS];
+			uint8				fPortCount {};
+			uint8				fSlotCount {};
+			usb_speed			fPortSpeeds[XHCI_MAX_PORTS] {};
 
 			// Scratchpad
-			uint32				fScratchpadCount;
-			area_id				fScratchpadArea[XHCI_MAX_SCRATCHPADS];
-			void*				fScratchpad[XHCI_MAX_SCRATCHPADS];
+			uint32				fScratchpadCount {};
+			area_id				fScratchpadArea[XHCI_MAX_SCRATCHPADS] {};
+			void*				fScratchpad[XHCI_MAX_SCRATCHPADS] {};
 
 			// Devices
-			struct xhci_device	fDevices[XHCI_MAX_DEVICES];
-			int32				fContextSizeShift; // 0/1 for 32/64 bytes
+			struct xhci_device	fDevices[XHCI_MAX_DEVICES] {};
+			int32				fContextSizeShift {}; // 0/1 for 32/64 bytes
 
 			// Transfers
-			mutex				fFinishedLock;
-			xhci_td*			fFinishedHead;
-			sem_id				fFinishTransfersSem;
-			thread_id			fFinishThread;
+			mutex				fFinishedLock {};
+			xhci_td*			fFinishedHead {};
+			sem_id				fFinishTransfersSem = -1;
+			thread_id			fFinishThread = -1;
 
 			// Events
-			sem_id				fEventSem;
-			thread_id			fEventThread;
-			mutex				fEventLock;
-			uint16				fEventIdx;
-			uint16				fCmdIdx;
-			uint8				fEventCcs;
-			uint8				fCmdCcs;
+			sem_id				fEventSem = -1;
+			thread_id			fEventThread = -1;
+			mutex				fEventLock {};
+			uint16				fEventIdx {};
+			uint16				fCmdIdx {};
+			uint8				fEventCcs = 1;
+			uint8				fCmdCcs = 1;
 
-			uint32				fExitLatMax;
+			uint32				fExitLatMax {};
 
 
 	class BusManager: public BusDriver {

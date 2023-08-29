@@ -19,13 +19,10 @@ public:
 	UsbBusDevice *			Parent() final;
 	int8					DeviceAddress() const final;
 	usb_speed				Speed() const  final;
-	DeviceNode *			RegisterNode(DeviceNode* parent = NULL) final;
 	int8					HubAddress() const final;
 	uint8					HubPort() const final;
 	void					SetControllerCookie(void *cookie) final;
 	void *					ControllerCookie() const final;
-	DeviceNode *			Node() const final;
-	void					SetNode(DeviceNode* node) final;
 
 private:
 	Device& fBase;
@@ -115,7 +112,6 @@ public:
 
 	UsbBusDevice *			GetRootHub() const final;
 	void					SetRootHub(UsbBusDevice* hub) final;
-	DeviceNode *			Node() const final;
 
 	status_t				CreateDevice(UsbBusDevice*& outDevice, UsbBusDevice* parent, int8 hubAddress,
 								uint8 hubPort,

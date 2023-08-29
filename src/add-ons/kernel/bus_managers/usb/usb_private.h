@@ -755,7 +755,7 @@ public:
 									Transfer(Pipe *pipe);
 									~Transfer();
 
-		UsbBusTransfer *			GetTransferIface() {return &fBusTransferIface;}
+		UsbBusTransfer *			GetBusTransferIface() {return &fBusTransferIface;}
 
 		Pipe *						TransferPipe() const { return fPipe; }
 

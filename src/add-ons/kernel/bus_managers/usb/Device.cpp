@@ -12,6 +12,8 @@
 
 #include <StackOrHeapArray.h>
 
+#define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
+
 // !!!
 #define B_DEVICE_VENDOR_ID	"usb/vendor"		/* uint16 */
 #define B_DEVICE_ID			"usb/id"			/* uint16 */
@@ -869,8 +871,8 @@ Device::RegisterNode(DeviceNode *parent)
 
 	// location
 	attrs[1] = { USB_DEVICE_ID_ITEM, B_UINT32_TYPE, { .ui32 = id } };
-	attrs[2] = { B_DEVICE_FLAGS, B_UINT32_TYPE, { .ui32 = B_FIND_MULTIPLE_CHILDREN } };
-	attrs[3] = { B_DEVICE_PRETTY_NAME, B_STRING_TYPE, { .string = "USB device" } };
+	attrs[2] = { B_DEVICE_FLAGS, B_UINT32_TYPE, { .ui32 = 0 /*B_FIND_MULTIPLE_CHILDREN*/ } };
+	attrs[3] = { B_DEVICE_PRETTY_NAME, B_STRING_TYPE, { .string = ((Type() & USB_OBJECT_HUB) != 0) ? "USB Hub" : "USB device" } };
 
 	uint32 attrCount = 4;
 
@@ -948,7 +950,7 @@ Device::RegisterNode(DeviceNode *parent)
 	attrCount++;
 
 	DeviceNode* node = NULL;
-	if (parent->RegisterNode(NULL, GetDeviceIface(), attrs, &node) != B_OK) {
+	if (parent->RegisterNode(NULL, &fDeviceIface, attrs, &node) != B_OK) {
 		TRACE_ERROR("failed to register device node\n");
 	} else
 		fNode = node;

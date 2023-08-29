@@ -262,15 +262,11 @@ public:
 	virtual	int8			DeviceAddress() const = 0;
 	virtual	usb_speed		Speed() const  = 0;
 
-	virtual	DeviceNode *	RegisterNode(DeviceNode* parent = NULL) = 0;
-
 	virtual	int8			HubAddress() const = 0;
 	virtual	uint8			HubPort() const = 0;
 
 	virtual	void			SetControllerCookie(void *cookie) = 0;
 	virtual	void *			ControllerCookie() const = 0;
-	virtual	DeviceNode *	Node() const = 0;
-	virtual	void			SetNode(DeviceNode* node) = 0;
 
 protected:
 	~UsbBusDevice() = default;
@@ -373,7 +369,6 @@ public:
 
 	virtual UsbBusDevice* GetRootHub() const = 0;
 	virtual void SetRootHub(UsbBusDevice* hub) = 0;
-	virtual	DeviceNode* Node() const = 0;
 
 
 	// new methods
@@ -427,7 +422,7 @@ class UsbHostController {
 public:
 	static inline const char ifaceName[] = "busses/usb/device";
 
-	virtual void			SetBusManager(UsbBusManager* busManager) = 0;
+	virtual void			SetBusManager(UsbStack* stack, UsbBusManager* busManager) = 0;
 
 	virtual	UsbBusDevice*	AllocateDevice(UsbBusDevice* parent,
 								int8 hubAddress, uint8 hubPort,

@@ -70,8 +70,8 @@ UsbBusManagerImpl2::Init()
 
 	CHECK_RET(fBusManager->InitCheck());
 
-	fHostCtrl->SetBusManager(fBusManager->GetBusManagerIface());
-	
+	fHostCtrl->SetBusManager(Stack::Instance().GetStackIface(), fBusManager->GetBusManagerIface());
+
 	CHECK_RET(fBusManager->Start());
 	fIsStarted = true;
 

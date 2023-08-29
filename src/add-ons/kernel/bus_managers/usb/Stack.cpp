@@ -68,9 +68,11 @@ Stack::Stack()
 		return;
 	}
 
+#if 0
 	fExploreThread = spawn_kernel_thread(ExploreThread, "usb explore",
 		B_LOW_PRIORITY, this);
 	resume_thread(fExploreThread);
+#endif
 }
 
 
