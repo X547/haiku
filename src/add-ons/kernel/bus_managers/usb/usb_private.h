@@ -560,6 +560,8 @@ virtual	uint32							Type() const
 											{ return USB_OBJECT_INTERFACE; }
 virtual	const char *					TypeName() const { return "interface"; }
 
+		uint8							InterfaceIndex() const {return fInterfaceIndex;}
+
 		// Convenience functions for standard requests
 virtual	status_t						SetFeature(uint16 selector);
 virtual	status_t						ClearFeature(uint16 selector);

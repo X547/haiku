@@ -90,7 +90,27 @@ public:
 	UsbInterfaceImpl(Interface& base): fBase(base) {}
 	Interface* Base() {return &fBase;}
 
+	UsbDevice *GetDevice() final;
 	UsbObject *GetObject() final;
+
+	status_t	GetDescriptor(
+							uint8 descriptorType,
+							uint16 languageID, void *data,
+							size_t dataLength,
+							size_t *actualLength) final;
+
+	status_t	SendRequest(
+							uint8 requestType, uint8 request,
+							uint16 value,
+							uint16 length, void *data,
+							size_t *actualLength) final;
+
+	status_t	QueueRequest(
+							uint8 requestType, uint8 request,
+							uint16 value,
+							uint16 length, void *data,
+							usb_callback_func callback,
+							void *callbackCookie) final;
 
 private:
 	Interface& fBase;

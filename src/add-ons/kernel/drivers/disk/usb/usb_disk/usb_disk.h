@@ -1,3 +1,10 @@
+/*
+ * Copyright 2008-2023, Haiku, Inc. All rights reserved.
+ * Distributed under the terms of the MIT License.
+ *
+ * Authors:
+ *		Michael Lotz <mmlr@mlotz.ch>
+ */
 #pragma once
 
 #include <dm2/bus/USB.h>
@@ -160,7 +167,7 @@ private:
 	UsbPipe* fBulkIn {};
 	UsbPipe* fBulkOut {};
 	UsbPipe* fInterrupt {};
-	uint8 fInterface = 0xff;
+	UsbInterface* fInterface {};
 	uint32 fCurrentTag {};
 	uint8 fSyncSupport = SYNC_SUPPORT_RELOAD;
 	bool fTurSupported = true;

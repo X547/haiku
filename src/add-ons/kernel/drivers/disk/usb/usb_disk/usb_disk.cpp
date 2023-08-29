@@ -1,3 +1,13 @@
+/*
+ * Copyright 2008-2023, Haiku Inc. All rights reserved.
+ * Distributed under the terms of the MIT License.
+ *
+ * Authors:
+ *		Michael Lotz <mmlr@mlotz.ch>
+ *		Augustin Cavalier <waddlesplash>
+ */
+
+
 #include "usb_disk.h"
 
 #include <stdio.h>
@@ -379,9 +389,9 @@ DeviceLun::OperationInterrupt(uint8* operation, const transfer_data& data, size_
 
 	// Step 1 : send the SCSI operation as a class specific request
 	size_t actualLength = 12;
-	status_t result = fDevice->fDevice->SendRequest(
+	status_t result = fDevice->fInterface->SendRequest(
 		USB_REQTYPE_CLASS | USB_REQTYPE_INTERFACE_OUT, 0 /*request*/,
-		0/*value*/, fDevice->fInterface/*index*/, 12, operation, &actualLength);
+		0/*value*/, 12, operation, &actualLength);
 
 	if (result != B_OK || actualLength != 12) {
 		TRACE("Command stage: wrote %ld bytes (error: %s)\n",
@@ -1201,7 +1211,7 @@ status_t UsbDiskDriver::Init()
 				continue;
 			}
 
-			fInterface = interface->descr->interface_number;
+			fInterface = interface->handle;
 			fIsAtapi = interface->descr->interface_subclass != 0x06
 				&& interface->descr->interface_subclass != 0x04;
 			fIsUfi = interface->descr->interface_subclass == 0x04;
@@ -1214,7 +1224,7 @@ status_t UsbDiskDriver::Init()
 		}
 	}
 
-	if (fInterface == 0xff) {
+	if (fInterface == NULL) {
 		TRACE_ALWAYS("no valid bulk-only or CBI interface found\n");
 		return B_ERROR;
 	}
@@ -1340,9 +1350,9 @@ UsbDiskDriver::GetMaxLun()
 	size_t actualLength = 0;
 
 	// devices that do not support multiple LUNs may stall this request
-	if (fDevice->SendRequest(USB_REQTYPE_INTERFACE_IN
+	if (fInterface->SendRequest(USB_REQTYPE_INTERFACE_IN
 		| USB_REQTYPE_CLASS, USB_MASSBULK_REQUEST_GET_MAX_LUN, 0x0000,
-		fInterface, 1, &result, &actualLength) != B_OK
+		1, &result, &actualLength) != B_OK
 			|| actualLength != 1) {
 		return 0;
 	}
@@ -1359,9 +1369,9 @@ UsbDiskDriver::GetMaxLun()
 status_t
 UsbDiskDriver::MassStorageReset()
 {
-	return fDevice->SendRequest(USB_REQTYPE_INTERFACE_OUT
+	return fInterface->SendRequest(USB_REQTYPE_INTERFACE_OUT
 		| USB_REQTYPE_CLASS, USB_MASSBULK_REQUEST_MASS_STORAGE_RESET, 0x0000,
-		fInterface, 0, NULL, NULL);
+		0, NULL, NULL);
 }
 
 

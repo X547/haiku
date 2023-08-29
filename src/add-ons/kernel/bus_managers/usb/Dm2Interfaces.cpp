@@ -146,11 +146,59 @@ UsbHubImpl::DisablePort(uint8 portIndex)
 
 // #pragma mark - UsbInterfaceImpl
 
+UsbDevice *
+UsbInterfaceImpl::GetDevice()
+{
+	Device *device = static_cast<Device*>(fBase.Parent());
+	return device->GetDeviceIface();
+};
+
+
 UsbObject *
 UsbInterfaceImpl::GetObject()
 {
 	return fBase.GetObjectIface();
 };
+
+
+status_t
+UsbInterfaceImpl::GetDescriptor(
+	uint8 descriptorType,
+	uint16 languageID, void *data,
+	size_t dataLength,
+	size_t *actualLength)
+{
+	Device *device = static_cast<Device*>(fBase.Parent());
+	int8 index = fBase.InterfaceIndex();
+	return device->GetDescriptor(descriptorType, index, languageID, data, dataLength, actualLength);
+}
+
+
+status_t
+UsbInterfaceImpl::SendRequest(
+	uint8 requestType, uint8 request,
+	uint16 value,
+	uint16 length, void *data,
+	size_t *actualLength)
+{
+	Device *device = static_cast<Device*>(fBase.Parent());
+	int8 index = fBase.InterfaceIndex();
+	return device->DefaultPipe()->SendRequest(requestType, request, value, index, length, data, length, actualLength);
+}
+
+
+status_t
+UsbInterfaceImpl::QueueRequest(
+	uint8 requestType, uint8 request,
+	uint16 value,
+	uint16 length, void *data,
+	usb_callback_func callback,
+	void *callbackCookie)
+{
+	Device *device = static_cast<Device*>(fBase.Parent());
+	int8 index = fBase.InterfaceIndex();
+	return device->DefaultPipe()->QueueRequest(requestType, request, value, index, length, data, length, callback, callbackCookie);
+}
 
 
 // #pragma mark - UsbPipeImpl

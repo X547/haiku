@@ -149,7 +149,27 @@ protected:
 
 class UsbInterface {
 public:
+	virtual UsbDevice 	*GetDevice() = 0;
 	virtual UsbObject 	*GetObject() = 0;
+
+	virtual status_t	GetDescriptor(
+							uint8 descriptorType,
+							uint16 languageID, void *data,
+							size_t dataLength,
+							size_t *actualLength) = 0;
+
+	virtual status_t	SendRequest(
+							uint8 requestType, uint8 request,
+							uint16 value,
+							uint16 length, void *data,
+							size_t *actualLength) = 0;
+
+	virtual status_t	QueueRequest(
+							uint8 requestType, uint8 request,
+							uint16 value,
+							uint16 length, void *data,
+							usb_callback_func callback,
+							void *callbackCookie) = 0;
 
 protected:
 	~UsbInterface() = default;
