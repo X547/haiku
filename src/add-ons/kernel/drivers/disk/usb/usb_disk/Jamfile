@@ -1,5 +1,7 @@
 SubDir HAIKU_TOP src add-ons kernel drivers disk usb usb_disk ;
 
+SubDirC++Flags -fvisibility=hidden ;
+
 SubDirSysHdrs $(HAIKU_TOP) src add-ons kernel bus_managers usb ;
 SubDirHdrs $(HAIKU_TOP) src system kernel device_manager ;
 UsePrivateHeaders drivers ;
