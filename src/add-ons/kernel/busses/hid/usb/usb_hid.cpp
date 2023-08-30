@@ -30,6 +30,7 @@ public:
 
 private:
 	status_t Init();
+	static void InputCallback(void *cookie, status_t status, void *data, size_t actualLength);
 
 private:
 	DeviceNode* fNode;
@@ -37,8 +38,7 @@ private:
 	UsbInterface* fInterface {};
 	UsbPipe* fInterruptPipe {};
 
-	ArrayDeleter<uint8> fReportDecriptor;
-
+	size_t fInputBufferSize {};
 	ArrayDeleter<uint8> fInputBuffer;
 
 	class HidDeviceImpl: public BusDriver, public HidDevice {
@@ -94,20 +94,67 @@ UsbHidDriver::Init()
 
 	fUsbDevice = fNode->QueryBusInterface<UsbDevice>();
 
-	// TODO: implement
+	const usb_configuration_info* configuration = fUsbDevice->GetConfiguration();
+	dprintf("  configuration: %p\n", configuration);
+	if (configuration == NULL)
+		return ENODEV;
 
-	size_t descriptorLength = 0;
+	dprintf("  configuration->interface_count: %" B_PRIuSIZE "\n", configuration->interface_count);
+
+	usb_interface_info* interface = configuration->interface[0].active;
+	dprintf("  interface: %p\n", interface);
+	fInterface = interface->handle;
+	dprintf("  fInterface: %p\n", fInterface);
+
+	for (size_t i = 0; i < interface->endpoint_count; i++) {
+		usb_endpoint_info *endpoint = &interface->endpoint[i];
+		if (endpoint == NULL)
+			continue;
+
+		if ((endpoint->descr->endpoint_address & USB_ENDPOINT_ADDR_DIR_IN)
+			&& endpoint->descr->attributes == USB_ENDPOINT_ATTR_INTERRUPT) {
+			fInterruptPipe = endpoint->handle;
+			break;
+		}
+	}
+
+	dprintf("  fInterruptPipe: %p\n", fInterruptPipe);
+	if (fInterruptPipe == NULL)
+		return ENODEV;
+
+
+	size_t hidDescLength = 0;
+	usb_hid_descriptor hidDesc {};
 
 	CHECK_RET(fInterface->SendRequest(
 		USB_REQTYPE_INTERFACE_IN | USB_REQTYPE_STANDARD,
 		USB_REQUEST_GET_DESCRIPTOR,
-		B_USB_HID_DESCRIPTOR_REPORT << 8, descriptorLength,
-		&fReportDecriptor[0], &descriptorLength));
+		B_USB_HID_DESCRIPTOR_HID << 8, sizeof(hidDesc),
+		&hidDesc, &hidDescLength));
 
+	dprintf("  hidDescLength: %" B_PRIuSIZE "\n", hidDescLength);
 
-	//status_t result = fInterruptPipe->QueueInterrupt(fInputBuffer.Get(), fTransferBufferSize, _TransferCallback, this);
+	size_t reportDescLength = hidDesc.descriptor_info[0].descriptor_length;
+	ArrayDeleter<uint8> reportDesc(new(std::nothrow) uint8[reportDescLength]);
+	if (!reportDesc.IsSet())
+		return B_NO_MEMORY;
 
+	CHECK_RET(fInterface->SendRequest(
+		USB_REQTYPE_INTERFACE_IN | USB_REQTYPE_STANDARD,
+		USB_REQUEST_GET_DESCRIPTOR,
+		B_USB_HID_DESCRIPTOR_REPORT << 8, reportDescLength,
+		&reportDesc[0], &reportDescLength));
 
+	dprintf("  reportDescLength: %" B_PRIuSIZE "\n", reportDescLength);
+
+	fInputBufferSize = 128;
+	fInputBuffer.SetTo(new(std::nothrow) uint8[fInputBufferSize]);
+	if (!fInputBuffer.IsSet())
+		return B_NO_MEMORY;
+
+	CHECK_RET(fInterruptPipe->QueueInterrupt(fInputBuffer.Get(), fInputBufferSize, InputCallback, this));
+
+#if 0
 	device_attr attrs[] = {
 		{B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "HID Device"}},
 		{B_DEVICE_BUS,         B_STRING_TYPE, {.string = "hid"}},
@@ -123,8 +170,21 @@ UsbHidDriver::Init()
 	};
 
 	CHECK_RET(fNode->RegisterNode(this, static_cast<BusDriver*>(&fHidDevice), attrs, NULL));
+#endif
 
 	return B_OK;
+}
+
+
+void
+UsbHidDriver::InputCallback(void *cookie, status_t status, void *data, size_t actualLength)
+{
+	UsbHidDriver* driver = (UsbHidDriver*)cookie;
+
+	dprintf("UsbHidDriver::InputCallback(%#" B_PRIx32 ", %" B_PRIuSIZE ")\n", status, actualLength);
+
+	if (status >= B_OK)
+		driver->fInterruptPipe->QueueInterrupt(driver->fInputBuffer.Get(), driver->fInputBufferSize, InputCallback, driver);
 }
 
 
