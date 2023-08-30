@@ -1,7 +1,0 @@
-SubDir HAIKU_TOP src add-ons kernel power syscon ;
-
-UsePrivateKernelHeaders ;
-UsePrivateHeaders shared ;
-
-KernelAddon syscon :
-	syscon.cpp ;

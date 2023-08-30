@@ -628,18 +628,15 @@ XHCI::SubmitControlRequest(UsbBusTransfer *transfer)
 		return B_NO_INIT;
 	}
 
-	dprintf("  (1)\n");
 	status_t status = transfer->InitKernelAccess();
 	if (status != B_OK)
 		return status;
 
-	dprintf("  (2)\n");
 	xhci_td *descriptor = CreateDescriptor(3, 1, requestData->Length);
 	if (descriptor == NULL)
 		return B_NO_MEMORY;
 	descriptor->transfer = transfer;
 
-	dprintf("  (3)\n");
 	// Setup Stage
 	uint8 index = 0;
 	memcpy(&descriptor->trbs[index].address, requestData,
@@ -688,13 +685,11 @@ XHCI::SubmitControlRequest(UsbBusTransfer *transfer)
 
 	descriptor->trb_used = index + 1;
 
-	dprintf("  (4)\n");
 	status = _LinkDescriptorForPipe(descriptor, endpoint);
 	if (status != B_OK) {
 		FreeDescriptor(descriptor);
 		return status;
 	}
-	dprintf("  (5)\n");
 
 	return B_OK;
 }
