@@ -1,4 +1,5 @@
 #include <string.h>
+#include <algorithm>
 #include <new>
 
 #include <ByteOrder.h>
@@ -11,6 +12,7 @@
 #include <AutoDeleter.h>
 #include <AutoDeleterDM2.h>
 #include <ScopeExit.h>
+#include <util/AutoLock.h>
 #include <util/Vector.h>
 
 #define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
@@ -33,13 +35,18 @@ private:
 	static void InputCallback(void *cookie, status_t status, void *data, size_t actualLength);
 
 private:
+	mutex fLock = MUTEX_INITIALIZER("usb_hid");
 	DeviceNode* fNode;
 	UsbDevice* fUsbDevice {};
 	UsbInterface* fInterface {};
 	UsbPipe* fInterruptPipe {};
 
 	size_t fInputBufferSize {};
+	size_t fInputActualSize {};
 	ArrayDeleter<uint8> fInputBuffer;
+
+	bool fInputRequested = false;
+	bool fInputAvailable = false;
 
 	class HidDeviceImpl: public BusDriver, public HidDevice {
 	public:
@@ -123,40 +130,46 @@ UsbHidDriver::Init()
 		return ENODEV;
 
 
-	size_t hidDescLength = 0;
-	usb_hid_descriptor hidDesc {};
+	// descriptor from the device.
+	usb_hid_descriptor *hidDesc = NULL;
 
-	CHECK_RET(fInterface->GetDescriptor(
-		B_USB_HID_DESCRIPTOR_HID, 0, sizeof(hidDesc),
-		&hidDesc, &hidDescLength));
+	const usb_interface_info* interfaceInfo = configuration->interface[0].active;
+	for (size_t i = 0; i < interfaceInfo->generic_count; i++) {
+		const usb_generic_descriptor &generic = interfaceInfo->generic[i]->generic;
+		if (generic.descriptor_type == B_USB_HID_DESCRIPTOR_HID) {
+			hidDesc = (usb_hid_descriptor *)&generic;
+			break;
+		}
+	}
 
-	dprintf("  hidDescLength: %" B_PRIuSIZE "\n", hidDescLength);
+	if (hidDesc == NULL)
+		return ENODEV;
 
-	size_t reportDescLength = hidDesc.descriptor_info[0].descriptor_length;
+	size_t reportDescLength = hidDesc->descriptor_info[0].descriptor_length;
 	ArrayDeleter<uint8> reportDesc(new(std::nothrow) uint8[reportDescLength]);
 	if (!reportDesc.IsSet())
 		return B_NO_MEMORY;
 
 	CHECK_RET(fInterface->GetDescriptor(
-		B_USB_HID_DESCRIPTOR_REPORT, 0, reportDescLength,
-		&reportDesc[0], &reportDescLength));
+		B_USB_HID_DESCRIPTOR_REPORT, 0,
+		&reportDesc[0], reportDescLength, &reportDescLength));
 
 	dprintf("  reportDescLength: %" B_PRIuSIZE "\n", reportDescLength);
 
-	fInputBufferSize = 128;
+	fInputBufferSize = 128; // !!!
 	fInputBuffer.SetTo(new(std::nothrow) uint8[fInputBufferSize]);
 	if (!fInputBuffer.IsSet())
 		return B_NO_MEMORY;
 
 	CHECK_RET(fInterruptPipe->QueueInterrupt(fInputBuffer.Get(), fInputBufferSize, InputCallback, this));
+	fInputRequested = true;
 
-#if 0
 	device_attr attrs[] = {
 		{B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "HID Device"}},
 		{B_DEVICE_BUS,         B_STRING_TYPE, {.string = "hid"}},
 
-		{HID_DEVICE_REPORT_DESC,     B_RAW_TYPE,    {.raw = {.data = &fReportDecriptor[0], .length = 0}}},
-		{HID_DEVICE_MAX_INPUT_SIZE,  B_UINT16_TYPE, {.ui16 = 0}},
+		{HID_DEVICE_REPORT_DESC,     B_RAW_TYPE,    {.raw = {.data = &reportDesc[0], .length = reportDescLength}}},
+		{HID_DEVICE_MAX_INPUT_SIZE,  B_UINT16_TYPE, {.ui16 = (uint16)fInputBufferSize}},
 		{HID_DEVICE_MAX_OUTPUT_SIZE, B_UINT16_TYPE, {.ui16 = 0}},
 		{HID_DEVICE_VENDOR,          B_UINT16_TYPE, {.ui16 = 0}},
 		{HID_DEVICE_PRODUCT,         B_UINT16_TYPE, {.ui16 = 0}},
@@ -166,7 +179,6 @@ UsbHidDriver::Init()
 	};
 
 	CHECK_RET(fNode->RegisterNode(this, static_cast<BusDriver*>(&fHidDevice), attrs, NULL));
-#endif
 
 	return B_OK;
 }
@@ -176,11 +188,26 @@ void
 UsbHidDriver::InputCallback(void *cookie, status_t status, void *data, size_t actualLength)
 {
 	UsbHidDriver* driver = (UsbHidDriver*)cookie;
+	MutexLocker lock(&driver->fLock);
 
+#if 0
 	dprintf("UsbHidDriver::InputCallback(%#" B_PRIx32 ", %" B_PRIuSIZE ")\n", status, actualLength);
 
-	if (status >= B_OK)
-		driver->fInterruptPipe->QueueInterrupt(driver->fInputBuffer.Get(), driver->fInputBufferSize, InputCallback, driver);
+	for (size_t i = 0; i < actualLength; i++) {
+		dprintf(" %02x", ((uint8*)data)[i]);
+		if (i == 15)
+			dprintf("\n");
+	}
+	if (actualLength % 16 != 0)
+		dprintf("\n");
+#endif
+
+	driver->fInputRequested = false;
+	driver->fInputAvailable = true;
+	driver->fInputActualSize = actualLength;
+
+	if (driver->fHidDevice.fCallback != NULL)
+		driver->fHidDevice.fCallback->InputAvailable();
 }
 
 
@@ -201,7 +228,10 @@ UsbHidDriver::HidDeviceImpl::QueryInterface(const char* name)
 void
 UsbHidDriver::HidDeviceImpl::SetCallback(HidDeviceCallback* callback)
 {
+	MutexLocker lock(&fBase.fLock);
 	fCallback = callback;
+	if (fCallback != NULL && fBase.fInputAvailable)
+		fCallback->InputAvailable();
 }
 
 
@@ -215,7 +245,19 @@ UsbHidDriver::HidDeviceImpl::Reset()
 status_t
 UsbHidDriver::HidDeviceImpl::Read(uint32 size, uint8* data)
 {
-	return ENOSYS;
+	MutexLocker lock(&fBase.fLock);
+	if (size >= 2) {
+		data[0] = (fBase.fInputActualSize + 2) % 0x100;
+		data[1] = ((fBase.fInputActualSize + 2) >> 8) % 0x100;
+		memcpy(&data[2], &fBase.fInputBuffer[0], std::min<size_t>(size - 2, fBase.fInputActualSize));
+	}
+	fBase.fInputActualSize = 0;
+	fBase.fInputAvailable = false;
+	if (!fBase.fInputRequested) {
+		fBase.fInterruptPipe->QueueInterrupt(fBase.fInputBuffer.Get(), fBase.fInputBufferSize, InputCallback, &fBase);
+		fBase.fInputRequested = true;
+	}
+	return B_OK;
 }
 
 
