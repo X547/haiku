@@ -163,14 +163,16 @@ UsbInterfaceImpl::GetObject()
 
 status_t
 UsbInterfaceImpl::GetDescriptor(
-	uint8 descriptorType,
-	uint16 languageID, void *data,
-	size_t dataLength,
+	uint8 descriptorType, uint8 index,
+	void *data, size_t dataLength,
 	size_t *actualLength)
 {
 	Device *device = static_cast<Device*>(fBase.Parent());
-	int8 index = fBase.InterfaceIndex();
-	return device->GetDescriptor(descriptorType, index, languageID, data, dataLength, actualLength);
+	int8 interfaceIndex = fBase.InterfaceIndex();
+	return device->DefaultPipe()->SendRequest(
+		USB_REQTYPE_INTERFACE_IN | USB_REQTYPE_STANDARD,
+		USB_REQUEST_GET_DESCRIPTOR, (descriptorType << 8) | index,
+		interfaceIndex, dataLength, data, dataLength, actualLength);
 }
 
 

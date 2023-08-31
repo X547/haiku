@@ -126,10 +126,8 @@ UsbHidDriver::Init()
 	size_t hidDescLength = 0;
 	usb_hid_descriptor hidDesc {};
 
-	CHECK_RET(fInterface->SendRequest(
-		USB_REQTYPE_INTERFACE_IN | USB_REQTYPE_STANDARD,
-		USB_REQUEST_GET_DESCRIPTOR,
-		B_USB_HID_DESCRIPTOR_HID << 8, sizeof(hidDesc),
+	CHECK_RET(fInterface->GetDescriptor(
+		B_USB_HID_DESCRIPTOR_HID, 0, sizeof(hidDesc),
 		&hidDesc, &hidDescLength));
 
 	dprintf("  hidDescLength: %" B_PRIuSIZE "\n", hidDescLength);
@@ -139,10 +137,8 @@ UsbHidDriver::Init()
 	if (!reportDesc.IsSet())
 		return B_NO_MEMORY;
 
-	CHECK_RET(fInterface->SendRequest(
-		USB_REQTYPE_INTERFACE_IN | USB_REQTYPE_STANDARD,
-		USB_REQUEST_GET_DESCRIPTOR,
-		B_USB_HID_DESCRIPTOR_REPORT << 8, reportDescLength,
+	CHECK_RET(fInterface->GetDescriptor(
+		B_USB_HID_DESCRIPTOR_REPORT, 0, reportDescLength,
 		&reportDesc[0], &reportDescLength));
 
 	dprintf("  reportDescLength: %" B_PRIuSIZE "\n", reportDescLength);

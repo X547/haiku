@@ -153,8 +153,8 @@ public:
 	virtual UsbObject 	*GetObject() = 0;
 
 	virtual status_t	GetDescriptor(
-							uint8 descriptorType,
-							uint16 languageID, void *data,
+							uint8 descriptorType, uint8 index,
+							void *data,
 							size_t dataLength,
 							size_t *actualLength) = 0;
 

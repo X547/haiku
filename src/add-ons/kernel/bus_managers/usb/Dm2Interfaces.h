@@ -94,9 +94,8 @@ public:
 	UsbObject *GetObject() final;
 
 	status_t	GetDescriptor(
-							uint8 descriptorType,
-							uint16 languageID, void *data,
-							size_t dataLength,
+							uint8 descriptorType, uint8 index,
+							void *data, size_t dataLength,
 							size_t *actualLength) final;
 
 	status_t	SendRequest(
