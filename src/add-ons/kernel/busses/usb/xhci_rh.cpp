@@ -147,7 +147,9 @@ XHCIRootHub::Create(UsbBusDevice*& outHub, UsbBusManager *busManager, int8 devic
 status_t
 XHCIRootHub::ProcessTransfer(XHCI *xhci, UsbBusTransfer *transfer)
 {
-	if ((transfer->TransferPipe()->Type() & USB_OBJECT_CONTROL_PIPE) == 0)
+	TRACE_ALWAYS("XHCIRootHub::ProcessTransfer(%p)\n", transfer);
+
+	if (transfer->TransferPipe()->Type() != USB_PIPE_CONTROL)
 		return B_ERROR;
 
 	usb_request_data *request = transfer->RequestData();

@@ -4,9 +4,10 @@
 
 #include <Referenceable.h>
 
-#include <lock.h>
+#include <util/AutoLock.h>
 #include <util/DoublyLinkedList.h>
 #include <util/Vector.h>
+#include <DPC.h>
 
 #include "Utils.h"
 #include "CompatDriverModuleList.h"
@@ -45,6 +46,7 @@ public:
 	status_t UnregisterDevFsNode(const char* path) final;
 
 	// Internal interface
+	mutex* GetLock() {return &fLock;}
 	const char* GetName() const;
 	status_t Register(DeviceNodeImpl* parent, DeviceDriver* owner, BusDriver* driver, const device_attr* attrs);
 	status_t Probe();
@@ -79,19 +81,15 @@ public:
 private:
 	friend class DeviceManager;
 
-	union State {
-		struct {
-			uint32 multipleDrivers: 1;
-			uint32 registered: 1;
-			uint32 unregistered: 1;
-			uint32 probePending: 1;
-			uint32 probed: 1;
-			uint32 unused: 27;
-		};
-		uint32 val;
+	struct State {
+		bool multipleDrivers: 1;
+		bool registered: 1;
+		bool unregistered: 1;
+		bool probePending: 1;
+		bool probed: 1;
 	};
 
-	mutex fLock = MUTEX_INITIALIZER("DeviceManager");
+	mutex fLock = MUTEX_INITIALIZER("DeviceNode");
 	State fState {};
 	DeviceNodeImpl* fParent {};
 	ChildList fChildNodes;
@@ -109,7 +107,7 @@ private:
 };
 
 
-class DeviceManager {
+class DeviceManager: private DPCCallback {
 public:
 	static DeviceManager& Instance() {return sInstance;}
 
@@ -118,7 +116,10 @@ public:
 	DeviceNodeImpl* GetRootNodeNoRef() const {return fRoot;}
 	void SetRootNode(DeviceNodeImpl* node);
 
+	mutex* GetLock() {return &fLock;}
+
 	DeviceNodeImpl::PendingList& PendingNodes() {return fPendingList;}
+	void ScheduleProbe();
 	status_t ProcessPendingNodes();
 
 	void DumpTree();
@@ -127,8 +128,14 @@ public:
 private:
 	void DumpNode(DeviceNodeImpl* node, int32 level);
 
+	// DPCCallback
+	void DoDPC(DPCQueue* queue) final;
+
 private:
 	static DeviceManager sInstance;
+
+	mutex fLock = MUTEX_INITIALIZER("DeviceManager");
+	bool fIsDpcEnqueued = true;
 
 	DeviceNodeImpl* fRoot {};
 	DeviceNodeImpl::PendingList fPendingList;

@@ -103,29 +103,36 @@ OcoresI2cDriver::QueryInterface(const char* name)
 
 
 status_t
-OcoresI2cDriver::ExecCommand(i2c_op op, i2c_addr slaveAddress, const uint8 *cmdBuffer, size_t cmdLength, uint8* dataBuffer, size_t dataLength)
+OcoresI2cDriver::ExecCommand(i2c_addr address, const i2c_chunk* chunks, uint32 chunkCount)
 {
-	//dprintf("OcoresI2cDriver::ExecCommand()\n");
-	if (cmdLength > 0) {
-		CHECK_RET(WriteAddress(slaveAddress, false));
-		do {
-			if (fRegs->status.nackReceived) {
-				fRegs->command.val = OcoresI2cRegsCommand{
-					.intAck = true,
-					.stop = true
-				}.val;
-				return B_ERROR;
-			}
-			cmdLength--;
-			CHECK_RET(WriteByte({.stop = IS_STOP_OP(op) && cmdLength == 0 && dataLength == 0}, *cmdBuffer++));
-		} while (cmdLength > 0);
-	}
-	if (dataLength > 0) {
-		CHECK_RET(WriteAddress(slaveAddress, true));
-		do {
-			dataLength--;
-			CHECK_RET(ReadByte({.stop = IS_STOP_OP(op) && dataLength == 0}, *dataBuffer++));
-		} while (dataLength > 0);
+	const i2c_chunk* prevChunk = NULL;
+	while (chunkCount > 0) {
+		uint8* buffer = chunks->buffer;
+		uint32 length = chunks->length;
+		if (prevChunk == NULL || prevChunk->isWrite != chunks->isWrite) {
+			CHECK_RET(WriteAddress(address, !chunks->isWrite));
+		}
+		if (chunks->isWrite) {
+			do {
+				if (fRegs->status.nackReceived) {
+					fRegs->command.val = OcoresI2cRegsCommand{
+						.intAck = true,
+						.stop = true
+					}.val;
+					return B_IO_ERROR;
+				}
+				length--;
+				CHECK_RET(WriteByte({.stop = chunkCount == 1 && length == 0}, *buffer++));
+			} while (length > 0);
+		} else {
+			do {
+				length--;
+				CHECK_RET(ReadByte({.stop = chunkCount == 1 && length == 0}, *buffer++));
+			} while (length > 0);
+		}
+		prevChunk = chunks;
+		chunks++;
+		chunkCount--;
 	}
 	return B_OK;
 }

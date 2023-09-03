@@ -20,6 +20,7 @@
 // include vm.h before iovec_support.h for generic_memcpy, which is used by the bus drivers.
 #include <vm/vm.h>
 #include <util/iovec_support.h>
+#include <DPC.h>
 
 #include "Dm2Interfaces.h"
 #include "Dm2BusInterfaces.h"
@@ -27,7 +28,9 @@
 
 #define TRACE_OUTPUT(x, y, z...) \
 	{ \
-		dprintf("usb %s%s %" B_PRId32 ": ", y, (x)->TypeName(), (x)->USBID()); \
+		dprintf("usb: "); \
+		(x)->DumpPath(); \
+		dprintf(": "); \
 		dprintf(z); \
 	}
 
@@ -61,13 +64,6 @@ class Object;
 class PhysicalMemoryAllocator;
 
 
-struct usb_host_controller_info {
-	module_info info;
-	status_t (*control)(uint32 op, void *data, size_t length);
-	status_t (*add_to)(Stack *stack);
-};
-
-
 struct usb_driver_cookie {
 	usb_id device;
 	void *cookie;
@@ -75,29 +71,10 @@ struct usb_driver_cookie {
 };
 
 
-#if 0
-struct usb_driver_info {
-	const char *driver_name;
-	usb_support_descriptor *support_descriptors;
-	uint32 support_descriptor_count;
-	const char *republish_driver_name;
-	usb_notify_hooks notify_hooks;
-	usb_driver_cookie *cookies;
-	usb_driver_info *link;
-};
-#endif
-
-
 struct change_item {
 	bool added;
 	Device *device;
 	change_item *link;
-};
-
-
-struct rescan_item {
-	const char *name;
-	rescan_item *link;
 };
 
 
@@ -121,12 +98,10 @@ typedef enum {
 
 #define USB_OBJECT_NONE					0x00000000
 #define USB_OBJECT_PIPE					0x00000001
-#if 0
 #define USB_OBJECT_CONTROL_PIPE			0x00000002
 #define USB_OBJECT_INTERRUPT_PIPE		0x00000004
 #define USB_OBJECT_BULK_PIPE			0x00000008
 #define USB_OBJECT_ISO_PIPE				0x00000010
-#endif
 #define USB_OBJECT_INTERFACE			0x00000020
 #define USB_OBJECT_DEVICE				0x00000040
 #define USB_OBJECT_HUB					0x00000080
@@ -170,23 +145,7 @@ static	Stack &							Instance();
 											phys_addr_t *physicalAddress,
 											size_t size, const char *name);
 
-		void							NotifyDeviceChange(Device *device,
-											rescan_item **rescanList,
-											bool added);
-		void							RescanDrivers(rescan_item *rescanItem);
-
-		// USB API
-#if 0
-		status_t						RegisterDriver(const char *driverName,
-											const usb_support_descriptor *
-												descriptors,
-											size_t descriptorCount,
-											const char *republishDriverName);
-
-		status_t						InstallNotify(const char *driverName,
-											const usb_notify_hooks *hooks);
-		status_t						UninstallNotify(const char *driverName);
-#endif
+		void							DumpPath() const {dprintf("stack");}
 
 		usb_id							USBID() const { return 0; }
 		const char *					TypeName() const { return "stack"; }
@@ -210,9 +169,6 @@ static	Stack							sInstance;
 		uint32							fObjectMaxCount;
 		Object **						fObjectArray;
 
-#if 0
-		usb_driver_info *				fDriverList;
-#endif
 		UsbStackImpl					fStackIface;
 };
 
@@ -265,6 +221,9 @@ virtual	status_t						InitCheck();
 
 		DeviceNode *					Node() const
 											{ return fNode; }
+
+		void							DumpPath() const {dprintf("bus(%" B_PRIu32 ")", fStackIndex);}
+
 protected:
 		usb_id							USBID() const { return fStackIndex; }
 
@@ -313,6 +272,8 @@ virtual									~Object();
 
 virtual	uint32							Type() const { return USB_OBJECT_NONE; }
 virtual	const char *					TypeName() const { return "object"; }
+
+virtual	void							DumpPath() const;
 
 		// Convenience functions for standard requests
 virtual	status_t						SetFeature(uint16 selector);
@@ -395,6 +356,8 @@ virtual	status_t						CancelQueuedTransfers(bool force);
 											{ fControllerCookie = cookie; }
 		void *							ControllerCookie() const
 											{ return fControllerCookie; }
+
+virtual	void							DumpPath() const;
 
 		// Convenience functions for standard requests
 virtual	status_t						SetFeature(uint16 selector);
@@ -624,15 +587,6 @@ virtual	status_t						GetDescriptor(uint8 descriptorType,
 		void							InitEndpoints(int32 interfaceIndex);
 		void							ClearEndpoints(int32 interfaceIndex);
 
-#if 0
-virtual	status_t						ReportDevice(
-											usb_support_descriptor *
-												supportDescriptors,
-											uint32 supportDescriptorCount,
-											const usb_notify_hooks *hooks,
-											usb_driver_cookie **cookies,
-											bool added, bool recursive);
-#endif
 virtual	status_t						BuildDeviceName(char *string,
 											uint32 *index, size_t bufferSize,
 											Device *device);
@@ -650,6 +604,8 @@ virtual	status_t						BuildDeviceName(char *string,
 		DeviceNode *					Node() const
 											{ return fNode; }
 		void							SetNode(DeviceNode* node) { fNode = node; }
+
+virtual	void							DumpPath() const;
 
 		// Convenience functions for standard requests
 virtual	status_t						SetFeature(uint16 selector);
@@ -678,7 +634,7 @@ private:
 };
 
 
-class Hub : public Device {
+class Hub : public Device, private DPCCallback {
 public:
 										Hub(Object *parent, int8 hubAddress,
 											uint8 hubPort,
@@ -709,25 +665,19 @@ virtual	status_t						GetDescriptor(uint8 descriptorType,
 		status_t						ResetPort(uint8 index);
 		status_t						DisablePort(uint8 index);
 
+		void							UpdatePort(uint8 index);
 		void							Explore(change_item **changeList);
 static	void							InterruptCallback(void *cookie,
 											status_t status, void *data,
 											size_t actualLength);
 
-#if 0
-virtual	status_t						ReportDevice(
-											usb_support_descriptor *
-												supportDescriptors,
-											uint32 supportDescriptorCount,
-											const usb_notify_hooks *hooks,
-											usb_driver_cookie **cookies,
-											bool added, bool recursive);
-#endif
 virtual	status_t						BuildDeviceName(char *string,
 											uint32 *index, size_t bufferSize,
 											Device *device);
 
 private:
+		// DPCCallback
+		void							DoDPC(DPCQueue* queue) final;
 		status_t						_DebouncePort(uint8 index);
 
 		InterruptPipe *					fInterruptPipe;
@@ -799,6 +749,8 @@ public:
 
 		void						Finished(uint32 status,
 										size_t actualLength);
+
+		void						DumpPath() const {dprintf("transfer");}
 
 		usb_id						USBID() const { return 0; }
 		const char *				TypeName() const { return "transfer"; }

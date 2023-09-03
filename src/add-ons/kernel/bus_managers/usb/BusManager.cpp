@@ -121,134 +121,6 @@ Device *
 BusManager::AllocateDevice(Hub *parent, int8 hubAddress, uint8 hubPort,
 	usb_speed speed)
 {
-#if 0
-	// Check if there is a free entry in the device map (for the device number)
-	int8 deviceAddress = AllocateAddress();
-	if (deviceAddress < 0) {
-		TRACE_ERROR("could not allocate an address\n");
-		return NULL;
-	}
-
-	TRACE("setting device address to %d\n", deviceAddress);
-	ControlPipe *defaultPipe = _GetDefaultPipe(speed);
-
-	if (!defaultPipe) {
-		TRACE_ERROR("error getting the default pipe for speed %d\n", speed);
-		FreeAddress(deviceAddress);
-		return NULL;
-	}
-
-	defaultPipe->SetHubInfo(hubAddress, hubPort);
-
-	status_t result = B_ERROR;
-	for (int32 i = 0; i < 3; i++) {
-		// Set the address of the device USB 1.1 spec p202
-		result = defaultPipe->SendRequest(
-			USB_REQTYPE_STANDARD | USB_REQTYPE_DEVICE_OUT,	// type
-			USB_REQUEST_SET_ADDRESS,						// request
-			deviceAddress,									// value
-			0,												// index
-			0,												// length
-			NULL,											// buffer
-			0,												// buffer length
-			NULL);											// actual length
-
-		if (result >= B_OK)
-			break;
-
-		snooze(USB_DELAY_SET_ADDRESS_RETRY);
-	}
-
-	if (result < B_OK) {
-		TRACE_ERROR("error while setting device address\n");
-		FreeAddress(deviceAddress);
-		return NULL;
-	}
-
-	// Wait a bit for the device to complete addressing
-	snooze(USB_DELAY_SET_ADDRESS);
-
-	// Create a temporary pipe with the new address
-	ControlPipe pipe(fRootObject);
-	pipe.InitCommon(deviceAddress, 0, speed, Pipe::Default, 8, 0, hubAddress,
-		hubPort);
-
-	// Get the device descriptor
-	// Just retrieve the first 8 bytes of the descriptor -> minimum supported
-	// size of any device. It is enough because it includes the device type.
-
-	size_t actualLength = 0;
-	usb_device_descriptor deviceDescriptor;
-
-	TRACE("getting the device descriptor\n");
-	pipe.SendRequest(
-		USB_REQTYPE_DEVICE_IN | USB_REQTYPE_STANDARD,		// type
-		USB_REQUEST_GET_DESCRIPTOR,							// request
-		USB_DESCRIPTOR_DEVICE << 8,							// value
-		0,													// index
-		8,													// length
-		(void *)&deviceDescriptor,							// buffer
-		8,													// buffer length
-		&actualLength);										// actual length
-
-	if (actualLength != 8) {
-		TRACE_ERROR("error while getting the device descriptor\n");
-		FreeAddress(deviceAddress);
-		return NULL;
-	}
-
-	TRACE("short device descriptor for device %d:\n", deviceAddress);
-	TRACE("\tlength:..............%d\n", deviceDescriptor.length);
-	TRACE("\tdescriptor_type:.....0x%04x\n", deviceDescriptor.descriptor_type);
-	TRACE("\tusb_version:.........0x%04x\n", deviceDescriptor.usb_version);
-	TRACE("\tdevice_class:........0x%02x\n", deviceDescriptor.device_class);
-	TRACE("\tdevice_subclass:.....0x%02x\n", deviceDescriptor.device_subclass);
-	TRACE("\tdevice_protocol:.....0x%02x\n", deviceDescriptor.device_protocol);
-	TRACE("\tmax_packet_size_0:...%d\n", deviceDescriptor.max_packet_size_0);
-
-	// Create a new instance based on the type (Hub or Device)
-	if (deviceDescriptor.device_class == 0x09) {
-		TRACE("creating new hub\n");
-		Hub *hub = new(std::nothrow) Hub(parent, hubAddress, hubPort,
-			deviceDescriptor, deviceAddress, speed, false);
-		if (!hub) {
-			TRACE_ERROR("no memory to allocate hub\n");
-			FreeAddress(deviceAddress);
-			return NULL;
-		}
-
-		if (hub->InitCheck() < B_OK) {
-			TRACE_ERROR("hub failed init check\n");
-			FreeAddress(deviceAddress);
-			delete hub;
-			return NULL;
-		}
-
-		hub->RegisterNode();
-
-		return (Device *)hub;
-	}
-
-	TRACE("creating new device\n");
-	Device *device = new(std::nothrow) Device(parent, hubAddress, hubPort,
-		deviceDescriptor, deviceAddress, speed, false);
-	if (!device) {
-		TRACE_ERROR("no memory to allocate device\n");
-		FreeAddress(deviceAddress);
-		return NULL;
-	}
-
-	if (device->InitCheck() < B_OK) {
-		TRACE_ERROR("device failed init check\n");
-		FreeAddress(deviceAddress);
-		delete device;
-		return NULL;
-	}
-
-	device->RegisterNode();
-
-	return device;
-#endif
 	UsbBusDevice *deviceIface = fHostController->AllocateDevice(parent->GetBusDeviceIface(), hubAddress, hubPort, speed);
 	if (deviceIface == NULL)
 		return NULL;
@@ -262,10 +134,6 @@ BusManager::AllocateDevice(Hub *parent, int8 hubAddress, uint8 hubPort,
 void
 BusManager::FreeDevice(Device *device)
 {
-#if 0
-	FreeAddress(device->DeviceAddress());
-	delete device;
-#endif
 	return fHostController->FreeDevice(device->GetBusDeviceIface());
 }
 
@@ -273,13 +141,14 @@ BusManager::FreeDevice(Device *device)
 status_t
 BusManager::Start()
 {
+	Stack::Instance().AddBusManager(this);
+	fStackIndex = Stack::Instance().IndexOfBusManager(this);
+
 	CHECK_RET(fHostController->Start());
 	if (fRootHub != NULL) {
 		fRootHub->RegisterNode(fNode);
 	}
 
-	Stack::Instance().AddBusManager(this);
-	fStackIndex = Stack::Instance().IndexOfBusManager(this);
 	Stack::Instance().Explore();
 	return B_OK;
 }

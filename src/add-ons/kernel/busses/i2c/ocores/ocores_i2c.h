@@ -95,7 +95,7 @@ public:
 	void* QueryInterface(const char* name) final;
 
 	// I2cBus
-	status_t ExecCommand(i2c_op op, i2c_addr slaveAddress, const uint8 *cmdBuffer, size_t cmdLength, uint8* dataBuffer, size_t dataLength) final;
+	status_t ExecCommand(i2c_addr address, const i2c_chunk* chunks, uint32 chunkCount) final;
 	status_t AcquireBus() final;
 	void ReleaseBus() final;
 

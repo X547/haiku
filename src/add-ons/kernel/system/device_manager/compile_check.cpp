@@ -21,7 +21,9 @@
 
 void DeviceNodeQueryTest(DeviceNode* node)
 {
+#if 0
 	I2cDevice* i2cDev = node->QueryBusInterface<I2cDevice>();
+#endif
 	I2cBus*    i2cBus = node->QueryDriverInterface<I2cBus>();
 
 	PciDevice* pciDev = node->QueryBusInterface<PciDevice>();

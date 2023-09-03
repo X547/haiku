@@ -8,6 +8,7 @@
  */
 
 
+#define TRACE_USB
 #include "usb_private.h"
 
 #include <stdio.h>
@@ -96,7 +97,7 @@ Hub::Hub(Object *parent, int8 hubAddress, uint8 hubPort,
 	snooze(fHubDescriptor.power_on_to_power_good * 2000);
 
 	fInitOK = true;
-	TRACE("initialised ok\n");
+	TRACE_ALWAYS("initialised ok\n");
 }
 
 
@@ -195,177 +196,179 @@ Hub::DisablePort(uint8 index)
 }
 
 
+void
+Hub::UpdatePort(uint8 index)
+{
+	if (index < 1)
+		return;
+
+	uint32 i = index - 1;
+
+	status_t result = UpdatePortStatus(i);
+	if (result < B_OK)
+		return;
+
+#ifdef TRACE_USB
+	if (fPortStatus[i].change) {
+		TRACE("port %" B_PRId32 ": status: 0x%04x; change: 0x%04x\n", i,
+			fPortStatus[i].status, fPortStatus[i].change);
+		TRACE("device at port %" B_PRId32 ": %p (%" B_PRId32 ")\n", i,
+			fChildren[i], fChildren[i] != NULL
+				? fChildren[i]->USBID() : 0);
+	}
+#endif
+
+	if ((fPortStatus[i].change & PORT_STATUS_CONNECTION)
+			|| ((fPortStatus[i].status & PORT_STATUS_CONNECTION)
+				&& fChildren[i] == NULL)) {
+		// clear status change
+		DefaultPipe()->SendRequest(USB_REQTYPE_CLASS | USB_REQTYPE_OTHER_OUT,
+			USB_REQUEST_CLEAR_FEATURE, C_PORT_CONNECTION, i + 1,
+			0, NULL, 0, NULL);
+
+		if (fPortStatus[i].status & PORT_STATUS_CONNECTION) {
+			// new device attached!
+			TRACE_ALWAYS("port %" B_PRId32 ": new device connected\n", i);
+
+			int32 retry = 2;
+			while (retry--) {
+				// wait for stable device power
+				result = _DebouncePort(i);
+				if (result != B_OK) {
+					TRACE_ERROR("debouncing port %" B_PRId32
+						" failed: %s\n", i, strerror(result));
+					break;
+				}
+
+				// reset the port, this will also enable it
+				result = ResetPort(i);
+				if (result < B_OK) {
+					TRACE_ERROR("resetting port %" B_PRId32 " failed\n",
+						i);
+					break;
+				}
+
+				result = UpdatePortStatus(i);
+				if (result < B_OK)
+					break;
+
+				if ((fPortStatus[i].status & PORT_STATUS_CONNECTION) == 0) {
+					// device has vanished after reset, ignore
+					TRACE("device disappeared on reset\n");
+					break;
+				}
+
+				if (fChildren[i] != NULL) {
+					TRACE_ERROR("new device on a port that is already in "
+						"use\n");
+					fChildren[i]->GetBusManager()->FreeDevice(fChildren[i]);
+					fChildren[i] = NULL;
+				}
+
+				// Determine the device speed.
+				usb_speed speed;
+
+				// PORT_STATUS_LOW_SPEED and PORT_STATUS_SS_POWER are the
+				// same, but PORT_STATUS_POWER will not be set for SS
+				// devices, hence this somewhat convoluted logic.
+				if ((fPortStatus[i].status & PORT_STATUS_POWER) != 0) {
+					if ((fPortStatus[i].status & PORT_STATUS_HIGH_SPEED) != 0)
+						speed = USB_SPEED_HIGHSPEED;
+					else if ((fPortStatus[i].status & PORT_STATUS_LOW_SPEED) != 0)
+						speed = USB_SPEED_LOWSPEED;
+					else
+						speed = USB_SPEED_FULLSPEED;
+				} else {
+					// This must be a SuperSpeed device, which will
+					// simply inherit our speed.
+					speed = Speed();
+				}
+				if (speed > Speed())
+					speed = Speed();
+
+				int8 hubAddress = DeviceAddress();
+				uint8 hubPort = i + 1;
+
+				Device *newDevice = GetBusManager()->AllocateDevice(this,
+					hubAddress, hubPort, speed);
+
+				if (newDevice) {
+					fChildren[i] = newDevice;
+					break;
+				} else {
+					// the device failed to setup correctly, disable the
+					// port so that the device doesn't get in the way of
+					// future addressing.
+					DisablePort(i);
+				}
+			}
+		} else {
+			// Device removed...
+			TRACE_ALWAYS("port %" B_PRId32 ": device removed\n", i);
+			if (fChildren[i] != NULL) {
+				TRACE("removing device %p\n", fChildren[i]);
+				fChildren[i]->GetBusManager()->FreeDevice(fChildren[i]);
+				fChildren[i] = NULL;
+			}
+		}
+	}
+
+	// other port changes we do not really handle, report and clear them
+	if (fPortStatus[i].change & PORT_STATUS_ENABLE) {
+		TRACE_ALWAYS("port %" B_PRId32 " %sabled\n", i,
+			(fPortStatus[i].status & PORT_STATUS_ENABLE) ? "en" : "dis");
+		DefaultPipe()->SendRequest(USB_REQTYPE_CLASS | USB_REQTYPE_OTHER_OUT,
+			USB_REQUEST_CLEAR_FEATURE, C_PORT_ENABLE, i + 1,
+			0, NULL, 0, NULL);
+	}
+
+	if (fPortStatus[i].change & PORT_STATUS_SUSPEND) {
+		TRACE_ALWAYS("port %" B_PRId32 " is %ssuspended\n", i,
+			(fPortStatus[i].status & PORT_STATUS_SUSPEND) ? "" : "not ");
+		DefaultPipe()->SendRequest(USB_REQTYPE_CLASS | USB_REQTYPE_OTHER_OUT,
+			USB_REQUEST_CLEAR_FEATURE, C_PORT_SUSPEND, i + 1,
+			0, NULL, 0, NULL);
+	}
+
+	if (fPortStatus[i].change & PORT_STATUS_OVER_CURRENT) {
+		TRACE_ALWAYS("port %" B_PRId32 " is %sin an over current state\n",
+			i, (fPortStatus[i].status & PORT_STATUS_OVER_CURRENT) ? "" : "not ");
+		DefaultPipe()->SendRequest(USB_REQTYPE_CLASS | USB_REQTYPE_OTHER_OUT,
+			USB_REQUEST_CLEAR_FEATURE, C_PORT_OVER_CURRENT, i + 1,
+			0, NULL, 0, NULL);
+	}
+
+	if (fPortStatus[i].change & PORT_STATUS_RESET) {
+		TRACE_ALWAYS("port %" B_PRId32 " was reset\n", i);
+		DefaultPipe()->SendRequest(USB_REQTYPE_CLASS | USB_REQTYPE_OTHER_OUT,
+			USB_REQUEST_CLEAR_FEATURE, C_PORT_RESET, i + 1,
+			0, NULL, 0, NULL);
+	}
+
+	if (fPortStatus[i].change & PORT_CHANGE_LINK_STATE) {
+		TRACE_ALWAYS("port %" B_PRId32 " link state changed\n", i);
+		DefaultPipe()->SendRequest(USB_REQTYPE_CLASS | USB_REQTYPE_OTHER_OUT,
+			USB_REQUEST_CLEAR_FEATURE, C_PORT_LINK_STATE, i + 1,
+			0, NULL, 0, NULL);
+	}
+
+	if (fPortStatus[i].change & PORT_CHANGE_BH_PORT_RESET) {
+		TRACE_ALWAYS("port %" B_PRId32 " was warm reset\n", i);
+		DefaultPipe()->SendRequest(USB_REQTYPE_CLASS | USB_REQTYPE_OTHER_OUT,
+			USB_REQUEST_CLEAR_FEATURE, C_PORT_BH_PORT_RESET, i + 1,
+			0, NULL, 0, NULL);
+	}
+}
+
 
 void
 Hub::Explore(change_item **changeList)
 {
 	for (int32 i = 0; i < fHubDescriptor.num_ports; i++) {
-		status_t result = UpdatePortStatus(i);
-		if (result < B_OK)
-			continue;
-
-#ifdef TRACE_USB
-		if (fPortStatus[i].change) {
-			TRACE("port %" B_PRId32 ": status: 0x%04x; change: 0x%04x\n", i,
-				fPortStatus[i].status, fPortStatus[i].change);
-			TRACE("device at port %" B_PRId32 ": %p (%" B_PRId32 ")\n", i,
-				fChildren[i], fChildren[i] != NULL
-					? fChildren[i]->USBID() : 0);
-		}
-#endif
-
-		if ((fPortStatus[i].change & PORT_STATUS_CONNECTION)
-				|| ((fPortStatus[i].status & PORT_STATUS_CONNECTION)
-					&& fChildren[i] == NULL)) {
-			// clear status change
-			DefaultPipe()->SendRequest(USB_REQTYPE_CLASS | USB_REQTYPE_OTHER_OUT,
-				USB_REQUEST_CLEAR_FEATURE, C_PORT_CONNECTION, i + 1,
-				0, NULL, 0, NULL);
-
-			if (fPortStatus[i].status & PORT_STATUS_CONNECTION) {
-				// new device attached!
-				TRACE_ALWAYS("port %" B_PRId32 ": new device connected\n", i);
-
-				int32 retry = 2;
-				while (retry--) {
-					// wait for stable device power
-					result = _DebouncePort(i);
-					if (result != B_OK) {
-						TRACE_ERROR("debouncing port %" B_PRId32
-							" failed: %s\n", i, strerror(result));
-						break;
-					}
-
-					// reset the port, this will also enable it
-					result = ResetPort(i);
-					if (result < B_OK) {
-						TRACE_ERROR("resetting port %" B_PRId32 " failed\n",
-							i);
-						break;
-					}
-
-					result = UpdatePortStatus(i);
-					if (result < B_OK)
-						break;
-
-					if ((fPortStatus[i].status & PORT_STATUS_CONNECTION) == 0) {
-						// device has vanished after reset, ignore
-						TRACE("device disappeared on reset\n");
-						break;
-					}
-
-					if (fChildren[i] != NULL) {
-						TRACE_ERROR("new device on a port that is already in "
-							"use\n");
-						fChildren[i]->Changed(changeList, false);
-						fChildren[i] = NULL;
-					}
-
-					// Determine the device speed.
-					usb_speed speed;
-
-					// PORT_STATUS_LOW_SPEED and PORT_STATUS_SS_POWER are the
-					// same, but PORT_STATUS_POWER will not be set for SS
-					// devices, hence this somewhat convoluted logic.
-					if ((fPortStatus[i].status & PORT_STATUS_POWER) != 0) {
-						if ((fPortStatus[i].status & PORT_STATUS_HIGH_SPEED) != 0)
-							speed = USB_SPEED_HIGHSPEED;
-						else if ((fPortStatus[i].status & PORT_STATUS_LOW_SPEED) != 0)
-							speed = USB_SPEED_LOWSPEED;
-						else
-							speed = USB_SPEED_FULLSPEED;
-					} else {
-						// This must be a SuperSpeed device, which will
-						// simply inherit our speed.
-						speed = Speed();
-					}
-					if (speed > Speed())
-						speed = Speed();
-
-					// either let the device inherit our addresses (if we are
-					// already potentially using a transaction translator) or
-					// set ourselves as the hub when we might become the
-					// transaction translator for the device.
-					int8 hubAddress = HubAddress();
-					uint8 hubPort = HubPort();
-					if (Speed() == USB_SPEED_HIGHSPEED || Speed() == USB_SPEED_SUPERSPEED) {
-						hubAddress = DeviceAddress();
-						hubPort = i + 1;
-					}
-
-					Device *newDevice = GetBusManager()->AllocateDevice(this,
-						hubAddress, hubPort, speed);
-
-					if (newDevice) {
-						newDevice->Changed(changeList, true);
-						fChildren[i] = newDevice;
-						break;
-					} else {
-						// the device failed to setup correctly, disable the
-						// port so that the device doesn't get in the way of
-						// future addressing.
-						DisablePort(i);
-					}
-				}
-			} else {
-				// Device removed...
-				TRACE_ALWAYS("port %" B_PRId32 ": device removed\n", i);
-				if (fChildren[i] != NULL) {
-					TRACE("removing device %p\n", fChildren[i]);
-					fChildren[i]->Changed(changeList, false);
-					fChildren[i] = NULL;
-				}
-			}
-		}
-
-		// other port changes we do not really handle, report and clear them
-		if (fPortStatus[i].change & PORT_STATUS_ENABLE) {
-			TRACE_ALWAYS("port %" B_PRId32 " %sabled\n", i,
-				(fPortStatus[i].status & PORT_STATUS_ENABLE) ? "en" : "dis");
-			DefaultPipe()->SendRequest(USB_REQTYPE_CLASS | USB_REQTYPE_OTHER_OUT,
-				USB_REQUEST_CLEAR_FEATURE, C_PORT_ENABLE, i + 1,
-				0, NULL, 0, NULL);
-		}
-
-		if (fPortStatus[i].change & PORT_STATUS_SUSPEND) {
-			TRACE_ALWAYS("port %" B_PRId32 " is %ssuspended\n", i,
-				(fPortStatus[i].status & PORT_STATUS_SUSPEND) ? "" : "not ");
-			DefaultPipe()->SendRequest(USB_REQTYPE_CLASS | USB_REQTYPE_OTHER_OUT,
-				USB_REQUEST_CLEAR_FEATURE, C_PORT_SUSPEND, i + 1,
-				0, NULL, 0, NULL);
-		}
-
-		if (fPortStatus[i].change & PORT_STATUS_OVER_CURRENT) {
-			TRACE_ALWAYS("port %" B_PRId32 " is %sin an over current state\n",
-				i, (fPortStatus[i].status & PORT_STATUS_OVER_CURRENT) ? "" : "not ");
-			DefaultPipe()->SendRequest(USB_REQTYPE_CLASS | USB_REQTYPE_OTHER_OUT,
-				USB_REQUEST_CLEAR_FEATURE, C_PORT_OVER_CURRENT, i + 1,
-				0, NULL, 0, NULL);
-		}
-
-		if (fPortStatus[i].change & PORT_STATUS_RESET) {
-			TRACE_ALWAYS("port %" B_PRId32 " was reset\n", i);
-			DefaultPipe()->SendRequest(USB_REQTYPE_CLASS | USB_REQTYPE_OTHER_OUT,
-				USB_REQUEST_CLEAR_FEATURE, C_PORT_RESET, i + 1,
-				0, NULL, 0, NULL);
-		}
-
-		if (fPortStatus[i].change & PORT_CHANGE_LINK_STATE) {
-			TRACE_ALWAYS("port %" B_PRId32 " link state changed\n", i);
-			DefaultPipe()->SendRequest(USB_REQTYPE_CLASS | USB_REQTYPE_OTHER_OUT,
-				USB_REQUEST_CLEAR_FEATURE, C_PORT_LINK_STATE, i + 1,
-				0, NULL, 0, NULL);
-		}
-
-		if (fPortStatus[i].change & PORT_CHANGE_BH_PORT_RESET) {
-			TRACE_ALWAYS("port %" B_PRId32 " was warm reset\n", i);
-			DefaultPipe()->SendRequest(USB_REQTYPE_CLASS | USB_REQTYPE_OTHER_OUT,
-				USB_REQUEST_CLEAR_FEATURE, C_PORT_BH_PORT_RESET, i + 1,
-				0, NULL, 0, NULL);
-		}
-
+		UpdatePort(i + 1);
 	}
 
+#if 0
 	// explore down the tree if we have hubs connected
 	for (int32 i = 0; i < fHubDescriptor.num_ports; i++) {
 		if (!fChildren[i] || (fChildren[i]->Type() & USB_OBJECT_HUB) == 0)
@@ -373,6 +376,7 @@ Hub::Explore(change_item **changeList)
 
 		((Hub *)fChildren[i])->Explore(changeList);
 	}
+#endif
 }
 
 
@@ -380,7 +384,35 @@ void
 Hub::InterruptCallback(void *cookie, status_t status, void *data,
 	size_t actualLength)
 {
-	TRACE_STATIC((Hub *)cookie, "interrupt callback!\n");
+	Hub *hub = static_cast<Hub*>(cookie);
+
+	dprintf("Hub::InterruptCallback(%p)\n", hub);
+
+	uint8* bits = (uint8*)data;
+	dprintf("  ports: {");
+	bool isFirst = true;
+	for (uint32 i = 0; i < 8*actualLength; i++) {
+		if ((bits[i / 8] & (1 << (i % 8))) != 0) {
+			if (isFirst) {isFirst = false;} else {dprintf(", ");}
+			dprintf("%" B_PRIu32, i);
+		}
+	}
+	dprintf("}\n");
+
+	DPCQueue::DefaultQueue(B_URGENT_DISPLAY_PRIORITY)->Add(hub);
+}
+
+
+void
+Hub::DoDPC(DPCQueue* queue)
+{
+	uint8* bits = (uint8*)fInterruptStatus;
+	for (uint32 i = 0; i < (uint32)fHubDescriptor.num_ports + 1; i++) {
+		if ((bits[i / 8] & (1 << (i % 8))) != 0)
+			UpdatePort(i);
+	}
+
+	fInterruptPipe->QueueInterrupt(fInterruptStatus, sizeof(fInterruptStatus), InterruptCallback, this);
 }
 
 
@@ -398,43 +430,6 @@ Hub::GetDescriptor(uint8 descriptorType, uint8 index, uint16 languageID,
 		dataLength,											// buffer length
 		actualLength);										// actual length
 }
-
-
-#if 0
-status_t
-Hub::ReportDevice(usb_support_descriptor *supportDescriptors,
-	uint32 supportDescriptorCount, const usb_notify_hooks *hooks,
-	usb_driver_cookie **cookies, bool added, bool recursive)
-{
-	status_t result = B_UNSUPPORTED;
-
-	if (added) {
-		// Report hub before children when adding devices
-		TRACE("reporting hub before children\n");
-		result = Device::ReportDevice(supportDescriptors,
-			supportDescriptorCount, hooks, cookies, added, recursive);
-	}
-
-	for (int32 i = 0; recursive && i < fHubDescriptor.num_ports; i++) {
-		if (!fChildren[i])
-			continue;
-
-		if (fChildren[i]->ReportDevice(supportDescriptors,
-				supportDescriptorCount, hooks, cookies, added, true) == B_OK)
-			result = B_OK;
-	}
-
-	if (!added) {
-		// Report hub after children when removing devices
-		TRACE("reporting hub after children\n");
-		if (Device::ReportDevice(supportDescriptors, supportDescriptorCount,
-				hooks, cookies, added, recursive) == B_OK)
-			result = B_OK;
-	}
-
-	return result;
-}
-#endif
 
 
 status_t

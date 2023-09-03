@@ -45,20 +45,17 @@ private:
 	size_t fInputActualSize {};
 	ArrayDeleter<uint8> fInputBuffer;
 
-	bool fInputRequested = false;
-	bool fInputAvailable = false;
-
 	class HidDeviceImpl: public BusDriver, public HidDevice {
 	public:
 		HidDeviceImpl(UsbHidDriver& base): fBase(base) {}
 
 		// BusDriver
 		void* QueryInterface(const char* name) final;
+		void DriverAttached(bool isAttached) final;
 
 		// HidDevice
-		void SetCallback(HidDeviceCallback* callback) final;
 		status_t Reset() final;
-		status_t Read(uint32 size, uint8* data) final;
+		status_t RequestRead(uint32 size, uint8* data, HidInputCallback* callback) final;
 		status_t Write(uint32 size, const uint8* data) final;
 		status_t GetReport(uint8 reportType, uint8 reportId, uint32 size, uint8 *data) final;
 		status_t SetReport(uint8 reportType, uint8 reportId, uint32 size, const uint8* data) final;
@@ -71,7 +68,6 @@ private:
 	public:
 		UsbHidDriver& fBase;
 		Vector<device_attr> fAttrs;
-		HidDeviceCallback* fCallback {};
 	} fHidDevice;
 };
 
@@ -161,9 +157,6 @@ UsbHidDriver::Init()
 	if (!fInputBuffer.IsSet())
 		return B_NO_MEMORY;
 
-	CHECK_RET(fInterruptPipe->QueueInterrupt(fInputBuffer.Get(), fInputBufferSize, InputCallback, this));
-	fInputRequested = true;
-
 	device_attr attrs[] = {
 		{B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "HID Device"}},
 		{B_DEVICE_BUS,         B_STRING_TYPE, {.string = "hid"}},
@@ -187,10 +180,9 @@ UsbHidDriver::Init()
 void
 UsbHidDriver::InputCallback(void *cookie, status_t status, void *data, size_t actualLength)
 {
-	UsbHidDriver* driver = (UsbHidDriver*)cookie;
-	MutexLocker lock(&driver->fLock);
+	HidInputCallback* callback = (HidInputCallback*)cookie;
 
-#if 0
+#if 1
 	dprintf("UsbHidDriver::InputCallback(%#" B_PRIx32 ", %" B_PRIuSIZE ")\n", status, actualLength);
 
 	for (size_t i = 0; i < actualLength; i++) {
@@ -202,12 +194,7 @@ UsbHidDriver::InputCallback(void *cookie, status_t status, void *data, size_t ac
 		dprintf("\n");
 #endif
 
-	driver->fInputRequested = false;
-	driver->fInputAvailable = true;
-	driver->fInputActualSize = actualLength;
-
-	if (driver->fHidDevice.fCallback != NULL)
-		driver->fHidDevice.fCallback->InputAvailable();
+	callback->InputAvailable(status, (uint8*)data, actualLength);
 }
 
 
@@ -223,17 +210,17 @@ UsbHidDriver::HidDeviceImpl::QueryInterface(const char* name)
 }
 
 
-// #pragma mark - HidDevice
-
 void
-UsbHidDriver::HidDeviceImpl::SetCallback(HidDeviceCallback* callback)
+UsbHidDriver::HidDeviceImpl::DriverAttached(bool isAttached)
 {
-	MutexLocker lock(&fBase.fLock);
-	fCallback = callback;
-	if (fCallback != NULL && fBase.fInputAvailable)
-		fCallback->InputAvailable();
+#if 0
+	if (!isAttached)
+		fBase.fInterruptPipe->CancelQueuedTransfers();
+#endif
 }
 
+
+// #pragma mark - HidDevice
 
 status_t
 UsbHidDriver::HidDeviceImpl::Reset()
@@ -243,21 +230,9 @@ UsbHidDriver::HidDeviceImpl::Reset()
 
 
 status_t
-UsbHidDriver::HidDeviceImpl::Read(uint32 size, uint8* data)
+UsbHidDriver::HidDeviceImpl::RequestRead(uint32 size, uint8* data, HidInputCallback* callback)
 {
-	MutexLocker lock(&fBase.fLock);
-	if (size >= 2) {
-		data[0] = (fBase.fInputActualSize + 2) % 0x100;
-		data[1] = ((fBase.fInputActualSize + 2) >> 8) % 0x100;
-		memcpy(&data[2], &fBase.fInputBuffer[0], std::min<size_t>(size - 2, fBase.fInputActualSize));
-	}
-	fBase.fInputActualSize = 0;
-	fBase.fInputAvailable = false;
-	if (!fBase.fInputRequested) {
-		fBase.fInterruptPipe->QueueInterrupt(fBase.fInputBuffer.Get(), fBase.fInputBufferSize, InputCallback, &fBase);
-		fBase.fInputRequested = true;
-	}
-	return B_OK;
+	return fBase.fInterruptPipe->QueueInterrupt(data, size, InputCallback, callback);
 }
 
 

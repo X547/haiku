@@ -88,10 +88,26 @@ UsbBusPipeImpl::GetDevice()
 }
 
 
-uint32
+usb_pipe_type
 UsbBusPipeImpl::Type() const
 {
-	return fBase.Type();
+	uint32 pipeMask
+		= USB_OBJECT_CONTROL_PIPE
+		| USB_OBJECT_INTERRUPT_PIPE
+		| USB_OBJECT_BULK_PIPE
+		| USB_OBJECT_ISO_PIPE;
+
+	switch (fBase.Type() & pipeMask) {
+		case USB_OBJECT_CONTROL_PIPE:
+			return USB_PIPE_CONTROL;
+		case USB_OBJECT_INTERRUPT_PIPE:
+			return USB_PIPE_INTERRUPT;
+		case USB_OBJECT_BULK_PIPE:
+			return USB_PIPE_BULK;
+		case USB_OBJECT_ISO_PIPE:
+			return USB_PIPE_ISO;
+	}
+	return USB_PIPE_INVALID;
 }
 
 

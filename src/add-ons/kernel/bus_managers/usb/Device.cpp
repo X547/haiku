@@ -39,7 +39,7 @@ Device::Device(Object* parent, int8 hubAddress, uint8 hubPort,
 	fDeviceIface(*this),
 	fBusDeviceIface(*this)
 {
-	TRACE("creating device\n");
+	TRACE_ALWAYS("creating device\n");
 
 	fDefaultPipe = new(std::nothrow) ControlPipe(this);
 	if (fDefaultPipe == NULL) {
@@ -562,7 +562,7 @@ Device::InitEndpoints(int32 interfaceIndex)
 				}
 				if (comp_descr == NULL) {
 					TRACE_ERROR("SuperSpeed device without an endpoint companion "
-						"descriptor!");
+						"descriptor!\n");
 				}
 			}
 
@@ -697,107 +697,6 @@ Device::DeviceDescriptor() const
 }
 
 
-#if 0
-status_t
-Device::ReportDevice(usb_support_descriptor* supportDescriptors,
-	uint32 supportDescriptorCount, const usb_notify_hooks* hooks,
-	usb_driver_cookie** cookies, bool added, bool recursive)
-{
-	TRACE("reporting device\n");
-	bool supported = false;
-	if (supportDescriptorCount == 0 || supportDescriptors == NULL)
-		supported = true;
-
-	for (uint32 i = 0; !supported && i < supportDescriptorCount; i++) {
-		if ((supportDescriptors[i].vendor != 0
-				&& fDeviceDescriptor.vendor_id != supportDescriptors[i].vendor)
-			|| (supportDescriptors[i].product != 0
-				&& fDeviceDescriptor.product_id
-					!= supportDescriptors[i].product))
-			continue;
-
-		if ((supportDescriptors[i].dev_class == 0
-				|| fDeviceDescriptor.device_class
-					== supportDescriptors[i].dev_class)
-			&& (supportDescriptors[i].dev_subclass == 0
-				|| fDeviceDescriptor.device_subclass
-					== supportDescriptors[i].dev_subclass)
-			&& (supportDescriptors[i].dev_protocol == 0
-				|| fDeviceDescriptor.device_protocol
-					== supportDescriptors[i].dev_protocol)) {
-			supported = true;
-		}
-
-		// we have to check all interfaces for matching class/subclass/protocol
-		for (uint32 j = 0;
-				!supported && j < fDeviceDescriptor.num_configurations; j++) {
-			for (uint32 k = 0;
-					!supported && k < fConfigurations[j].interface_count; k++) {
-				for (uint32 l = 0; !supported
-					&& l < fConfigurations[j].interface[k].alt_count; l++) {
-					usb_interface_descriptor* descriptor
-						= fConfigurations[j].interface[k].alt[l].descr;
-					if ((supportDescriptors[i].dev_class == 0
-							|| descriptor->interface_class
-								== supportDescriptors[i].dev_class)
-						&& (supportDescriptors[i].dev_subclass == 0
-							|| descriptor->interface_subclass
-								== supportDescriptors[i].dev_subclass)
-						&& (supportDescriptors[i].dev_protocol == 0
-							|| descriptor->interface_protocol
-								== supportDescriptors[i].dev_protocol)) {
-						supported = true;
-					}
-				}
-			}
-		}
-	}
-
-	if (!supported)
-		return B_UNSUPPORTED;
-
-	if ((added && hooks->device_added == NULL)
-		|| (!added && hooks->device_removed == NULL)) {
-		// hooks are not installed, but report success to indicate that
-		// the driver supports the device
-		return B_OK;
-	}
-
-	usb_id id = USBID();
-	if (added) {
-		usb_driver_cookie* cookie = new(std::nothrow) usb_driver_cookie;
-		if (hooks->device_added(id, &cookie->cookie) >= B_OK) {
-			cookie->device = id;
-			cookie->link = *cookies;
-			*cookies = cookie;
-		} else
-			delete cookie;
-	} else {
-		usb_driver_cookie** pointer = cookies;
-		usb_driver_cookie* cookie = *cookies;
-		while (cookie != NULL) {
-			if (cookie->device == id)
-				break;
-			pointer = &cookie->link;
-			cookie = cookie->link;
-		}
-
-		if (cookie == NULL) {
-			// the device is supported, but there is no cookie. this most
-			// probably means that the device_added hook above failed.
-			return B_OK;
-		}
-
-		hooks->device_removed(cookie->cookie);
-		*pointer = cookie->link;
-		delete cookie;
-	}
-
-	return B_OK;
-}
-#endif
-
-
 status_t
 Device::BuildDeviceName(char* string, uint32* index, size_t bufferSize,
 	Device* device)
@@ -807,6 +706,17 @@ Device::BuildDeviceName(char* string, uint32* index, size_t bufferSize,
 
 	((Hub*)Parent())->BuildDeviceName(string, index, bufferSize, this);
 	return B_OK;
+}
+
+
+void
+Device::DumpPath() const
+{
+	if (Parent() != NULL && (Parent()->Type() & USB_OBJECT_DEVICE) != 0) {
+		Parent()->DumpPath();
+		dprintf("/");
+	}
+	dprintf("dev(%" B_PRIu8 ")", fHubPort);
 }
 
 

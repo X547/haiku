@@ -556,10 +556,12 @@ DeviceNodeImpl::SetProbePending(bool doProbe)
 		return;
 
 	fState.probePending = doProbe;
+	MutexLocker dmLock(DeviceManager::Instance().GetLock());
 	PendingList& pendingNodes = DeviceManager::Instance().PendingNodes();
-	if (doProbe)
+	if (doProbe) {
 		pendingNodes.Insert(this);
-	else
+		DeviceManager::Instance().ScheduleProbe();
+	} else
 		pendingNodes.Remove(this);
 }
 
@@ -636,15 +638,39 @@ DeviceManager::SetRootNode(DeviceNodeImpl* node)
 }
 
 
+void
+DeviceManager::ScheduleProbe()
+{
+#if 0
+	if (!fIsDpcEnqueued) {
+		fIsDpcEnqueued = true;
+		DPCQueue::DefaultQueue(B_LOW_PRIORITY)->Add(this);
+	}
+#endif
+}
+
+
 status_t
 DeviceManager::ProcessPendingNodes()
 {
+	MutexLocker lock(&fLock);
 	while (!fPendingList.IsEmpty()) {
 		DeviceNodeImpl* node = fPendingList.First();
+		lock.Unlock();
 		node->Probe();
+		lock.Lock();
 	}
 
 	return B_OK;
+}
+
+
+void
+DeviceManager::DoDPC(DPCQueue* queue)
+{
+	ProcessPendingNodes();
+	MutexLocker lock(&fLock);
+	fIsDpcEnqueued = false;
 }
 
 

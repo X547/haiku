@@ -10,7 +10,7 @@
 void
 DebugUART::Out8(int reg, uint8 value)
 {
-#if 1
+#if 0
 	// 32-bit aligned
 	*((uint32 *)Base() + reg) = value;
 #else
@@ -22,7 +22,7 @@ DebugUART::Out8(int reg, uint8 value)
 uint8
 DebugUART::In8(int reg)
 {
-#if 1
+#if 0
 	// 32-bit aligned
 	return *((uint32 *)Base() + reg);
 #else

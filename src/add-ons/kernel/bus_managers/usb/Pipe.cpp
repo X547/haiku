@@ -23,6 +23,7 @@ Pipe::Pipe(Object *parent)
 
 Pipe::~Pipe()
 {
+	TRACE_ALWAYS("fini\n");
 	PutUSBID();
 
 	Pipe::CancelQueuedTransfers(true);
@@ -48,6 +49,8 @@ Pipe::InitCommon(int8 deviceAddress, uint8 endpointAddress, usb_speed speed,
 	fBytesPerInterval = 0;
 
 	GetBusManager()->NotifyPipeChange(this, USB_CHANGE_CREATED);
+
+	TRACE_ALWAYS("init\n");
 }
 
 
@@ -82,6 +85,19 @@ status_t
 Pipe::CancelQueuedTransfers(bool force)
 {
 	return GetBusManager()->CancelQueuedTransfers(this, force);
+}
+
+
+void
+Pipe::DumpPath() const
+{
+	Parent()->DumpPath();
+	dprintf("/");
+	if ((Type() & USB_OBJECT_CONTROL_PIPE) != 0) {
+		dprintf("ctrlPipe");
+	} else {
+		dprintf("pipe(%" B_PRIu8 ")", fEndpointAddress);
+	}
 }
 
 

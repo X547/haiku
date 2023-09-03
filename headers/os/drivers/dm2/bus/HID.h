@@ -21,12 +21,12 @@
 #define HID_POWER_SLEEP	1
 
 
-class HidDeviceCallback {
+class HidInputCallback {
 public:
-	virtual void InputAvailable() = 0;
+	virtual void InputAvailable(status_t status, uint8* data, uint32 actualSize) = 0;
 
 protected:
-	~HidDeviceCallback() = default;
+	~HidInputCallback() = default;
 };
 
 
@@ -34,9 +34,8 @@ class HidDevice {
 public:
 	static inline const char ifaceName[] = "bus_managers/hid/device";
 
-	virtual void SetCallback(HidDeviceCallback* callback) = 0;
 	virtual status_t Reset() = 0;
-	virtual status_t Read(uint32 size, uint8* data) = 0;
+	virtual status_t RequestRead(uint32 size, uint8* data, HidInputCallback* callback) = 0;
 	virtual status_t Write(uint32 size, const uint8* data) = 0;
 	virtual status_t GetReport(uint8 reportType, uint8 reportId, uint32 size, uint8* data) = 0;
 	virtual status_t SetReport(uint8 reportType, uint8 reportId, uint32 size, const uint8* data) = 0;

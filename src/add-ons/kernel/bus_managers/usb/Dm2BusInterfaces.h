@@ -35,7 +35,7 @@ public:
 	void					Free() final;
 
 	UsbBusDevice *			GetDevice() final;
-	uint32					Type() const final;
+	usb_pipe_type			Type() const final;
 
 	int8					DeviceAddress() const final;
 	usb_speed				Speed() const final;

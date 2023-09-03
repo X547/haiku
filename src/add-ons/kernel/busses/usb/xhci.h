@@ -19,7 +19,7 @@
 	}
 */
 
-#define TRACE_OUTPUT(x, y, z...) dprintf(z)
+#define TRACE_OUTPUT(x, y, z...) dprintf("xhci: " z)
 
 //#define TRACE_USB
 #ifdef TRACE_USB

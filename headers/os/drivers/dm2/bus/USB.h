@@ -266,10 +266,13 @@ typedef enum {
 } usb_change;
 
 
-#define USB_OBJECT_CONTROL_PIPE			0x00000002
-#define USB_OBJECT_INTERRUPT_PIPE		0x00000004
-#define USB_OBJECT_BULK_PIPE			0x00000008
-#define USB_OBJECT_ISO_PIPE				0x00000010
+typedef enum {
+	USB_PIPE_INVALID = -1,
+	USB_PIPE_CONTROL = 0,
+	USB_PIPE_INTERRUPT,
+	USB_PIPE_BULK,
+	USB_PIPE_ISO,
+} usb_pipe_type;
 
 
 class UsbBusDevice {
@@ -300,7 +303,7 @@ public:
 	virtual void Free() = 0;
 
 	virtual UsbBusDevice 	*GetDevice() = 0;
-	virtual	uint32			Type() const = 0;
+	virtual	usb_pipe_type	Type() const = 0;
 
 virtual		int8			DeviceAddress() const = 0;
 virtual		usb_speed		Speed() const = 0;

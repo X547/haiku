@@ -53,11 +53,25 @@ Object::PutUSBID(bool waitForUnbusy)
 void
 Object::WaitForUnbusy()
 {
+#if 0
 	int32 retries = 20;
 	while (atomic_get(&fBusy) != 0 && retries--)
 		snooze(100);
 	if (retries <= 0)
 		panic("USB object did not become unbusy!");
+#endif
+}
+
+
+void
+Object::DumpPath() const
+{
+	if (Type() == USB_OBJECT_NONE) {
+		uint32 id = Stack::Instance().IndexOfBusManager(fBusManager);
+		dprintf("bus(%" B_PRIu32 ")", id);
+	} else {
+		dprintf("?");
+	}
 }
 
 

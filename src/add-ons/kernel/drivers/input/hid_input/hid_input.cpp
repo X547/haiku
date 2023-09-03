@@ -2,7 +2,6 @@
 
 #include <new>
 
-#include <DPC.h>
 #include <KernelExport.h>
 
 #include <dm2/bus/HID.h>
@@ -57,10 +56,10 @@ public:
 };
 
 
-class HidInputDriver: public DeviceDriver, private HidDeviceCallback, private DPCCallback {
+class HidInputDriver: public DeviceDriver {
 public:
 	HidInputDriver(DeviceNode* node): fNode(node) {}
-	virtual ~HidInputDriver();
+	virtual ~HidInputDriver() = default;
 
 	// DeviceDriver
 	static status_t Probe(DeviceNode* node, DeviceDriver** driver);
@@ -68,9 +67,6 @@ public:
 
 private:
 	status_t Init();
-
-	void InputAvailable() final;
-	void DoDPC(DPCQueue* queue) final;
 
 private:
 	DeviceNode* fNode;
@@ -83,10 +79,6 @@ private:
 	size_t fReportDescriptorLength {};
 	uint16 fMaxInputSize {};
 	uint16 fMaxOutputSize {};
-
-	ArrayDeleter<uint8> fInputBuffer;
-
-	int32 fDpcQueued {};
 };
 
 
@@ -170,12 +162,6 @@ HidInputDevFsNode::Open(const char* path, int openMode, DevFsNodeHandle **outHan
 
 // #pragma mark - HidInputDriver
 
-HidInputDriver::~HidInputDriver()
-{
-
-}
-
-
 status_t
 HidInputDriver::Probe(DeviceNode* node, DeviceDriver** outDriver)
 {
@@ -202,12 +188,8 @@ HidInputDriver::Init()
 	dprintf("  fMaxOutputSize: %" B_PRIu16 "\n", fMaxOutputSize);
 	dprintf("  fReportDescriptorLength: %" B_PRIuSIZE "\n", fReportDescriptorLength);
 
-	fInputBuffer.SetTo(new(std::nothrow) uint8[fMaxInputSize]);
-	if (!fInputBuffer.IsSet())
-		return B_NO_MEMORY;
-
 	CHECK_RET(fHandler.Parser().ParseReportDescriptor(fReportDescriptor, fReportDescriptorLength));
-	CHECK_RET(fHandler.Init());
+	CHECK_RET(fHandler.Init(fHidDevice, fMaxInputSize));
 
 	for (uint32 i = 0;; i++) {
 		ProtocolHandler *handler = fHandler.ProtocolHandlerAt(i);
@@ -237,43 +219,7 @@ HidInputDriver::Init()
 		fNode->RegisterDevFsNode(pathBuffer, &fDevFsNode);
 	}
 
-	fHidDevice->SetCallback(static_cast<HidDeviceCallback*>(this));
-
 	return B_OK;
-}
-
-
-void
-HidInputDriver::InputAvailable()
-{
-	//dprintf("HidInputDriver::InputAvailable()\n");
-
-	if (atomic_get_and_set(&fDpcQueued, 1) == 0)
-		DPCQueue::DefaultQueue(B_URGENT_DISPLAY_PRIORITY)->Add(this);
-}
-
-
-void
-HidInputDriver::DoDPC(DPCQueue* queue)
-{
-	//dprintf("HidInputDriver::DoDPC()\n");
-	atomic_set(&fDpcQueued, 0);
-
-	fHidDevice->Read(fMaxInputSize, &fInputBuffer[0]);
-
-	uint16 actualLength = fInputBuffer[0] | (fInputBuffer[1] << 8);
-
-	if (actualLength == 0) {
-		// handle reset
-		return;
-	}
-
-	if (actualLength <= 2)
-		actualLength = 0;
-	else
-		actualLength -= 2;
-
-	fHandler.Parser().SetReport(B_OK, &fInputBuffer[2], actualLength);
 }
 
 

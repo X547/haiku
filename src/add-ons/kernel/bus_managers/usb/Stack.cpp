@@ -229,9 +229,6 @@ Stack::ExploreThread(void *data)
 void
 Stack::Explore()
 {
-	// Acquire the device manager lock before the explore lock, to prevent lock-order inversion.
-	//RecursiveLocker dmLocker(device_manager_get_lock());
-
 	if (mutex_lock(&fExploreLock) != B_OK)
 		return;
 
@@ -240,7 +237,6 @@ Stack::Explore()
 	if (semCount > 0)
 		acquire_sem_etc(fExploreSem, semCount, B_RELATIVE_TIMEOUT, 0);
 
-	rescan_item *rescanList = NULL;
 	change_item *changeItem = NULL;
 	for (int32 i = 0; i < fBusManagers.Count(); i++) {
 		Hub *rootHub = fBusManagers.ElementAt(i)->GetRootHub();
@@ -249,10 +245,9 @@ Stack::Explore()
 	}
 
 	while (changeItem) {
-#if 0
-		NotifyDeviceChange(changeItem->device, &rescanList, changeItem->added);
-#endif
 		if (!changeItem->added) {
+			// OBSOLETE: notify removed
+
 			// everyone possibly holding a reference is now notified so we
 			// can delete the device
 			changeItem->device->GetBusManager()->FreeDevice(changeItem->device);
@@ -264,7 +259,6 @@ Stack::Explore()
 	}
 
 	mutex_unlock(&fExploreLock);
-	RescanDrivers(rescanList);
 }
 
 void
@@ -341,204 +335,3 @@ Stack::AllocateArea(void **logicalAddress, phys_addr_t *physicalAddress, size_t 
 		B_PRIxPHYSADDR "\n", area, size, logAddress, physicalEntry.address);
 	return area;
 }
-
-
-#if 0
-void
-Stack::NotifyDeviceChange(Device *device, rescan_item **rescanList, bool added)
-{
-	TRACE("device %s\n", added ? "added" : "removed");
-
-	usb_driver_info *element = fDriverList;
-	while (element) {
-		status_t result = device->ReportDevice(element->support_descriptors,
-			element->support_descriptor_count, &element->notify_hooks,
-			&element->cookies, added, false);
-
-		if (result >= B_OK) {
-			const char *driverName = element->driver_name;
-			if (element->republish_driver_name)
-				driverName = element->republish_driver_name;
-
-			bool already = false;
-			rescan_item *rescanItem = *rescanList;
-			while (rescanItem) {
-				if (strcmp(rescanItem->name, driverName) == 0) {
-					// this driver is going to be rescanned already
-					already = true;
-					break;
-				}
-				rescanItem = rescanItem->link;
-			}
-
-			if (!already) {
-				rescanItem = new(std::nothrow) rescan_item;
-				if (!rescanItem)
-					return;
-
-				rescanItem->name = driverName;
-				rescanItem->link = *rescanList;
-				*rescanList = rescanItem;
-			}
-		}
-
-		element = element->link;
-	}
-}
-#endif
-
-
-void
-Stack::RescanDrivers(rescan_item *rescanItem)
-{
-	while (rescanItem) {
-		// the device is supported by this driver. it either got notified
-		// already by the hooks or it is not loaded at this time. in any
-		// case we will rescan the driver so it either is loaded and can
-		// scan for supported devices or its publish_devices hook will be
-		// called to expose changed devices.
-
-		// use the private devfs API to republish a device
-		devfs_rescan_driver(rescanItem->name);
-
-		rescan_item *next = rescanItem->link;
-		delete rescanItem;
-		rescanItem = next;
-	}
-}
-
-
-#if 0
-status_t
-Stack::RegisterDriver(const char *driverName,
-	const usb_support_descriptor *descriptors,
-	size_t descriptorCount, const char *republishDriverName)
-{
-	TRACE("register driver \"%s\"\n", driverName);
-	if (!driverName)
-		return B_BAD_VALUE;
-
-	if (!Lock())
-		return B_ERROR;
-
-	usb_driver_info *element = fDriverList;
-	while (element) {
-		if (strcmp(element->driver_name, driverName) == 0) {
-			// we already have an entry for this driver, just update it
-			free((char *)element->republish_driver_name);
-			element->republish_driver_name = strdup(republishDriverName);
-
-			free(element->support_descriptors);
-			size_t descriptorsSize = descriptorCount * sizeof(usb_support_descriptor);
-			element->support_descriptors = (usb_support_descriptor *)malloc(descriptorsSize);
-			memcpy(element->support_descriptors, descriptors, descriptorsSize);
-			element->support_descriptor_count = descriptorCount;
-
-			Unlock();
-			return B_OK;
-		}
-
-		element = element->link;
-	}
-
-	// this is a new driver, add it to the driver list
-	usb_driver_info *info = new(std::nothrow) usb_driver_info;
-	if (!info) {
-		Unlock();
-		return B_NO_MEMORY;
-	}
-
-	info->driver_name = strdup(driverName);
-	info->republish_driver_name = strdup(republishDriverName);
-
-	size_t descriptorsSize = descriptorCount * sizeof(usb_support_descriptor);
-	info->support_descriptors = (usb_support_descriptor *)malloc(descriptorsSize);
-	memcpy(info->support_descriptors, descriptors, descriptorsSize);
-	info->support_descriptor_count = descriptorCount;
-
-	info->notify_hooks.device_added = NULL;
-	info->notify_hooks.device_removed = NULL;
-	info->cookies = NULL;
-	info->link = NULL;
-
-	if (fDriverList) {
-		usb_driver_info *element = fDriverList;
-		while (element->link)
-			element = element->link;
-
-		element->link = info;
-	} else
-		fDriverList = info;
-
-	Unlock();
-	return B_OK;
-}
-
-
-status_t
-Stack::InstallNotify(const char *driverName, const usb_notify_hooks *hooks)
-{
-	TRACE("installing notify hooks for driver \"%s\"\n", driverName);
-
-	usb_driver_info *element = fDriverList;
-	while (element) {
-		if (strcmp(element->driver_name, driverName) == 0) {
-			if (mutex_lock(&fExploreLock) != B_OK)
-				return B_ERROR;
-
-			// inform driver about any already present devices
-			for (int32 i = 0; i < fBusManagers.Count(); i++) {
-				Hub *rootHub = fBusManagers.ElementAt(i)->GetRootHub();
-				if (rootHub) {
-					// Report device will recurse down the whole tree
-					rootHub->ReportDevice(element->support_descriptors,
-						element->support_descriptor_count, hooks,
-						&element->cookies, true, true);
-				}
-			}
-
-			element->notify_hooks.device_added = hooks->device_added;
-			element->notify_hooks.device_removed = hooks->device_removed;
-			mutex_unlock(&fExploreLock);
-			return B_OK;
-		}
-
-		element = element->link;
-	}
-
-	return B_NAME_NOT_FOUND;
-}
-
-
-status_t
-Stack::UninstallNotify(const char *driverName)
-{
-	TRACE("uninstalling notify hooks for driver \"%s\"\n", driverName);
-
-	usb_driver_info *element = fDriverList;
-	while (element) {
-		if (strcmp(element->driver_name, driverName) == 0) {
-			if (mutex_lock(&fExploreLock) != B_OK)
-				return B_ERROR;
-
-			// trigger the device removed hook
-			for (int32 i = 0; i < fBusManagers.Count(); i++) {
-				Hub *rootHub = fBusManagers.ElementAt(i)->GetRootHub();
-				if (rootHub)
-					rootHub->ReportDevice(element->support_descriptors,
-						element->support_descriptor_count,
-						&element->notify_hooks, &element->cookies, false, true);
-			}
-
-			element->notify_hooks.device_added = NULL;
-			element->notify_hooks.device_removed = NULL;
-			mutex_unlock(&fExploreLock);
-			return B_OK;
-		}
-
-		element = element->link;
-	}
-
-	return B_NAME_NOT_FOUND;
-}
-#endif

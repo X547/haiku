@@ -11,7 +11,9 @@
 #include <AutoDeleter.h>
 #include <AutoDeleterDM2.h>
 #include <ScopeExit.h>
+#include <util/AutoLock.h>
 #include <util/Vector.h>
+#include <DPC.h>
 
 #include "I2CHIDProtocol.h"
 
@@ -21,7 +23,7 @@
 #define I2C_HID_DRIVER_MODULE_NAME "busses/hid/i2c_hid/driver/v1"
 
 
-class I2cHidDriver: public DeviceDriver {
+class I2cHidDriver: public DeviceDriver, private DPCCallback {
 public:
 	I2cHidDriver(DeviceNode* node): fNode(node), fHidDevice(*this) {}
 	virtual ~I2cHidDriver();
@@ -32,11 +34,16 @@ public:
 
 private:
 	status_t Init();
-	status_t ExecCommand(i2c_op op, uint8* cmd, size_t cmdLength, uint8* buffer, size_t bufferLength);
+	status_t ExecCommand(const i2c_chunk* chunks, uint32 chunkCount);
 	static int32 HandleInterrupt(void* arg);
 	inline int32 HandleInterruptInt();
 
+	// DPCCallback
+	void DoDPC(DPCQueue* queue) final;
+
 private:
+	mutex fLock = MUTEX_INITIALIZER("i2c_hid");
+
 	DeviceNode* fNode;
 	FdtDevice* fFdtDevice {};
 	I2cBus* fI2cBus {};
@@ -47,17 +54,21 @@ private:
 
 	i2c_hid_descriptor fDescriptor {};
 
+	uint8* fInputBuffer {};
+	uint32 fInputBufferSize {};
+	HidInputCallback* fInputCallback {};
+
 	class HidDeviceImpl: public BusDriver, public HidDevice {
 	public:
 		HidDeviceImpl(I2cHidDriver& base): fBase(base) {}
 
 		// BusDriver
 		void* QueryInterface(const char* name) final;
+		void DriverAttached(bool isAttached) final;
 
 		// HidDevice
-		void SetCallback(HidDeviceCallback* callback) final;
 		status_t Reset() final;
-		status_t Read(uint32 size, uint8* data) final;
+		status_t RequestRead(uint32 size, uint8* data, HidInputCallback* callback) final;
 		status_t Write(uint32 size, const uint8* data) final;
 		status_t GetReport(uint8 reportType, uint8 reportId, uint32 size, uint8 *data) final;
 		status_t SetReport(uint8 reportType, uint8 reportId, uint32 size, const uint8* data) final;
@@ -69,7 +80,6 @@ private:
 
 	public:
 		I2cHidDriver& fBase;
-		HidDeviceCallback* fCallback {};
 	} fHidDevice;
 };
 
@@ -119,12 +129,15 @@ I2cHidDriver::Init()
 		return B_ERROR;
 	fIrqVector = val;
 
-	install_io_interrupt_handler(fIrqVector, HandleInterrupt, this, B_DEFERRED_COMPLETION);
-
 	dprintf("  fDeviceAddress: %" B_PRIu32 "\n", fDeviceAddress);
 	dprintf("  fDescriptorAddress: %" B_PRIu32 "\n", fDescriptorAddress);
 
-	CHECK_RET(ExecCommand(I2C_OP_READ_STOP, (uint8*)&fDescriptorAddress, sizeof(fDescriptorAddress), (uint8*)&fDescriptor, sizeof(fDescriptor)));
+	i2c_chunk i2cChunks[] = {
+		{.buffer = (uint8*)&fDescriptorAddress, .length = sizeof(fDescriptorAddress), .isWrite = true},
+		{.buffer = (uint8*)&fDescriptor,        .length = sizeof(fDescriptor),        .isWrite = false},
+	};
+
+	CHECK_RET(ExecCommand(i2cChunks, B_COUNT_OF(i2cChunks)));
 	dprintf("  fDescriptor.wHIDDescLength: %" B_PRIu16 "\n", fDescriptor.wHIDDescLength);
 	dprintf("  fDescriptor.wReportDescLength: %" B_PRIu16 "\n", fDescriptor.wReportDescLength);
 	dprintf("  fDescriptor.wMaxInputLength: %" B_PRIu16 "\n", fDescriptor.wMaxInputLength);
@@ -134,10 +147,12 @@ I2cHidDriver::Init()
 	if (!reportDecriptor.IsSet())
 		return B_NO_MEMORY;
 
-	CHECK_RET(ExecCommand(
-		I2C_OP_READ_STOP,
-		(uint8*)&fDescriptor.wReportDescRegister, sizeof(fDescriptor.wReportDescRegister),
-		&reportDecriptor[0], fDescriptor.wReportDescLength));
+	i2c_chunk i2cChunks2[] = {
+		{.buffer = (uint8*)&fDescriptor.wReportDescRegister, .length = sizeof(fDescriptor.wReportDescRegister), .isWrite = true},
+		{.buffer =         &reportDecriptor[0],              .length = fDescriptor.wReportDescLength,           .isWrite = false},
+	};
+
+	CHECK_RET(ExecCommand(i2cChunks2, B_COUNT_OF(i2cChunks2)));
 
 	device_attr attrs[] = {
 		{B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "HID Device"}},
@@ -160,14 +175,14 @@ I2cHidDriver::Init()
 
 
 status_t
-I2cHidDriver::ExecCommand(i2c_op op, uint8* cmd, size_t cmdLength, uint8* buffer, size_t bufferLength)
+I2cHidDriver::ExecCommand(const i2c_chunk* chunks, uint32 chunkCount)
 {
 	CHECK_RET(fI2cBus->AcquireBus());
 	ScopeExit busReleaser([this]() {
 		fI2cBus->ReleaseBus();
 	});
 
-	CHECK_RET(fI2cBus->ExecCommand(op, fDeviceAddress, cmd, cmdLength, buffer, bufferLength));
+	CHECK_RET(fI2cBus->ExecCommand(fDeviceAddress, chunks, chunkCount));
 
 	return B_OK;
 }
@@ -183,10 +198,64 @@ I2cHidDriver::HandleInterrupt(void* arg)
 int32
 I2cHidDriver::HandleInterruptInt()
 {
-	if (fHidDevice.fCallback != NULL)
-		fHidDevice.fCallback->InputAvailable();
-
+	DPCQueue::DefaultQueue(B_URGENT_DISPLAY_PRIORITY)->Add(this);
 	return B_HANDLED_INTERRUPT;
+}
+
+
+void
+I2cHidDriver::DoDPC(DPCQueue* queue)
+{
+	remove_io_interrupt_handler(fIrqVector, HandleInterrupt, this);
+	end_of_interrupt(fIrqVector);
+
+	MutexLocker lock(&fLock);
+
+	// canceled
+	if (fInputBuffer == NULL)
+		return;
+
+	struct {
+		uint16 reg;
+	} _PACKED cmd = {
+		fDescriptor.wInputRegister,
+	};
+
+	uint16 actualSize;
+
+	i2c_chunk i2cChunks[] = {
+		{.buffer = (uint8*)&cmd,        .length = sizeof(cmd),        .isWrite = true},
+		{.buffer = (uint8*)&actualSize, .length = sizeof(actualSize), .isWrite = false},
+		{.buffer = fInputBuffer,        .length = fInputBufferSize,   .isWrite = false},
+	};
+
+	status_t res = ExecCommand(i2cChunks, B_COUNT_OF(i2cChunks));
+
+	// handle reset
+	if (res >= B_OK && actualSize == 0) {
+		install_io_interrupt_handler(fIrqVector, HandleInterrupt, this, B_DEFERRED_COMPLETION);
+		return;
+	}
+	actualSize = (actualSize) < 2 ? 0 : actualSize - 2;
+
+#if 1
+	dprintf("I2cHidDriver::InputCallback(%#" B_PRIx32 ", %" B_PRIu32 ")\n", res, actualSize);
+
+	for (size_t i = 0; i < actualSize; i++) {
+		dprintf(" %02x", ((uint8*)fInputBuffer)[i]);
+		if (i == 15)
+			dprintf("\n");
+	}
+	if (actualSize % 16 != 0)
+		dprintf("\n");
+#endif
+
+	uint8* buffer = fInputBuffer;
+	HidInputCallback* callback = fInputCallback;
+	fInputBuffer = NULL;
+	lock.Unlock();
+
+	callback->InputAvailable(res, buffer, res < B_OK ? 0 : actualSize);
 }
 
 
@@ -202,63 +271,82 @@ I2cHidDriver::HidDeviceImpl::QueryInterface(const char* name)
 }
 
 
-// #pragma mark - HidDevice
-
 void
-I2cHidDriver::HidDeviceImpl::SetCallback(HidDeviceCallback* callback)
+I2cHidDriver::HidDeviceImpl::DriverAttached(bool isAttached)
 {
-	fCallback = callback;
+	if (!isAttached) {
+		MutexLocker lock(&fBase.fLock);
+		if (fBase.fInputBuffer != NULL) {
+			uint8* buffer = fBase.fInputBuffer;
+			HidInputCallback* callback = fBase.fInputCallback;
+			fBase.fInputBuffer = NULL;
+			lock.Unlock();
+
+			callback->InputAvailable(B_CANCELED, buffer, 0);
+		}
+	}
 }
 
+
+// #pragma mark - HidDevice
 
 status_t
 I2cHidDriver::HidDeviceImpl::Reset()
 {
-	uint8 cmd[] = {
-		(uint8)(fBase.fDescriptor.wCommandRegister & 0xff),
-		(uint8)(fBase.fDescriptor.wCommandRegister >> 8),
+	struct {
+		uint16 reg;
+		uint8 value;
+		uint8 command;
+	} _PACKED cmd = {
+		fBase.fDescriptor.wCommandRegister,
 		0,
 		I2C_HID_CMD_RESET,
 	};
 
-	return fBase.ExecCommand(I2C_OP_WRITE_STOP, cmd, sizeof(cmd), NULL, 0);
+	i2c_chunk i2cChunks[] = {
+		{.buffer = (uint8*)&cmd, .length = sizeof(cmd), .isWrite = true},
+	};
+
+	return fBase.ExecCommand(i2cChunks, B_COUNT_OF(i2cChunks));
 }
 
 
 status_t
-I2cHidDriver::HidDeviceImpl::Read(uint32 size, uint8* data)
+I2cHidDriver::HidDeviceImpl::RequestRead(uint32 size, uint8* data, HidInputCallback* callback)
 {
-	struct {
-			uint16 reg;
-	} _PACKED cmd = {
-		fBase.fDescriptor.wInputRegister,
-	};
+	if (data == NULL || callback == NULL)
+		return B_BAD_VALUE;
 
-	ScopeExit scopeExit([this]() {
-		end_of_interrupt(fBase.fIrqVector);
-	});
+	MutexLocker lock(&fBase.fLock);
 
-	return fBase.ExecCommand(I2C_OP_READ_STOP, (uint8*)&cmd, sizeof(cmd), data, size);
+	if (fBase.fInputBuffer != NULL)
+		return B_BUSY;
+
+	fBase.fInputBuffer = data;
+	fBase.fInputBufferSize = size;
+	fBase.fInputCallback = callback;
+
+	install_io_interrupt_handler(fBase.fIrqVector, HandleInterrupt, &fBase, B_DEFERRED_COMPLETION);
+
+	return B_OK;
 }
 
 
 status_t
 I2cHidDriver::HidDeviceImpl::Write(uint32 size, const uint8* data)
 {
-	CHECK_RET(fBase.fI2cBus->AcquireBus());
-	ScopeExit busReleaser([this]() {
-		fBase.fI2cBus->ReleaseBus();
-	});
-
 	struct {
-			uint16 reg;
+		uint16 reg;
 	} _PACKED cmd = {
 		fBase.fDescriptor.wOutputRegister,
 	};
-	CHECK_RET(fBase.fI2cBus->ExecCommand(I2C_OP_WRITE, fBase.fDeviceAddress, (uint8*)&cmd, sizeof(cmd), NULL, 0));
-	CHECK_RET(fBase.fI2cBus->ExecCommand(I2C_OP_WRITE_STOP, fBase.fDeviceAddress, data, size, NULL, 0));
 
-	return B_OK;
+	i2c_chunk i2cChunks[] = {
+		{.buffer = (uint8*)&cmd, .length = sizeof(cmd), .isWrite = true},
+		{.buffer = (uint8*)data, .length = size,        .isWrite = true},
+	};
+
+	return fBase.ExecCommand(i2cChunks, B_COUNT_OF(i2cChunks));
 }
 
 
@@ -266,11 +354,11 @@ status_t
 I2cHidDriver::HidDeviceImpl::GetReport(uint8 reportType, uint8 reportId, uint32 size, uint8 *data)
 {
 	struct {
-			uint16 reg1;
-			uint8 value;
-			uint8 command;
+		uint16 reg1;
+		uint8 value;
+		uint8 command;
 
-			uint16 reg2;
+		uint16 reg2;
 	} _PACKED cmd = {
 		fBase.fDescriptor.wCommandRegister,
 		(uint8)((reportId % 16) + ((reportType % 4) << 4)),
@@ -279,7 +367,12 @@ I2cHidDriver::HidDeviceImpl::GetReport(uint8 reportType, uint8 reportId, uint32 
 		fBase.fDescriptor.wDataRegister
 	};
 
-	return fBase.ExecCommand(I2C_OP_READ_STOP, (uint8*)&cmd, sizeof(cmd), data, size);
+	i2c_chunk i2cChunks[] = {
+		{.buffer = (uint8*)&cmd, .length = sizeof(cmd), .isWrite = true},
+		{.buffer =         data, .length = size,        .isWrite = false},
+	};
+
+	return fBase.ExecCommand(i2cChunks, B_COUNT_OF(i2cChunks));
 }
 
 
@@ -292,23 +385,34 @@ I2cHidDriver::HidDeviceImpl::SetReport(uint8 reportType, uint8 reportId, uint32 
 	});
 
 	struct {
-			uint16 reg;
-			uint8 value;
-			uint8 command;
+		uint16 reg;
+		uint8 value;
+		uint8 command;
 	} _PACKED cmd = {
 		fBase.fDescriptor.wCommandRegister,
 		(uint8)((reportId % 16) + ((reportType % 4) << 4)),
 		I2C_HID_CMD_SET_REPORT
 	};
-	CHECK_RET(fBase.fI2cBus->ExecCommand(I2C_OP_WRITE, fBase.fDeviceAddress, (uint8*)&cmd, sizeof(cmd), NULL, 0));
+
+	i2c_chunk i2cChunks[] = {
+		{.buffer = (uint8*)&cmd, .length = sizeof(cmd), .isWrite = true},
+	};
+
+	CHECK_RET(fBase.fI2cBus->ExecCommand(fBase.fDeviceAddress, i2cChunks, B_COUNT_OF(i2cChunks)));
+
 
 	struct {
-			uint16 reg;
+		uint16 reg;
 	} _PACKED cmd2 = {
 		fBase.fDescriptor.wDataRegister,
 	};
-	CHECK_RET(fBase.fI2cBus->ExecCommand(I2C_OP_WRITE, fBase.fDeviceAddress, (uint8*)&cmd2, sizeof(cmd2), NULL, 0));
-	CHECK_RET(fBase.fI2cBus->ExecCommand(I2C_OP_WRITE_STOP, fBase.fDeviceAddress, data, size, NULL, 0));
+
+	i2c_chunk i2cChunks2[] = {
+		{.buffer = (uint8*)&cmd2, .length = sizeof(cmd2), .isWrite = true},
+		{.buffer = (uint8*)&data, .length = size, .isWrite = true},
+	};
+
+	CHECK_RET(fBase.fI2cBus->ExecCommand(fBase.fDeviceAddress, i2cChunks2, B_COUNT_OF(i2cChunks2)));
 
 	return B_OK;
 }
@@ -318,9 +422,9 @@ status_t
 I2cHidDriver::HidDeviceImpl::GetIdle(uint8 reportId, uint16* idle)
 {
 	struct {
-			uint16 reg;
-			uint8 value;
-			uint8 command;
+		uint16 reg;
+		uint8 value;
+		uint8 command;
 	} _PACKED cmd = {
 		fBase.fDescriptor.wCommandRegister,
 		(uint8)(reportId % 16),
@@ -332,7 +436,12 @@ I2cHidDriver::HidDeviceImpl::GetIdle(uint8 reportId, uint16* idle)
 		uint16 value;
 	} _PACKED reply;
 
-	CHECK_RET(fBase.ExecCommand(I2C_OP_READ_STOP, (uint8*)&cmd, sizeof(cmd), (uint8*)&reply, sizeof(reply)));
+	i2c_chunk i2cChunks[] = {
+		{.buffer = (uint8*)&cmd,   .length = sizeof(cmd),   .isWrite = true},
+		{.buffer = (uint8*)&reply, .length = sizeof(reply), .isWrite = false},
+	};
+
+	CHECK_RET(fBase.ExecCommand(i2cChunks, B_COUNT_OF(i2cChunks)));
 
 	if (reply.size != 4)
 		return B_BAD_VALUE;
@@ -346,13 +455,13 @@ status_t
 I2cHidDriver::HidDeviceImpl::SetIdle(uint8 reportId, uint16 idle)
 {
 	struct {
-			uint16 reg1;
-			uint16 size1;
-			uint16 value1;
+		uint16 reg1;
+		uint16 size1;
+		uint16 value1;
 
-			uint16 reg2;
-			uint8 value2;
-			uint8 command;
+		uint16 reg2;
+		uint8 value2;
+		uint8 command;
 	} _PACKED cmd = {
 		fBase.fDescriptor.wDataRegister,
 		4,
@@ -363,7 +472,11 @@ I2cHidDriver::HidDeviceImpl::SetIdle(uint8 reportId, uint16 idle)
 		I2C_HID_CMD_SET_IDLE
 	};
 
-	return fBase.ExecCommand(I2C_OP_WRITE_STOP, (uint8*)&cmd, sizeof(cmd), NULL, 0);
+	i2c_chunk i2cChunks[] = {
+		{.buffer = (uint8*)&cmd, .length = sizeof(cmd), .isWrite = true},
+	};
+
+	return fBase.ExecCommand(i2cChunks, B_COUNT_OF(i2cChunks));
 }
 
 
@@ -371,9 +484,9 @@ status_t
 I2cHidDriver::HidDeviceImpl::GetProtocol(uint16* protocol)
 {
 	struct {
-			uint16 reg;
-			uint8 value;
-			uint8 command;
+		uint16 reg;
+		uint8 value;
+		uint8 command;
 	} _PACKED cmd = {
 		fBase.fDescriptor.wCommandRegister,
 		0,
@@ -385,7 +498,12 @@ I2cHidDriver::HidDeviceImpl::GetProtocol(uint16* protocol)
 		uint16 value;
 	} _PACKED reply;
 
-	CHECK_RET(fBase.ExecCommand(I2C_OP_READ_STOP, (uint8*)&cmd, sizeof(cmd), (uint8*)&reply, sizeof(reply)));
+	i2c_chunk i2cChunks[] = {
+		{.buffer = (uint8*)&cmd,   .length = sizeof(cmd),   .isWrite = true},
+		{.buffer = (uint8*)&reply, .length = sizeof(reply), .isWrite = false},
+	};
+
+	CHECK_RET(fBase.ExecCommand(i2cChunks, B_COUNT_OF(i2cChunks)));
 
 	if (reply.size != 4)
 		return B_BAD_VALUE;
@@ -399,13 +517,13 @@ status_t
 I2cHidDriver::HidDeviceImpl::SetProtocol(uint16 protocol)
 {
 	struct {
-			uint16 reg1;
-			uint16 size1;
-			uint16 value1;
+		uint16 reg1;
+		uint16 size1;
+		uint16 value1;
 
-			uint16 reg2;
-			uint8 value2;
-			uint8 command;
+		uint16 reg2;
+		uint8 value2;
+		uint8 command;
 	} _PACKED cmd = {
 		fBase.fDescriptor.wDataRegister,
 		4,
@@ -416,7 +534,11 @@ I2cHidDriver::HidDeviceImpl::SetProtocol(uint16 protocol)
 		I2C_HID_CMD_SET_PROTOCOL
 	};
 
-	return fBase.ExecCommand(I2C_OP_WRITE_STOP, (uint8*)&cmd, sizeof(cmd), NULL, 0);
+	i2c_chunk i2cChunks[] = {
+		{.buffer = (uint8*)&cmd, .length = sizeof(cmd), .isWrite = true},
+	};
+
+	return fBase.ExecCommand(i2cChunks, B_COUNT_OF(i2cChunks));
 }
 
 
@@ -424,16 +546,20 @@ status_t
 I2cHidDriver::HidDeviceImpl::SetPower(uint8 power)
 {
 	struct {
-			uint16 reg;
-			uint8 power;
-			uint8 command;
+		uint16 reg;
+		uint8 power;
+		uint8 command;
 	} _PACKED cmd = {
 		fBase.fDescriptor.wCommandRegister,
 		power,
 		I2C_HID_CMD_SET_POWER
 	};
 
-	return fBase.ExecCommand(I2C_OP_WRITE_STOP, (uint8*)&cmd, sizeof(cmd), NULL, 0);
+	i2c_chunk i2cChunks[] = {
+		{.buffer = (uint8*)&cmd, .length = sizeof(cmd), .isWrite = true},
+	};
+
+	return fBase.ExecCommand(i2cChunks, B_COUNT_OF(i2cChunks));
 }
 
 

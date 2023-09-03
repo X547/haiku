@@ -1,11 +1,19 @@
 #include "HIDDevice.h"
 
+#include <dm2/bus/HID.h>
+
 #include "ProtocolHandler.h"
 
 
 status_t
-HIDDevice::Init()
+HIDDevice::Init(HidDevice* device, uint16 maxInputSize)
 {
+	fHidDevice = device;
+	fMaxInputSize = maxInputSize;
+	fInputBuffer.SetTo(new(std::nothrow) uint8[maxInputSize]);
+	if (!fInputBuffer.IsSet())
+		return B_NO_MEMORY;
+
 	ProtocolHandler::AddHandlers(*this, fProtocolHandlerList, fProtocolHandlerCount);
 	return B_OK;
 }
@@ -14,6 +22,7 @@ HIDDevice::Init()
 status_t
 HIDDevice::Open(ProtocolHandler *handler, uint32 flags)
 {
+	atomic_add(&fOpenCount, 1);
 	return B_OK;
 }
 
@@ -21,6 +30,7 @@ HIDDevice::Open(ProtocolHandler *handler, uint32 flags)
 status_t
 HIDDevice::Close(ProtocolHandler *handler)
 {
+	atomic_add(&fOpenCount, -1);
 	return B_OK;
 }
 
@@ -38,7 +48,13 @@ HIDDevice::MaybeScheduleTransfer(HIDReport *report)
 	if (fRemoved)
 		return ENODEV;
 
-	return B_OK;
+	status_t res = fHidDevice->RequestRead(fMaxInputSize, &fInputBuffer[0], static_cast<HidInputCallback*>(this));
+
+	// already scheduled
+	if (res == B_BUSY)
+		return B_OK;
+
+	return res;
 }
 
 
@@ -63,4 +79,11 @@ HIDDevice::ProtocolHandlerAt(uint32 index) const
 	}
 
 	return NULL;
+}
+
+
+void
+HIDDevice::InputAvailable(status_t status, uint8* data, uint32 actualSize)
+{
+	fParser.SetReport(status, data, actualSize);
 }
