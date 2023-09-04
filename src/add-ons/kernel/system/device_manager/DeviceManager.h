@@ -116,7 +116,7 @@ public:
 	DeviceNodeImpl* GetRootNodeNoRef() const {return fRoot;}
 	void SetRootNode(DeviceNodeImpl* node);
 
-	mutex* GetLock() {return &fLock;}
+	recursive_lock* GetLock() {return &fLock;}
 
 	DeviceNodeImpl::PendingList& PendingNodes() {return fPendingList;}
 	void ScheduleProbe();
@@ -134,8 +134,8 @@ private:
 private:
 	static DeviceManager sInstance;
 
-	mutex fLock = MUTEX_INITIALIZER("DeviceManager");
-	bool fIsDpcEnqueued = true;
+	recursive_lock fLock = RECURSIVE_LOCK_INITIALIZER("DeviceManager");
+	bool fIsDpcEnqueued = false;
 
 	DeviceNodeImpl* fRoot {};
 	DeviceNodeImpl::PendingList fPendingList;

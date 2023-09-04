@@ -19,6 +19,39 @@
 DeviceManager DeviceManager::sInstance;
 
 
+
+
+class UnlockLocking {
+public:
+	inline bool Lock(recursive_lock *lockable)
+	{
+		recursive_lock_lock(lockable);
+		fRecursion = lockable->recursion - 1;
+		//dprintf("UnlockLocking::Lock(), recursion: %d\n", fRecursion);
+		if (fRecursion <= 0) {
+			panic("UnlockLocking::Lock(): not locked\n");
+			recursive_lock_unlock(lockable);
+			return false;
+		}
+		lockable->recursion = 1;
+		recursive_lock_unlock(lockable);
+		return true;
+	}
+
+	inline void Unlock(recursive_lock *lockable)
+	{
+		recursive_lock_lock(lockable);
+		//dprintf("UnlockLocking::Unlock(), recursion: %d\n", fRecursion);
+		lockable->recursion = fRecursion;
+	}
+
+private:
+	int fRecursion = 0;
+};
+
+typedef AutoLocker<recursive_lock, UnlockLocking> UnlockLocker;
+
+
 static status_t
 copy_attributes(const device_attr* attrs, ArrayDeleter<device_attr> &outAttrs, ArrayDeleter<uint8> &outAttrData)
 {
@@ -79,7 +112,6 @@ copy_attributes(const device_attr* attrs, ArrayDeleter<device_attr> &outAttrs, A
 
 // #pragma mark - DeviceNodeImpl
 
-
 DeviceNodeImpl::DeviceNodeImpl()
 {
 	dprintf("+DeviceNodeImpl(%p)\n", this);
@@ -97,9 +129,13 @@ DeviceNodeImpl::~DeviceNodeImpl()
 }
 
 
+// #pragma mark - DeviceNodeImpl public API
+
 DeviceNode*
 DeviceNodeImpl::GetParent() const
 {
+	RecursiveLocker lock(DeviceManager::Instance().GetLock());
+
 	if (fParent != NULL)
 		fParent->AcquireReference();
 
@@ -110,6 +146,8 @@ DeviceNodeImpl::GetParent() const
 status_t
 DeviceNodeImpl::GetNextChildNode(const device_attr* attrs, DeviceNode** outNode) const
 {
+	RecursiveLocker lock(DeviceManager::Instance().GetLock());
+
 	// TODO: implement attribute filtering
 	if (attrs != NULL)
 		return B_BAD_VALUE;
@@ -147,6 +185,8 @@ DeviceNodeImpl::FindChildNode(const device_attr* attrs, DeviceNode** outNode) co
 status_t
 DeviceNodeImpl::GetNextAttr(const device_attr** attr) const
 {
+	// Attributes are immutable so no lock is needed.
+
 	const device_attr* attrs = &fAttributes[0];
 	if (attrs == NULL)
 		return B_ENTRY_NOT_FOUND;
@@ -173,6 +213,8 @@ DeviceNodeImpl::GetNextAttr(const device_attr** attr) const
 status_t
 DeviceNodeImpl::FindAttr(const char* name, type_code type, int32 index, const void** value, size_t* size) const
 {
+	// Attributes are immutable so no lock is needed.
+
 	const device_attr* attrs = &fAttributes[0];
 	if (attrs == NULL)
 		return B_NAME_NOT_FOUND;
@@ -236,22 +278,29 @@ DeviceNodeImpl::FindAttr(const char* name, type_code type, int32 index, const vo
 void*
 DeviceNodeImpl::QueryBusInterface(const char* ifaceName)
 {
-	if (fBusDriver == NULL)
+	RecursiveLocker lock(DeviceManager::Instance().GetLock());
+	BusDriver* busDriver = fBusDriver;
+	lock.Unlock();
+
+	if (busDriver == NULL)
 		return NULL;
 
-	return fBusDriver->QueryInterface(ifaceName);
+	return busDriver->QueryInterface(ifaceName);
 }
 
 
 void*
 DeviceNodeImpl::QueryDriverInterface(const char* ifaceName, DeviceNode* dep)
 {
+	RecursiveLocker lock(DeviceManager::Instance().GetLock());
 	Probe();
+	DeviceDriver* deviceDriver = fDeviceDriver;
+	lock.Unlock();
 
-	if (fDeviceDriver == NULL)
+	if (deviceDriver == NULL)
 		return NULL;
 
-	void* iface = fDeviceDriver->QueryInterface(ifaceName);
+	void* iface = deviceDriver->QueryInterface(ifaceName);
 	if (iface == NULL)
 		return NULL;
 #if 0
@@ -283,6 +332,8 @@ DeviceNodeImpl::UninstallListener(DeviceNodeListener* listener)
 status_t
 DeviceNodeImpl::RegisterNode(DeviceDriver* owner, BusDriver* driver, const device_attr* attrs, DeviceNode** outNode)
 {
+	RecursiveLocker lock(DeviceManager::Instance().GetLock());
+
 	BReference<DeviceNodeImpl> node(new(std::nothrow) DeviceNodeImpl(), true);
 	if (!node.IsSet())
 		return B_NO_MEMORY;
@@ -300,6 +351,8 @@ DeviceNodeImpl::RegisterNode(DeviceDriver* owner, BusDriver* driver, const devic
 status_t
 DeviceNodeImpl::UnregisterNode(DeviceNode* nodeIface)
 {
+	RecursiveLocker lock(DeviceManager::Instance().GetLock());
+
 	DeviceNodeImpl* node = static_cast<DeviceNodeImpl*>(nodeIface);
 	//dprintf("%p.DeviceNodeImpl::UnregisterNode(\"%s\")\n", node, node->GetName());
 
@@ -332,6 +385,8 @@ DeviceNodeImpl::UnregisterNode(DeviceNode* nodeIface)
 status_t
 DeviceNodeImpl::RegisterDevFsNode(const char* path, DevFsNode* driver)
 {
+	RecursiveLocker lock(DeviceManager::Instance().GetLock());
+
 	dprintf("RegisterDevFsNode(\"%s\")\n", path);
 	if (driver == NULL) {
 		panic("DevFsNode passed to RegisterDevFsNode can't be NULL");
@@ -352,6 +407,8 @@ DeviceNodeImpl::RegisterDevFsNode(const char* path, DevFsNode* driver)
 status_t
 DeviceNodeImpl::UnregisterDevFsNode(const char* path)
 {
+	RecursiveLocker lock(DeviceManager::Instance().GetLock());
+
 	BaseDevice* device {};
 	CHECK_RET(devfs_get_device(path, device));
 	ScopeExit devicePutter([device] {
@@ -363,11 +420,14 @@ DeviceNodeImpl::UnregisterDevFsNode(const char* path)
 		return ENOENT;
 
 	fDevFsNodes.Remove(wrapper);
+	lock.Unlock();
 	devfs_unpublish_device(device, true);
 	delete wrapper;
 	return B_OK;
 }
 
+
+// #pragma mark - DeviceNodeImpl private API
 
 const char*
 DeviceNodeImpl::GetName() const
@@ -477,7 +537,10 @@ DeviceNodeImpl::ProbeDriver(const char* moduleName, bool isChild)
 
 	if (fState.multipleDrivers && !isChild) {
 		DeviceNode* childNodeIface;
-		CHECK_RET(fBusDriver->CreateChildNode(&childNodeIface));
+		{
+			UnlockLocker unlock(DeviceManager::Instance().GetLock());
+			CHECK_RET(fBusDriver->CreateChildNode(&childNodeIface));
+		}
 		DeviceNodeImpl* childNode = static_cast<DeviceNodeImpl*>(childNodeIface);
 
 		DetachableScopeExit childNodeDeleter([this, childNodeIface]() {
@@ -491,14 +554,21 @@ DeviceNodeImpl::ProbeDriver(const char* moduleName, bool isChild)
 	}
 
 	driver_module_info* driverModule {};
-	CHECK_RET_MSG(get_module(moduleName, (module_info**)&driverModule), "[!] can't load driver module\n");
+	{
+		UnlockLocker unlock(DeviceManager::Instance().GetLock());
+		CHECK_RET_MSG(get_module(moduleName, (module_info**)&driverModule), "[!] can't load driver module\n");
+	}
 	DetachableScopeExit modulePutter([moduleName]() {
+		UnlockLocker unlock(DeviceManager::Instance().GetLock());
 		put_module(moduleName);
 	});
 
 	// TODO: unregister nodes and DevFS nodes on probe fail
 	DeviceDriver* driver {};
-	CHECK_RET_MSG(driverModule->probe(this, &driver), "[!] driver do not support device or internal driver error\n");
+	{
+		UnlockLocker unlock(DeviceManager::Instance().GetLock());
+		CHECK_RET_MSG(driverModule->probe(this, &driver), "[!] driver do not support device or internal driver error\n");
+	}
 	if (driver == NULL) {
 		panic("driver_module_info::probe successed, but returned NULL DeviceDriver");
 		return B_ERROR;
@@ -507,7 +577,10 @@ DeviceNodeImpl::ProbeDriver(const char* moduleName, bool isChild)
 	modulePutter.Detach();
 	fDeviceDriver = driver;
 	fDriverModuleName.SetTo(driverModuleName.Detach());
-	fBusDriver->DriverAttached(true);
+	{
+		UnlockLocker unlock(DeviceManager::Instance().GetLock());
+		fBusDriver->DriverAttached(true);
+	}
 
 	return B_OK;
 }
@@ -524,10 +597,17 @@ DeviceNodeImpl::UnsetDeviceDriver()
 			devfs_unpublish_device(wrapper, true);
 			delete wrapper;
 		}
-		fBusDriver->DriverAttached(false);
-		fDeviceDriver->Free();
+		BusDriver* busDriver = fBusDriver;
+		DeviceDriver* deviceDriver = fDeviceDriver;
+
+		{
+			UnlockLocker unlock(DeviceManager::Instance().GetLock());
+			busDriver->DriverAttached(false);
+			deviceDriver->Free();
+			put_module(fDriverModuleName.Get());
+		}
+
 		fDeviceDriver = NULL;
-		put_module(fDriverModuleName.Get());
 		fDriverModuleName.Unset();
 	}
 }
@@ -556,7 +636,6 @@ DeviceNodeImpl::SetProbePending(bool doProbe)
 		return;
 
 	fState.probePending = doProbe;
-	MutexLocker dmLock(DeviceManager::Instance().GetLock());
 	PendingList& pendingNodes = DeviceManager::Instance().PendingNodes();
 	if (doProbe) {
 		pendingNodes.Insert(this);
@@ -641,24 +720,23 @@ DeviceManager::SetRootNode(DeviceNodeImpl* node)
 void
 DeviceManager::ScheduleProbe()
 {
-#if 0
+	dprintf("DeviceManager::ScheduleProbe()\n");
 	if (!fIsDpcEnqueued) {
+		dprintf("  enqueue\n");
 		fIsDpcEnqueued = true;
 		DPCQueue::DefaultQueue(B_LOW_PRIORITY)->Add(this);
 	}
-#endif
 }
 
 
 status_t
 DeviceManager::ProcessPendingNodes()
 {
-	MutexLocker lock(&fLock);
+	RecursiveLocker lock(&fLock);
+	dprintf("ProcessPendingNodes()\n");
 	while (!fPendingList.IsEmpty()) {
 		DeviceNodeImpl* node = fPendingList.First();
-		lock.Unlock();
 		node->Probe();
-		lock.Lock();
 	}
 
 	return B_OK;
@@ -668,8 +746,10 @@ DeviceManager::ProcessPendingNodes()
 void
 DeviceManager::DoDPC(DPCQueue* queue)
 {
+	dprintf("DeviceManager::DoDPC\n");
 	ProcessPendingNodes();
-	MutexLocker lock(&fLock);
+	RecursiveLocker lock(&fLock);
+	dprintf("  fIsDpcEnqueued = false\n");
 	fIsDpcEnqueued = false;
 }
 

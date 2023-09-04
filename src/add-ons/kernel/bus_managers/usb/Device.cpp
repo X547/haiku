@@ -354,6 +354,7 @@ Device::~Device()
 	parentNode->ReleaseReference();
 	if (error != B_OK && error != B_BUSY)
 		TRACE_ERROR("failed to unregister device node\n");
+	fNode->ReleaseReference();
 	fNode = NULL;
 
 	// Destroy all Interfaces in the Configurations hierarchy.
