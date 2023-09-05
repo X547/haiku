@@ -330,7 +330,7 @@ DeviceNodeImpl::UninstallListener(DeviceNodeListener* listener)
 
 
 status_t
-DeviceNodeImpl::RegisterNode(DeviceDriver* owner, BusDriver* driver, const device_attr* attrs, DeviceNode** outNode)
+DeviceNodeImpl::RegisterNode(DeviceNode* owner, BusDriver* driver, const device_attr* attrs, DeviceNode** outNode)
 {
 	RecursiveLocker lock(DeviceManager::Instance().GetLock());
 
@@ -338,7 +338,7 @@ DeviceNodeImpl::RegisterNode(DeviceDriver* owner, BusDriver* driver, const devic
 	if (!node.IsSet())
 		return B_NO_MEMORY;
 
-	CHECK_RET(node->Register(this, owner, driver, attrs));
+	CHECK_RET(node->Register(this, static_cast<DeviceNodeImpl*>(owner), driver, attrs));
 	// dprintf("DeviceNodeImpl::RegisterNode() -> %p\n", node.Get());
 
 	if (outNode != NULL)
@@ -443,7 +443,7 @@ DeviceNodeImpl::GetName() const
 status_t
 DeviceNodeImpl::Register(
 	DeviceNodeImpl* parent,
-	DeviceDriver* owner,
+	DeviceNodeImpl* owner,
 	BusDriver* driver,
 	const device_attr* attrs)
 {
@@ -454,7 +454,7 @@ DeviceNodeImpl::Register(
 
 	BusDriverDeleter driverDeleter(driver);
 
-	fOwnerDriver = owner;
+	fOwner = owner;
 	fBusDriver = driver;
 	fParent = parent;
 
@@ -590,7 +590,7 @@ void
 DeviceNodeImpl::UnsetDeviceDriver()
 {
 	if (fDeviceDriver != NULL) {
-		DeviceManager::Instance().GetRootNodeNoRef()->UnregisterOwnedNodes(fDeviceDriver);
+		DeviceManager::Instance().GetRootNodeNoRef()->UnregisterOwnedNodes(this);
 		dprintf("UnsetDeviceDriver(\"%s\", \"%s\")\n", GetName(), fDriverModuleName.Get());
 		while (!fDevFsNodes.IsEmpty()) {
 			DevFsNodeWrapper* wrapper = fDevFsNodes.RemoveHead();
@@ -646,7 +646,7 @@ DeviceNodeImpl::SetProbePending(bool doProbe)
 
 
 void
-DeviceNodeImpl::UnregisterOwnedNodes(DeviceDriver* owner)
+DeviceNodeImpl::UnregisterOwnedNodes(DeviceNodeImpl* owner)
 {
 	DeviceNodeImpl* node = fChildNodes.First();
 	while (node != NULL) {
@@ -654,7 +654,7 @@ DeviceNodeImpl::UnregisterOwnedNodes(DeviceDriver* owner)
 		node->UnregisterOwnedNodes(owner);
 		node = next;
 	}
-	if (fOwnerDriver == owner)
+	if (fOwner == owner)
 		fParent->UnregisterNode(this);
 }
 

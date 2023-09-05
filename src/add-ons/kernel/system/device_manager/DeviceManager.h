@@ -39,7 +39,7 @@ public:
 	status_t InstallListener(DeviceNodeListener* listener) final;
 	status_t UninstallListener(DeviceNodeListener* listener) final;
 
-	status_t RegisterNode(DeviceDriver* owner, BusDriver* driver, const device_attr* attrs, DeviceNode** node) final;
+	status_t RegisterNode(DeviceNode* owner, BusDriver* driver, const device_attr* attrs, DeviceNode** node) final;
 	status_t UnregisterNode(DeviceNode* node) final;
 
 	status_t RegisterDevFsNode(const char* path, DevFsNode* driver) final;
@@ -48,7 +48,7 @@ public:
 	// Internal interface
 	mutex* GetLock() {return &fLock;}
 	const char* GetName() const;
-	status_t Register(DeviceNodeImpl* parent, DeviceDriver* owner, BusDriver* driver, const device_attr* attrs);
+	status_t Register(DeviceNodeImpl* parent, DeviceNodeImpl* owner, BusDriver* driver, const device_attr* attrs);
 	status_t Probe();
 	status_t ProbeDriver(const char* moduleName, bool isChild = false);
 	void UnsetDeviceDriver();
@@ -58,7 +58,7 @@ public:
 
 private:
 	void SetProbePending(bool doProbe);
-	void UnregisterOwnedNodes(DeviceDriver* owner);
+	void UnregisterOwnedNodes(DeviceNodeImpl* owner);
 
 private:
 	DoublyLinkedListLink<DeviceNodeImpl> fLink;
@@ -92,13 +92,13 @@ private:
 	mutex fLock = MUTEX_INITIALIZER("DeviceNode");
 	State fState {};
 	DeviceNodeImpl* fParent {};
+	DeviceNodeImpl* fOwner {};
 	ChildList fChildNodes;
 	ArrayDeleter<device_attr> fAttributes;
 	ArrayDeleter<uint8> fAttrData;
 
 	CompatDriverModuleList fCompatDriverModules;
 
-	DeviceDriver* fOwnerDriver {};
 	BusDriver* fBusDriver {};
 	DeviceDriver* fDeviceDriver {};
 	CStringDeleter fDriverModuleName;

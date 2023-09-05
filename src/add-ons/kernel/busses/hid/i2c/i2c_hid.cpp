@@ -168,7 +168,7 @@ I2cHidDriver::Init()
 		{}
 	};
 
-	CHECK_RET(fNode->RegisterNode(this, static_cast<BusDriver*>(&fHidDevice), attrs, NULL));
+	CHECK_RET(fNode->RegisterNode(fNode, static_cast<BusDriver*>(&fHidDevice), attrs, NULL));
 
 	return B_OK;
 }

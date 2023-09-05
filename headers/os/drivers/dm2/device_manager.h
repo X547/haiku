@@ -122,7 +122,7 @@ public:
 	virtual status_t InstallListener(DeviceNodeListener* listener) = 0;
 	virtual status_t UninstallListener(DeviceNodeListener* listener) = 0;
 
-	virtual status_t RegisterNode(DeviceDriver* owner, BusDriver* driver, const device_attr* attrs, DeviceNode** node) = 0;
+	virtual status_t RegisterNode(DeviceNode* owner, BusDriver* driver, const device_attr* attrs, DeviceNode** node) = 0;
 	virtual status_t UnregisterNode(DeviceNode* node) = 0;
 
 	virtual status_t RegisterDevFsNode(const char* path, DevFsNode* driver) = 0;

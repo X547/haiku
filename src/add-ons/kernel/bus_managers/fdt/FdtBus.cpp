@@ -230,7 +230,7 @@ FdtBusImpl::RegisterNode(int node, DeviceNode* parentDev, DeviceNode*& curDev)
 
 	Vector<device_attr> attrs;
 	CHECK_RET(fdtDev->BuildAttrs(attrs));
-	CHECK_RET(parentDev->RegisterNode(this, static_cast<BusDriver*>(fdtDev.Detach()), &attrs[0], &curDev));
+	CHECK_RET(parentDev->RegisterNode(fNode, static_cast<BusDriver*>(fdtDev.Detach()), &attrs[0], &curDev));
 
 	prop = fdt_getprop(fFDT.Get(), node, "phandle", &propLen);
 	if (prop != NULL)

@@ -203,7 +203,7 @@ AcpiBusDriver::EnumerateChildDevices(DeviceNode* node, const char* root)
 				if (!busDriver.IsSet())
 					return B_NO_MEMORY;
 
-				CHECK_RET(node->RegisterNode(this, busDriver.Detach(), attrs, &deviceNode));
+				CHECK_RET(node->RegisterNode(fNode, busDriver.Detach(), attrs, &deviceNode));
 				DeviceNodePutter deviceNodePutter(deviceNode);
 
 				CHECK_RET(EnumerateChildDevices(deviceNode, result));

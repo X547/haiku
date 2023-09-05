@@ -243,7 +243,7 @@ MmcBusDriver::Init()
 		};
 
 		// publish child device for the card
-		fNode->RegisterNode(this, new(std::nothrow) MmcDeviceImpl(*this, rca), attrs, NULL);
+		fNode->RegisterNode(fNode, new(std::nothrow) MmcDeviceImpl(*this, rca), attrs, NULL);
 	}
 
 	// FIXME we also need to unpublish devices that are gone. Probably need

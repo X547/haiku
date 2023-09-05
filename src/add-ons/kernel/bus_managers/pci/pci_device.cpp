@@ -148,7 +148,7 @@ PciBusImpl::Init()
 			{}
 		};
 
-		CHECK_RET(fNode->RegisterNode(this, static_cast<BusDriver*>(pciDev.Detach()), &attrs[0], NULL));
+		CHECK_RET(fNode->RegisterNode(fNode, static_cast<BusDriver*>(pciDev.Detach()), &attrs[0], NULL));
 	}
 
 	return B_OK;

@@ -104,7 +104,7 @@ VirtioMmioDeviceDriver::Init()
 	attrs.Add({ "virtio/vendor_id",      B_UINT32_TYPE, {.ui32 = fDevice.fRegs->vendorId} });
 	attrs.Add({});
 
-	CHECK_RET(fNode->RegisterNode(this, busDriver.Detach(), &attrs[0], NULL));
+	CHECK_RET(fNode->RegisterNode(fNode, busDriver.Detach(), &attrs[0], NULL));
 
 	return B_OK;
 }
