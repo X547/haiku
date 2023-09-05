@@ -2,6 +2,7 @@
 
 #include "DeviceManager.h"
 
+#include <util/AutoLock.h>
 #include <util/AVLTree.h>
 #include <util/DoublyLinkedList.h>
 #include <util/KMessage.h>
@@ -149,6 +150,7 @@ private:
 private:
 	static DriverRoster sInstance;
 
+	mutex fLock = MUTEX_INITIALIZER("DriverRoster");
 	DeviceNodeImpl::RosterList fDeviceNodes;
 	DriverAddonInfo::PathMap fDriverAddons;
 };

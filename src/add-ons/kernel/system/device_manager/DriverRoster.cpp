@@ -232,6 +232,7 @@ DriverRoster::Init()
 status_t
 DriverRoster::RegisterDriverAddon(DriverAddonInfo* driverAddonPtr)
 {
+	MutexLocker lock(&fLock);
 	ObjectDeleter<DriverAddonInfo> driverAddon(driverAddonPtr);
 
 	if (fDriverAddons.Find(driverAddonPtr->GetPath()) != NULL)
@@ -254,6 +255,7 @@ DriverRoster::RegisterDriverAddon(DriverAddonInfo* driverAddonPtr)
 void
 DriverRoster::UnregisterDriverAddon(DriverAddonInfo* driverAddonPtr)
 {
+	MutexLocker lock(&fLock);
 	ObjectDeleter<DriverAddonInfo> driverAddon(driverAddonPtr);
 
 	for (
@@ -277,6 +279,7 @@ DriverRoster::UnregisterDriverAddon(DriverAddonInfo* driverAddonPtr)
 void
 DriverRoster::RegisterDeviceNode(DeviceNodeImpl* node)
 {
+	MutexLocker lock(&fLock);
 	fDeviceNodes.Insert(node);
 
 	for (
@@ -291,6 +294,7 @@ DriverRoster::RegisterDeviceNode(DeviceNodeImpl* node)
 
 void DriverRoster::UnregisterDeviceNode(DeviceNodeImpl* node)
 {
+	MutexLocker lock(&fLock);
 	fDeviceNodes.Remove(node);
 }
 
