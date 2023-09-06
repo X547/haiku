@@ -117,6 +117,7 @@ copy_attributes(const device_attr* attrs, ArrayDeleter<device_attr> &outAttrs, A
 DeviceNodeImpl::DeviceNodeImpl()
 {
 	dprintf("+DeviceNodeImpl(%p)\n", this);
+	fProbeCompletedCond.Init(this, "probeCompletedCond");
 }
 
 
@@ -351,15 +352,19 @@ DeviceNodeImpl::UnregisterNode(DeviceNode* nodeIface)
 	DeviceNodeImpl* node = static_cast<DeviceNodeImpl*>(nodeIface);
 	//dprintf("%p.DeviceNodeImpl::UnregisterNode(\"%s\")\n", node, node->GetName());
 
+	MutexLocker lock(&node->fLock);
+
 	if (!node->fState.registered)
 		return B_ERROR; // TODO: better error code?
 
 	if (node->fParent != this)
 		return B_ERROR; // TODO: better error code?
 
+	lock.Unlock();
 	node->UnsetDeviceDriver();
 
 	node->SetProbePending(false);
+	lock.Lock();
 	node->fState.registered = false;
 	node->fState.unregistered = true;
 
@@ -367,6 +372,7 @@ DeviceNodeImpl::UnregisterNode(DeviceNode* nodeIface)
 	node->fParent = NULL;
 
 	node->fCompatDriverModules.Clear();
+	lock.Unlock();
 	DriverRoster::Instance().UnregisterDeviceNode(node);
 
 	node->fBusDriver->Free();
@@ -484,43 +490,30 @@ DeviceNodeImpl::Register(
 status_t
 DeviceNodeImpl::Probe()
 {
-	dprintf("%p.DeviceNodeImpl::Probe(\"%s\")\n", this, GetName());
-
-	ASSERT_ALWAYS(mutex_trylock(&fLock) >= B_OK);
-	mutex_unlock(&fLock);
-
 	MutexLocker lock(&fLock);
 	if (fState.unregistered) {
 		panic("DeviceNodeImpl::Probe() called on unregistered node");
 		return B_ERROR;
 	}
 
-	while (fState.inProbe) {
-		lock.Unlock();
-		snooze(100);
-		lock.Lock();
-	}
+	while (fState.inProbe)
+		fProbeCompletedCond.Wait(&fLock);
 
 	fState.inProbe = true;
 	ScopeExit scopeExit([this, &lock] {
-		//MutexLocker lock2(&fLock);
+		lock.Unlock();
+		SetProbePending(false);
 		lock.Lock();
 		fState.inProbe = false;
+		fProbeCompletedCond.NotifyAll();
 	});
 
-	lock.Unlock();
-	SetProbePending(false);
-
-	lock.Lock();
 	if (fState.probed)
 		return B_OK;
 	fState.probed = true;
 	lock.Unlock();
 
-	dprintf("%p.DeviceNodeImpl::Probe(\"%s\"): do probe\n", this, GetName());
-
-	ASSERT_ALWAYS(mutex_trylock(&fLock) >= B_OK);
-	mutex_unlock(&fLock);
+	dprintf("%p.DeviceNodeImpl::Probe(\"%s\")\n", this, GetName());
 
 	const char* fixedChildModule;
 	if (FindAttrString(B_DEVICE_FIXED_CHILD, &fixedChildModule) >= B_OK) {
@@ -550,9 +543,6 @@ DeviceNodeImpl::ProbeDriver(const char* moduleName, bool isChild)
 	dprintf("%p.DeviceNodeImpl::ProbeDriver(\"%s\", %d)\n", this, moduleName, isChild);
 	dprintf("  fState.multipleDrivers: %d\n", fState.multipleDrivers);
 
-	ASSERT_ALWAYS(mutex_trylock(&fLock) >= B_OK);
-	mutex_unlock(&fLock);
-
 	// Allocate memory first to not fail on no memory when driver already initialized.
 	CStringDeleter driverModuleName(strdup(moduleName));
 	if (!driverModuleName.IsSet())
@@ -567,8 +557,6 @@ DeviceNodeImpl::ProbeDriver(const char* moduleName, bool isChild)
 			UnregisterNode(childNodeIface);
 		});
 
-		ASSERT_ALWAYS(mutex_trylock(&fLock) >= B_OK);
-		mutex_unlock(&fLock);
 		CHECK_RET(childNode->ProbeDriver(moduleName, true));
 
 		childNodeDeleter.Detach();
@@ -582,8 +570,6 @@ DeviceNodeImpl::ProbeDriver(const char* moduleName, bool isChild)
 	});
 
 	// TODO: unregister nodes and DevFS nodes on probe fail
-	ASSERT_ALWAYS(mutex_trylock(&fLock) >= B_OK);
-	mutex_unlock(&fLock);
 	DeviceDriver* driver {};
 	CHECK_RET_MSG(driverModule->probe(this, &driver), "[!] driver do not support device or internal driver error\n");
 	if (driver == NULL) {
@@ -597,8 +583,6 @@ DeviceNodeImpl::ProbeDriver(const char* moduleName, bool isChild)
 		fDeviceDriver = driver;
 		fDriverModuleName.SetTo(driverModuleName.Detach());
 	}
-	ASSERT_ALWAYS(mutex_trylock(&fLock) >= B_OK);
-	mutex_unlock(&fLock);
 	fBusDriver->DriverAttached(true);
 
 	return B_OK;
@@ -661,13 +645,7 @@ DeviceNodeImpl::SetProbePending(bool doProbe)
 
 		fState.probePending = doProbe;
 	}
-	MutexLocker dmLock(DeviceManager::Instance().GetLock());
-	PendingList& pendingNodes = DeviceManager::Instance().PendingNodes();
-	if (doProbe) {
-		pendingNodes.Insert(this);
-		DeviceManager::Instance().ScheduleProbe();
-	} else
-		pendingNodes.Remove(this);
+	DeviceManager::Instance().AddToProbePendingList(this, doProbe);
 }
 
 
@@ -704,6 +682,7 @@ DeviceManager::Init()
 	dprintf("\n");
 
 	CHECK_RET(DriverRoster::Instance().Init());
+	fPendingListEmptyCond.Init(this, "pendingListEmptyCond");
 
 	BReference<DeviceNodeImpl> rootNode(new(std::nothrow) DeviceNodeImpl(), true);
 	if (!rootNode.IsSet())
@@ -751,28 +730,48 @@ DeviceManager::SetRootNode(DeviceNodeImpl* node)
 
 
 void
-DeviceManager::ScheduleProbe()
+DeviceManager::AddToProbePendingList(DeviceNodeImpl* node, bool doAdd)
 {
-	dprintf("DeviceManager::ScheduleProbe()\n");
-	if (!fIsDpcEnqueued) {
-		dprintf("  enqueue\n");
-		fIsDpcEnqueued = true;
-		DPCQueue::DefaultQueue(B_LOW_PRIORITY)->Add(this);
+	MutexLocker lock(&fLock);
+	if (doAdd) {
+		fPendingList.Insert(node);
+		if (atomic_get(&fProbeLockCount) <= 0)
+			fDPCQueue->Add(this);
+	} else {
+		fPendingList.Remove(node);
+		if (fPendingList.IsEmpty())
+			fPendingListEmptyCond.NotifyAll();
+	}
+}
+
+
+void
+DeviceManager::LockProbe()
+{
+	if (atomic_add(&fProbeLockCount, 1) == 0) {
+		fDPCQueue->Cancel(this);
+	}
+}
+
+
+void
+DeviceManager::UnlockProbe()
+{
+	if (atomic_add(&fProbeLockCount, -1) == 1) {
+		MutexLocker lock(&fLock);
+		if (!fPendingList.IsEmpty())
+			fDPCQueue->Add(this);
 	}
 }
 
 
 status_t
-DeviceManager::ProcessPendingNodes()
+DeviceManager::ProbeFence()
 {
 	MutexLocker lock(&fLock);
-	dprintf("ProcessPendingNodes()\n");
-	while (!fPendingList.IsEmpty()) {
-		DeviceNodeImpl* node = fPendingList.First();
-		lock.Unlock();
-		node->Probe();
-		lock.Lock();
-	}
+	dprintf("ProbeFence()\n");
+	while (!fPendingList.IsEmpty())
+		fPendingListEmptyCond.Wait(&fLock);
 
 	return B_OK;
 }
@@ -782,10 +781,18 @@ void
 DeviceManager::DoDPC(DPCQueue* queue)
 {
 	dprintf("DeviceManager::DoDPC\n");
-	ProcessPendingNodes();
+
 	MutexLocker lock(&fLock);
-	dprintf("  fIsDpcEnqueued = false\n");
-	fIsDpcEnqueued = false;
+	DeviceNodeImpl* node = fPendingList.First();
+	if (node == NULL)
+		return;
+
+	lock.Unlock();
+	node->Probe();
+	lock.Lock();
+
+	if (!fPendingList.IsEmpty())
+		fDPCQueue->Add(this);
 }
 
 
@@ -834,7 +841,7 @@ DeviceManager::RunTest(const char* testName)
 
 		node->fState.probed = false;
 		node->SetProbePending(true);
-		ProcessPendingNodes();
+		ProbeFence();
 		Instance().DumpTree();
 
 #if 0
@@ -908,7 +915,7 @@ static device_manager_info sDeviceManagerModule = {
 		.std_ops = device_manager_std_ops,
 	},
 	.get_root_node = []() {return DeviceManager::Instance().GetRootNode();},
-	.probe_fence = []() {return DeviceManager::Instance().ProcessPendingNodes();},
+	.probe_fence = []() {return DeviceManager::Instance().ProbeFence();},
 	.dump_tree = []() {DeviceManager::Instance().DumpTree();},
 	.run_test = [](const char* testName) {DeviceManager::Instance().RunTest(testName);},
 };

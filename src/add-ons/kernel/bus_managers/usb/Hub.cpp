@@ -399,7 +399,7 @@ Hub::InterruptCallback(void *cookie, status_t status, void *data,
 	}
 	dprintf("}\n");
 
-	DPCQueue::DefaultQueue(B_URGENT_DISPLAY_PRIORITY)->Add(hub);
+	DPCQueue::DefaultQueue(B_LOW_PRIORITY)->Add(hub);
 }
 
 

@@ -7,6 +7,7 @@
 #include <util/AutoLock.h>
 #include <util/DoublyLinkedList.h>
 #include <util/Vector.h>
+#include <condition_variable.h>
 #include <DPC.h>
 
 #include "Utils.h"
@@ -92,6 +93,7 @@ private:
 
 	mutable mutex fLock = MUTEX_INITIALIZER("DeviceNode");
 	State fState {};
+	ConditionVariable fProbeCompletedCond;
 	DeviceNodeImpl* fParent {};
 	DeviceNodeImpl* fOwner {};
 	ChildList fChildNodes;
@@ -120,8 +122,10 @@ public:
 	mutex* GetLock() {return &fLock;}
 
 	DeviceNodeImpl::PendingList& PendingNodes() {return fPendingList;}
-	void ScheduleProbe();
-	status_t ProcessPendingNodes();
+	void AddToProbePendingList(DeviceNodeImpl* node, bool doAdd);
+	void LockProbe();
+	void UnlockProbe();
+	status_t ProbeFence();
 
 	void DumpTree();
 	void RunTest(const char* testName);
@@ -136,8 +140,10 @@ private:
 	static DeviceManager sInstance;
 
 	mutable mutex fLock = MUTEX_INITIALIZER("DeviceManager");
-	bool fIsDpcEnqueued = false;
+	int32 fProbeLockCount = 0;
+	DPCQueue* fDPCQueue = DPCQueue::DefaultQueue(B_LOW_PRIORITY);
 
 	DeviceNodeImpl* fRoot {};
 	DeviceNodeImpl::PendingList fPendingList;
+	ConditionVariable fPendingListEmptyCond;
 };
