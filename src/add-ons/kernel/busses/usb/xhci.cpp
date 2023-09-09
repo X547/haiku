@@ -1464,108 +1464,10 @@ XHCI::AllocateDevice(UsbBusDevice* parent, int8 hubAddress, uint8 hubPort, usb_s
 	// Wait a bit for the device to complete addressing
 	snooze(USB_DELAY_SET_ADDRESS);
 
-	// Create a temporary pipe with the new address
-	UsbBusPipe* pipe {};
-	status = fBusManager->CreateControlPipe(pipe, parent,
-		device->address + 1, 0, speed, UsbBusPipe::Default, maxPacketSize, 0,
-		hubAddress, hubPort);
-	if (status < B_OK) {
-		TRACE_ERROR("failed to create control pipe: %s\n",
-			strerror(status));
-		CleanupDevice(device);
-		return NULL;
-	}
-	ScopeExit pipeDeleter([pipe]() {
-		pipe->Free();
-	});
-	pipe->SetControllerCookie(endpoint0);
-
-	// Get the device descriptor
-	// Just retrieve the first 8 bytes of the descriptor -> minimum supported
-	// size of any device. It is enough because it includes the device type.
-
-	size_t actualLength = 0;
-	usb_device_descriptor deviceDescriptor;
-
-	TRACE("getting the device descriptor\n");
-	status = pipe->SendRequest(
-		USB_REQTYPE_DEVICE_IN | USB_REQTYPE_STANDARD,		// type
-		USB_REQUEST_GET_DESCRIPTOR,							// request
-		USB_DESCRIPTOR_DEVICE << 8,							// value
-		0,													// index
-		8,													// length
-		(void *)&deviceDescriptor,							// buffer
-		8,													// buffer length
-		&actualLength);										// actual length
-
-	if (actualLength != 8) {
-		TRACE_ERROR("failed to get the device descriptor: %s\n",
-			strerror(status));
-		CleanupDevice(device);
-		return NULL;
-	}
-
-	TRACE("device_class: %d device_subclass %d device_protocol %d\n",
-		deviceDescriptor.device_class, deviceDescriptor.device_subclass,
-		deviceDescriptor.device_protocol);
-
-	if (speed == USB_SPEED_FULLSPEED && deviceDescriptor.max_packet_size_0 != 8) {
-		TRACE("Full speed device with different max packet size for Endpoint 0\n");
-		uint32 dwendpoint1 = _ReadContext(
-			&device->input_ctx->endpoints[0].dwendpoint1);
-		dwendpoint1 &= ~ENDPOINT_1_MAXPACKETSIZE(0xffff);
-		dwendpoint1 |= ENDPOINT_1_MAXPACKETSIZE(
-			deviceDescriptor.max_packet_size_0);
-		_WriteContext(&device->input_ctx->endpoints[0].dwendpoint1,
-			dwendpoint1);
-		_WriteContext(&device->input_ctx->input.dropFlags, 0);
-		_WriteContext(&device->input_ctx->input.addFlags, (1 << 1));
-		EvaluateContext(device->input_ctx_addr, device->slot);
-	}
-
+	TRACE("creating new device\n");
 	UsbBusDevice *deviceObject = NULL;
-	status_t res;
-	if (deviceDescriptor.device_class == 0x09) {
-		TRACE("creating new Hub\n");
-		TRACE("getting the hub descriptor\n");
-		size_t actualLength = 0;
-		usb_hub_descriptor hubDescriptor;
-		status = pipe->SendRequest(
-			USB_REQTYPE_DEVICE_IN | USB_REQTYPE_CLASS,			// type
-			USB_REQUEST_GET_DESCRIPTOR,							// request
-			USB_DESCRIPTOR_HUB << 8,							// value
-			0,													// index
-			sizeof(usb_hub_descriptor),							// length
-			(void *)&hubDescriptor,								// buffer
-			sizeof(usb_hub_descriptor),							// buffer length
-			&actualLength);
-
-		if (actualLength != sizeof(usb_hub_descriptor)) {
-			TRACE_ERROR("error while getting the hub descriptor: %s\n",
-				strerror(status));
-			CleanupDevice(device);
-			return NULL;
-		}
-
-		uint32 dwslot0 = _ReadContext(&device->input_ctx->slot.dwslot0);
-		dwslot0 |= SLOT_0_HUB_BIT;
-		_WriteContext(&device->input_ctx->slot.dwslot0, dwslot0);
-		uint32 dwslot1 = _ReadContext(&device->input_ctx->slot.dwslot1);
-		dwslot1 |= SLOT_1_NUM_PORTS(hubDescriptor.num_ports);
-		_WriteContext(&device->input_ctx->slot.dwslot1, dwslot1);
-		if (speed == USB_SPEED_HIGHSPEED) {
-			uint32 dwslot2 = _ReadContext(&device->input_ctx->slot.dwslot2);
-			dwslot2 |= SLOT_2_TT_TIME(HUB_TTT_GET(hubDescriptor.characteristics));
-			_WriteContext(&device->input_ctx->slot.dwslot2, dwslot2);
-		}
-
-		res = fBusManager->CreateHub(deviceObject, parent, hubAddress, hubPort,
-			deviceDescriptor, device->address + 1, speed, false, device);
-	} else {
-		TRACE("creating new device\n");
-		res = fBusManager->CreateDevice(deviceObject, parent, hubAddress, hubPort,
-			deviceDescriptor, device->address + 1, speed, false, device);
-	}
+	status_t res = fBusManager->CreateDevice(deviceObject, parent, hubAddress, hubPort,
+		device->address + 1, speed, false, device);
 	if (res < B_OK) {
 		if (res == B_NO_MEMORY) {
 			TRACE_ERROR("no memory to allocate device\n");
@@ -1575,10 +1477,6 @@ XHCI::AllocateDevice(UsbBusDevice* parent, int8 hubAddress, uint8 hubPort, usb_s
 		CleanupDevice(device);
 		return NULL;
 	}
-
-	// We don't want to disable the default endpoint, naturally, which would
-	// otherwise happen when this Pipe object is destroyed.
-	pipe->SetControllerCookie(NULL);
 
 	TRACE("AllocateDevice() port %d slot %d\n", hubPort, slot);
 	return deviceObject;
@@ -1596,6 +1494,69 @@ XHCI::FreeDevice(UsbBusDevice* usbDevice)
 	usbDevice->Free();
 
 	CleanupDevice(device);
+}
+
+
+status_t
+XHCI::InitDevice(UsbBusDevice* usbDevice, const usb_device_descriptor& deviceDescriptor)
+{
+	TRACE("device_class: %d device_subclass %d device_protocol %d\n",
+		deviceDescriptor.device_class, deviceDescriptor.device_subclass,
+		deviceDescriptor.device_protocol);
+
+	xhci_device* device = (xhci_device*)usbDevice->ControllerCookie();
+	if (device == NULL) {
+		// root hub
+		return B_OK;
+	}
+	usb_speed speed = usbDevice->Speed();
+
+	if (speed == USB_SPEED_FULLSPEED && deviceDescriptor.max_packet_size_0 != 8) {
+		TRACE("Full speed device with different max packet size for Endpoint 0\n");
+		uint32 dwendpoint1 = _ReadContext(
+			&device->input_ctx->endpoints[0].dwendpoint1);
+		dwendpoint1 &= ~ENDPOINT_1_MAXPACKETSIZE(0xffff);
+		dwendpoint1 |= ENDPOINT_1_MAXPACKETSIZE(
+			deviceDescriptor.max_packet_size_0);
+		_WriteContext(&device->input_ctx->endpoints[0].dwendpoint1,
+			dwendpoint1);
+		_WriteContext(&device->input_ctx->input.dropFlags, 0);
+		_WriteContext(&device->input_ctx->input.addFlags, (1 << 1));
+		EvaluateContext(device->input_ctx_addr, device->slot);
+	}
+
+	return B_OK;
+}
+
+
+status_t
+XHCI::InitHub(UsbBusDevice* usbDevice, const usb_hub_descriptor& hubDescriptor)
+{
+	dprintf("XHCI::InitHub(%p, %p)\n", usbDevice, &hubDescriptor);
+	xhci_device* device = (xhci_device*)usbDevice->ControllerCookie();
+	dprintf("  device: %p\n", device);
+	if (device == NULL) {
+		// root hub
+		return B_OK;
+	}
+	usb_speed speed = usbDevice->Speed();
+
+	uint32 dwslot0 = _ReadContext(&device->input_ctx->slot.dwslot0);
+	dwslot0 |= SLOT_0_HUB_BIT;
+	_WriteContext(&device->input_ctx->slot.dwslot0, dwslot0);
+	uint32 dwslot1 = _ReadContext(&device->input_ctx->slot.dwslot1);
+	dwslot1 |= SLOT_1_NUM_PORTS(hubDescriptor.num_ports);
+	_WriteContext(&device->input_ctx->slot.dwslot1, dwslot1);
+	if (speed == USB_SPEED_HIGHSPEED) {
+		uint32 dwslot2 = _ReadContext(&device->input_ctx->slot.dwslot2);
+		dwslot2 |= SLOT_2_TT_TIME(HUB_TTT_GET(hubDescriptor.characteristics));
+		_WriteContext(&device->input_ctx->slot.dwslot2, dwslot2);
+	}
+
+	// Wait some time before powering up the ports
+	snooze(USB_DELAY_HUB_POWER_UP);
+
+	return B_OK;
 }
 
 

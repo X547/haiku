@@ -21,7 +21,6 @@ public:
 	usb_speed				Speed() const  final;
 	int8					HubAddress() const final;
 	uint8					HubPort() const final;
-	void					SetControllerCookie(void *cookie) final;
 	void *					ControllerCookie() const final;
 
 private:
@@ -32,7 +31,6 @@ private:
 class UsbBusPipeImpl: public UsbBusPipe {
 public:
 							UsbBusPipeImpl(Pipe& base): fBase(base) {}
-	void					Free() final;
 
 	UsbBusDevice *			GetDevice() final;
 	usb_pipe_type			Type() const final;
@@ -115,26 +113,10 @@ public:
 
 	status_t				CreateDevice(UsbBusDevice*& outDevice, UsbBusDevice* parent, int8 hubAddress,
 								uint8 hubPort,
-								usb_device_descriptor& desc,
 								int8 deviceAddress,
 								usb_speed speed, bool isRootHub,
 								void *controllerCookie = NULL) final;
 
-	status_t				CreateHub(UsbBusDevice*& outDevice, UsbBusDevice* parent, int8 hubAddress,
-								uint8 hubPort,
-								usb_device_descriptor& desc,
-								int8 deviceAddress,
-								usb_speed speed, bool isRootHub,
-								void* controllerCookie = NULL) final;
-
-	status_t				CreateControlPipe(UsbBusPipe*& outPipe, UsbBusDevice* parent,
-								int8 deviceAddress,
-								uint8 endpointAddress,
-								usb_speed speed,
-								UsbBusPipe::pipeDirection direction,
-								size_t maxPacketSize,
-								uint8 interval,
-								int8 hubAddress, uint8 hubPort) final;
 private:
 	BusManager& fBase;
 };

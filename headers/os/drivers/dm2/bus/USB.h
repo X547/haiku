@@ -61,6 +61,15 @@ struct usb_configuration_info {
 typedef void (*usb_callback_func)(void *cookie, status_t status, void *data, size_t actualLength);
 
 
+typedef enum {
+	USB_SPEED_LOWSPEED = 0,
+	USB_SPEED_FULLSPEED,
+	USB_SPEED_HIGHSPEED,
+	USB_SPEED_SUPERSPEED,
+	USB_SPEED_MAX = USB_SPEED_SUPERSPEED
+} usb_speed;
+
+
 class UsbObject {
 public:
 	/*
@@ -81,6 +90,8 @@ public:
 	static inline const char ifaceName[] = "bus_managers/usb/device";
 
 	virtual UsbObject 	*GetObject() = 0;
+
+	virtual	usb_speed	Speed() const = 0;
 
 	/* Get the device descriptor of a device. */
 	virtual const usb_device_descriptor
@@ -121,6 +132,11 @@ public:
 
 	/* Cancel all pending async requests in a device control pipe */
 	virtual status_t	CancelQueuedRequests() = 0;
+
+	/* Interface used by hub drivers */
+	virtual status_t	InitHub(const usb_hub_descriptor& hubDescriptor) = 0;
+	virtual	status_t	AllocateDevice(uint8 hubPort, usb_speed speed, UsbDevice** device) = 0;
+	virtual void		FreeDevice(UsbDevice* device) = 0;
 
 protected:
 	~UsbDevice() = default;
@@ -251,15 +267,6 @@ class UsbBusTransfer;
 
 
 typedef enum {
-	USB_SPEED_LOWSPEED = 0,
-	USB_SPEED_FULLSPEED,
-	USB_SPEED_HIGHSPEED,
-	USB_SPEED_SUPERSPEED,
-	USB_SPEED_MAX = USB_SPEED_SUPERSPEED
-} usb_speed;
-
-
-typedef enum {
 	USB_CHANGE_CREATED = 0,
 	USB_CHANGE_DESTROYED,
 	USB_CHANGE_PIPE_POLICY_CHANGED
@@ -288,7 +295,6 @@ public:
 	virtual	int8			HubAddress() const = 0;
 	virtual	uint8			HubPort() const = 0;
 
-	virtual	void			SetControllerCookie(void *cookie) = 0;
 	virtual	void *			ControllerCookie() const = 0;
 
 protected:
@@ -299,8 +305,6 @@ protected:
 class UsbBusPipe {
 public:
 	enum pipeDirection { In, Out, Default };
-
-	virtual void Free() = 0;
 
 	virtual UsbBusDevice 	*GetDevice() = 0;
 	virtual	usb_pipe_type	Type() const = 0;
@@ -397,26 +401,9 @@ public:
 	// new methods
 	virtual status_t	CreateDevice(UsbBusDevice*& outDevice, UsbBusDevice* parent, int8 hubAddress,
 							uint8 hubPort,
-							usb_device_descriptor& desc,
 							int8 deviceAddress,
 							usb_speed speed, bool isRootHub,
 							void *controllerCookie = NULL) = 0;
-
-	virtual status_t	CreateHub(UsbBusDevice*& outDevice, UsbBusDevice* parent, int8 hubAddress,
-							uint8 hubPort,
-							usb_device_descriptor& desc,
-							int8 deviceAddress,
-							usb_speed speed, bool isRootHub,
-							void* controllerCookie = NULL) = 0;
-
-	virtual status_t	CreateControlPipe(UsbBusPipe*& outPipe, UsbBusDevice* parent,
-							int8 deviceAddress,
-							uint8 endpointAddress,
-							usb_speed speed,
-							UsbBusPipe::pipeDirection direction,
-							size_t maxPacketSize,
-							uint8 interval,
-							int8 hubAddress, uint8 hubPort) = 0;
 protected:
 	~UsbBusManager() = default;
 };
@@ -451,6 +438,9 @@ public:
 								int8 hubAddress, uint8 hubPort,
 								usb_speed speed) = 0;
 	virtual void			FreeDevice(UsbBusDevice* device) = 0;
+
+	virtual status_t		InitDevice(UsbBusDevice* device, const usb_device_descriptor& deviceDescriptor) {return B_OK;}
+	virtual status_t		InitHub(UsbBusDevice* device, const usb_hub_descriptor& hubDescriptor) {return B_OK;}
 
 	virtual	status_t		Start() = 0;
 	virtual	status_t		Stop() = 0;

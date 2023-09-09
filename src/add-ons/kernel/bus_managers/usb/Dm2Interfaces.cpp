@@ -45,6 +45,13 @@ UsbDeviceImpl::GetObject()
 }
 
 
+usb_speed
+UsbDeviceImpl::Speed() const
+{
+	return fBase.Speed();
+}
+
+
 const usb_device_descriptor *
 UsbDeviceImpl::GetDeviceDescriptor()
 {
@@ -121,26 +128,30 @@ UsbDeviceImpl::CancelQueuedRequests()
 }
 
 
-// #pragma mark - UsbHubImpl
-
-UsbDevice *
-UsbHubImpl::GetDevice()
+status_t
+UsbDeviceImpl::InitHub(const usb_hub_descriptor& hubDescriptor)
 {
-	return fBase.GetDeviceIface();
+	return fBase.GetBusManager()->InitHub(&fBase, hubDescriptor);
 }
 
 
 status_t
-UsbHubImpl::ResetPort(uint8 portIndex)
+UsbDeviceImpl::AllocateDevice(uint8 hubPort, usb_speed speed, UsbDevice** outDevice)
 {
-	return fBase.ResetPort(portIndex);
+	Device* device = fBase.GetBusManager()->AllocateDevice(&fBase, fBase.DeviceAddress(), hubPort, speed);
+	if (device == NULL)
+		return B_ERROR;
+
+	*outDevice = device->GetDeviceIface();
+	return B_OK;
 }
 
 
-status_t
-UsbHubImpl::DisablePort(uint8 portIndex)
+void
+UsbDeviceImpl::FreeDevice(UsbDevice* deviceIface)
 {
-	return fBase.DisablePort(portIndex);
+	Device* device = &static_cast<UsbDeviceImpl*>(deviceIface)->fBase;
+	fBase.GetBusManager()->FreeDevice(device);
 }
 
 

@@ -123,6 +123,9 @@ public:
 								usb_speed speed) final;
 	void			FreeDevice(UsbBusDevice* device) final;
 
+	status_t		InitDevice(UsbBusDevice* device, const usb_device_descriptor& deviceDescriptor) final;
+	status_t		InitHub(UsbBusDevice* device, const usb_hub_descriptor& hubDescriptor) final;
+
 	status_t		Start() final;
 	status_t		Stop() final;
 

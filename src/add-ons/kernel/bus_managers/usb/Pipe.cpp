@@ -10,8 +10,9 @@
 #include "usb_private.h"
 
 
-Pipe::Pipe(Object *parent)
-	:	Object(parent),
+Pipe::Pipe(Device *parent)
+	:	Object(parent->GetBusManager()),
+		fParent(parent),
 		fDataToggle(false),
 		fControllerCookie(NULL),
 		fPipeIface(*this),
@@ -161,7 +162,7 @@ Pipe::GetStatus(uint16 *status)
 //
 
 
-InterruptPipe::InterruptPipe(Object *parent)
+InterruptPipe::InterruptPipe(Device *parent)
 	:	Pipe(parent)
 {
 }
@@ -193,7 +194,7 @@ InterruptPipe::QueueInterrupt(void *data, size_t dataLength,
 //
 
 
-BulkPipe::BulkPipe(Object *parent)
+BulkPipe::BulkPipe(Device *parent)
 	:	Pipe(parent)
 {
 }
@@ -290,7 +291,7 @@ BulkPipe::QueueBulkV(physical_entry *vector, size_t vectorCount,
 //
 
 
-IsochronousPipe::IsochronousPipe(Object *parent)
+IsochronousPipe::IsochronousPipe(Device *parent)
 	:	Pipe(parent),
 		fMaxQueuedPackets(0),
 		fMaxBufferDuration(0),
@@ -374,7 +375,7 @@ IsochronousPipe::GetPipePolicy(uint8 *maxQueuedPackets,
 //
 
 
-ControlPipe::ControlPipe(Object *parent)
+ControlPipe::ControlPipe(Device *parent)
 	:	Pipe(parent),
 		fNotifySem(-1)
 {

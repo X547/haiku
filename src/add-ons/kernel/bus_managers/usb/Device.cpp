@@ -19,13 +19,13 @@
 #define B_DEVICE_ID			"usb/id"			/* uint16 */
 
 
-Device::Device(Object* parent, int8 hubAddress, uint8 hubPort,
-	usb_device_descriptor& desc, int8 deviceAddress, usb_speed speed,
+Device::Device(BusManager *busManager, Device* parent, int8 hubAddress, uint8 hubPort,
+	int8 deviceAddress, usb_speed speed,
 	bool isRootHub, void* controllerCookie)
 	:
-	Object(parent),
-	fDeviceDescriptor(desc),
+	Object(busManager),
 	fInitOK(false),
+	fParent(parent),
 	fAvailable(true),
 	fIsRootHub(isRootHub),
 	fConfigurations(NULL),
@@ -76,6 +76,8 @@ Device::Device(Object* parent, int8 hubAddress, uint8 hubPort,
 	TRACE("\tproduct:.............0x%02x\n", fDeviceDescriptor.product);
 	TRACE("\tserial_number:.......0x%02x\n", fDeviceDescriptor.serial_number);
 	TRACE("\tnum_configurations:..%d\n", fDeviceDescriptor.num_configurations);
+
+	GetBusManager()->InitDevice(this, fDeviceDescriptor);
 
 	// Get the configurations
 	fConfigurations = (usb_configuration_info*)malloc(
@@ -695,18 +697,6 @@ const usb_device_descriptor*
 Device::DeviceDescriptor() const
 {
 	return &fDeviceDescriptor;
-}
-
-
-status_t
-Device::BuildDeviceName(char* string, uint32* index, size_t bufferSize,
-	Device* device)
-{
-	if (!Parent() || (Parent()->Type() & USB_OBJECT_HUB) == 0)
-		return B_ERROR;
-
-	((Hub*)Parent())->BuildDeviceName(string, index, bufferSize, this);
-	return B_OK;
 }
 
 

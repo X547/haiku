@@ -32,6 +32,8 @@ public:
 
 	UsbObject 	*GetObject() final;
 
+	usb_speed			Speed() const final;
+
 	const usb_device_descriptor
 						*GetDeviceDescriptor() final;
 
@@ -66,22 +68,12 @@ public:
 
 	status_t	CancelQueuedRequests() final;
 
+	status_t	InitHub(const usb_hub_descriptor& hubDescriptor) final;
+	status_t	AllocateDevice(uint8 hubPort, usb_speed speed, UsbDevice** device) final;
+	void		FreeDevice(UsbDevice* device) final;
+
 private:
 	Device& fBase;
-};
-
-
-class UsbHubImpl final: public UsbHub {
-public:
-	UsbHubImpl(Hub& base): fBase(base) {}
-
-	UsbDevice 	*GetDevice() final;
-
-	status_t	ResetPort(uint8 portIndex) final;
-	status_t	DisablePort(uint8 portIndex) final;
-
-private:
-	Hub& fBase;
 };
 
 

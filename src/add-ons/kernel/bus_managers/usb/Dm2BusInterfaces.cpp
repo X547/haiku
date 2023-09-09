@@ -19,11 +19,9 @@ UsbBusDeviceImpl::Free()
 UsbBusDevice *
 UsbBusDeviceImpl::Parent()
 {
-	Object *object = fBase.Parent();
-	if ((object->Type() & USB_OBJECT_DEVICE) != 0 || (object->Type() & USB_OBJECT_HUB) != 0)
-		return static_cast<Device*>(object)->GetBusDeviceIface();
+	Device *parent = fBase.Parent();
 
-	return NULL;
+	return parent == NULL ? NULL : parent->GetBusDeviceIface();
 }
 
 
@@ -55,13 +53,6 @@ UsbBusDeviceImpl::HubPort() const
 }
 
 
-void
-UsbBusDeviceImpl::SetControllerCookie(void *cookie)
-{
-	fBase.SetControllerCookie(cookie);
-}
-
-
 void *UsbBusDeviceImpl::ControllerCookie() const
 {
 	return fBase.ControllerCookie();
@@ -70,21 +61,12 @@ void *UsbBusDeviceImpl::ControllerCookie() const
 
 // #pragma mark - UsbBusPipeImpl
 
-void
-UsbBusPipeImpl::Free()
-{
-	delete &fBase;
-}
-
-
 UsbBusDevice *
 UsbBusPipeImpl::GetDevice()
 {
-	Object *object = fBase.Parent();
-	if ((object->Type() & USB_OBJECT_DEVICE) != 0 || (object->Type() & USB_OBJECT_HUB) != 0)
-		return static_cast<Device*>(object)->GetBusDeviceIface();
+	Device *device = fBase.Parent();
 
-	return NULL;
+	return device == NULL ? NULL : device->GetBusDeviceIface();
 }
 
 
@@ -428,20 +410,21 @@ UsbBusManagerImpl::GetRootHub() const
 void
 UsbBusManagerImpl::SetRootHub(UsbBusDevice* hub)
 {
-	return fBase.SetRootHub(static_cast<Hub*>(static_cast<UsbBusDeviceImpl*>(hub)->Base()));
+	return fBase.SetRootHub(static_cast<UsbBusDeviceImpl*>(hub)->Base());
 }
 
 
 status_t
-UsbBusManagerImpl::CreateDevice(UsbBusDevice*& outDevice, UsbBusDevice* parent, int8 hubAddress,
+UsbBusManagerImpl::CreateDevice(UsbBusDevice*& outDevice, UsbBusDevice* parentIface, int8 hubAddress,
 	uint8 hubPort,
-	usb_device_descriptor& desc,
 	int8 deviceAddress,
 	usb_speed speed, bool isRootHub,
 	void *controllerCookie)
 {
-	ObjectDeleter<Device> device(new(std::nothrow) Device(parent == NULL ? fBase.RootObject() : static_cast<UsbBusDeviceImpl*>(parent)->Base(), hubAddress, hubPort,
-		desc, deviceAddress, speed, isRootHub, controllerCookie));
+	Device* parent = (parentIface == NULL) ? NULL : static_cast<UsbBusDeviceImpl*>(parentIface)->Base();
+
+	ObjectDeleter<Device> device(new(std::nothrow) Device(&fBase, parent, hubAddress, hubPort,
+		deviceAddress, speed, isRootHub, controllerCookie));
 
 	if (!device.IsSet())
 		return B_NO_MEMORY;
@@ -450,54 +433,6 @@ UsbBusManagerImpl::CreateDevice(UsbBusDevice*& outDevice, UsbBusDevice* parent, 
 
 	outDevice = device->GetBusDeviceIface();
 	device.Detach();
-
-	return B_OK;
-}
-
-
-status_t
-UsbBusManagerImpl::CreateHub(UsbBusDevice*& outDevice, UsbBusDevice* parent, int8 hubAddress,
-	uint8 hubPort,
-	usb_device_descriptor& desc,
-	int8 deviceAddress,
-	usb_speed speed, bool isRootHub,
-	void* controllerCookie)
-{
-	ObjectDeleter<Device> device(new(std::nothrow) Hub(parent == NULL ? fBase.RootObject() : static_cast<UsbBusDeviceImpl*>(parent)->Base(), hubAddress, hubPort,
-		desc, deviceAddress, speed, isRootHub, controllerCookie));
-
-	if (!device.IsSet())
-		return B_NO_MEMORY;
-
-	CHECK_RET(device->InitCheck());
-
-	outDevice = device->GetBusDeviceIface();
-	device.Detach();
-
-	return B_OK;
-}
-
-
-status_t
-UsbBusManagerImpl::CreateControlPipe(UsbBusPipe*& outPipe, UsbBusDevice* parent,
-	int8 deviceAddress,
-	uint8 endpointAddress,
-	usb_speed speed,
-	UsbBusPipe::pipeDirection direction,
-	size_t maxPacketSize,
-	uint8 interval,
-	int8 hubAddress, uint8 hubPort)
-{
-	ObjectDeleter<ControlPipe> pipe(new(std::nothrow) ControlPipe(static_cast<UsbBusDeviceImpl*>(parent)->Base()));
-
-	if (!pipe.IsSet())
-		return B_NO_MEMORY;
-
-	pipe->InitCommon(deviceAddress, endpointAddress, speed, (Pipe::pipeDirection)(int)direction,
-		maxPacketSize, interval, hubAddress, hubPort);
-
-	outPipe = pipe->GetBusPipeIface();
-	pipe.Detach();
 
 	return B_OK;
 }

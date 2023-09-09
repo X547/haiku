@@ -31,9 +31,7 @@ Stack::Instance()
 
 
 Stack::Stack()
-	:	fExploreThread(-1),
-		fExploreSem(-1),
-		fAllocator(NULL),
+	:	fAllocator(NULL),
 		fObjectIndex(1),
 		fObjectMaxCount(1024),
 		fObjectArray(NULL),
@@ -42,13 +40,6 @@ Stack::Stack()
 	TRACE("stack init\n");
 
 	mutex_init(&fStackLock, "usb stack lock");
-	mutex_init(&fExploreLock, "usb explore lock");
-	fExploreSem = create_sem(0, "usb explore sem");
-	if (fExploreSem < B_OK) {
-		TRACE_ERROR("failed to create semaphore\n");
-		return;
-	}
-
 
 	size_t objectArraySize = fObjectMaxCount * sizeof(Object *);
 	fObjectArray = (Object **)malloc(objectArraySize);
@@ -67,26 +58,13 @@ Stack::Stack()
 		fAllocator = NULL;
 		return;
 	}
-
-#if 0
-	fExploreThread = spawn_kernel_thread(ExploreThread, "usb explore",
-		B_LOW_PRIORITY, this);
-	resume_thread(fExploreThread);
-#endif
 }
 
 
 Stack::~Stack()
 {
-	int32 result;
-	delete_sem(fExploreSem);
-	fExploreSem = -1;
-	wait_for_thread(fExploreThread, &result);
-
 	mutex_lock(&fStackLock);
 	mutex_destroy(&fStackLock);
-	mutex_lock(&fExploreLock);
-	mutex_destroy(&fExploreLock);
 
 	// Release the bus modules
 	for (Vector<BusManager *>::Iterator i = fBusManagers.Begin();
@@ -165,17 +143,6 @@ Stack::PutUSBID(Object *object)
 
 	fObjectArray[id] = NULL;
 
-#if KDEBUG
-	// Validate that no children of this object are still in the stack.
-	for (usb_id i = 0; i < fObjectMaxCount; i++) {
-		if (fObjectArray[i] == NULL)
-			continue;
-
-		ASSERT_PRINT(fObjectArray[i]->Parent() != object,
-			"%s", fObjectArray[i]->TypeName());
-	}
-#endif
-
 	Unlock();
 }
 
@@ -211,55 +178,6 @@ Stack::GetObjectNoLock(usb_id id) const
 	return fObjectArray[id];
 }
 
-
-int32
-Stack::ExploreThread(void *data)
-{
-	Stack *stack = (Stack *)data;
-
-	while (acquire_sem_etc(stack->fExploreSem, 1, B_RELATIVE_TIMEOUT,
-			USB_DELAY_HUB_EXPLORE) != B_BAD_SEM_ID) {
-		stack->Explore();
-	}
-
-	return B_OK;
-}
-
-
-void
-Stack::Explore()
-{
-	if (mutex_lock(&fExploreLock) != B_OK)
-		return;
-
-	int32 semCount = 0;
-	get_sem_count(fExploreSem, &semCount);
-	if (semCount > 0)
-		acquire_sem_etc(fExploreSem, semCount, B_RELATIVE_TIMEOUT, 0);
-
-	change_item *changeItem = NULL;
-	for (int32 i = 0; i < fBusManagers.Count(); i++) {
-		Hub *rootHub = fBusManagers.ElementAt(i)->GetRootHub();
-		if (rootHub)
-			rootHub->Explore(&changeItem);
-	}
-
-	while (changeItem) {
-		if (!changeItem->added) {
-			// OBSOLETE: notify removed
-
-			// everyone possibly holding a reference is now notified so we
-			// can delete the device
-			changeItem->device->GetBusManager()->FreeDevice(changeItem->device);
-		}
-
-		change_item *next = changeItem->link;
-		delete changeItem;
-		changeItem = next;
-	}
-
-	mutex_unlock(&fExploreLock);
-}
 
 void
 Stack::AddBusManager(BusManager *busManager)

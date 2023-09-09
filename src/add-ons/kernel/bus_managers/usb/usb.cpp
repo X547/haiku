@@ -107,6 +107,8 @@ usb_std_ops(int32 op, ...)
 }
 
 
+extern driver_module_info gUsbHubDriverModule;
+
 static driver_module_info sUsbDriverModule = {
 	.info = {
 		.name = USB_DRIVER_MODULE_NAME,
@@ -118,5 +120,6 @@ static driver_module_info sUsbDriverModule = {
 
 _EXPORT module_info* modules[] = {
 	(module_info* )&sUsbDriverModule,
+	(module_info* )&gUsbHubDriverModule,
 	NULL
 };

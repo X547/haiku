@@ -9,22 +9,9 @@
 #include "usb_private.h"
 
 
-Object::Object(Stack *stack, BusManager *bus)
-	:	fParent(NULL),
-		fBusManager(bus),
-		fStack(stack),
-		fUSBID(fStack->GetUSBID(this)),
-		fBusy(0),
-		fObjectIface(*this)
-{
-}
-
-
-Object::Object(Object *parent)
-	:	fParent(parent),
-		fBusManager(parent->GetBusManager()),
-		fStack(parent->GetStack()),
-		fUSBID(fStack->GetUSBID(this)),
+Object::Object(BusManager *bus)
+	:	fBusManager(bus),
+		fUSBID(Stack::Instance().GetUSBID(this)),
 		fBusy(0),
 		fObjectIface(*this)
 {
@@ -41,7 +28,7 @@ void
 Object::PutUSBID(bool waitForUnbusy)
 {
 	if (fUSBID != UINT32_MAX) {
-		fStack->PutUSBID(this);
+		Stack::Instance().PutUSBID(this);
 		fUSBID = UINT32_MAX;
 	}
 

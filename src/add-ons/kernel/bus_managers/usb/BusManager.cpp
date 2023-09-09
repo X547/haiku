@@ -22,18 +22,10 @@ BusManager::BusManager(UsbHostController* hostCtrl, DeviceNode* node)
 {
 	mutex_init(&fLock, "usb busmanager lock");
 
-	fRootObject = new(std::nothrow) Object(&Stack::Instance(), this);
-	if (!fRootObject)
-		return;
-
 	// Clear the device map
 	for (int32 i = 0; i < 128; i++)
 		fDeviceMap[i] = false;
 	fDeviceIndex = 0;
-
-	// Set the default pipes to NULL (these will be created when needed)
-	for (int32 i = 0; i <= USB_SPEED_MAX; i++)
-		fDefaultPipes[i] = NULL;
 
 	fInitOK = true;
 }
@@ -43,9 +35,6 @@ BusManager::~BusManager()
 {
 	Lock();
 	mutex_destroy(&fLock);
-	for (int32 i = 0; i <= USB_SPEED_MAX; i++)
-		delete fDefaultPipes[i];
-	delete fRootObject;
 }
 
 
@@ -118,10 +107,11 @@ BusManager::FreeAddress(int8 address)
 
 
 Device *
-BusManager::AllocateDevice(Hub *parent, int8 hubAddress, uint8 hubPort,
+BusManager::AllocateDevice(Device *parent, int8 hubAddress, uint8 hubPort,
 	usb_speed speed)
 {
-	UsbBusDevice *deviceIface = fHostController->AllocateDevice(parent->GetBusDeviceIface(), hubAddress, hubPort, speed);
+	UsbBusDevice *deviceIface = fHostController->AllocateDevice(
+		parent->GetBusDeviceIface(), hubAddress, hubPort, speed);
 	if (deviceIface == NULL)
 		return NULL;
 
@@ -149,7 +139,6 @@ BusManager::Start()
 		fRootHub->RegisterNode(fNode);
 	}
 
-	Stack::Instance().Explore();
 	return B_OK;
 }
 
@@ -160,66 +149,3 @@ BusManager::Stop()
 	// TODO: Stack::Instance().RemoveBusManager(this);
 	return fHostController->Stop();
 }
-
-
-status_t
-BusManager::StartDebugTransfer(Transfer *transfer)
-{
-	return fHostController->StartDebugTransfer(transfer->GetBusTransferIface());
-}
-
-
-status_t
-BusManager::CheckDebugTransfer(Transfer *transfer)
-{
-	return fHostController->CheckDebugTransfer(transfer->GetBusTransferIface());
-}
-
-
-void
-BusManager::CancelDebugTransfer(Transfer *transfer)
-{
-	fHostController->CancelDebugTransfer(transfer->GetBusTransferIface());
-}
-
-
-status_t
-BusManager::SubmitTransfer(Transfer *transfer)
-{
-	return fHostController->SubmitTransfer(transfer->GetBusTransferIface());
-}
-
-
-status_t
-BusManager::CancelQueuedTransfers(Pipe *pipe, bool force)
-{
-	return fHostController->CancelQueuedTransfers(pipe->GetBusPipeIface(), force);
-}
-
-
-status_t
-BusManager::NotifyPipeChange(Pipe *pipe, usb_change change)
-{
-	return fHostController->NotifyPipeChange(pipe->GetBusPipeIface(), change);
-}
-
-
-ControlPipe *
-BusManager::_GetDefaultPipe(usb_speed speed)
-{
-	if (!Lock())
-		return NULL;
-
-	if (fDefaultPipes[speed] == NULL) {
-		fDefaultPipes[speed] = new(std::nothrow) ControlPipe(fRootObject);
-		fDefaultPipes[speed]->InitCommon(0, 0, speed, Pipe::Default, 8, 0, 0, 0);
-	}
-
-	if (!fDefaultPipes[speed]) {
-		TRACE_ERROR("failed to allocate default pipe for speed %d\n", speed);
-	}
-
-	Unlock();
-	return fDefaultPipes[speed];
-}
-
