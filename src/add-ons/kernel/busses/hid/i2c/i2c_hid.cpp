@@ -238,7 +238,7 @@ I2cHidDriver::DoDPC(DPCQueue* queue)
 	}
 	actualSize = (actualSize) < 2 ? 0 : actualSize - 2;
 
-#if 1
+#if 0
 	dprintf("I2cHidDriver::InputCallback(%#" B_PRIx32 ", %" B_PRIu32 ")\n", res, actualSize);
 
 	for (size_t i = 0; i < actualSize; i++) {

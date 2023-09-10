@@ -77,7 +77,7 @@ private:
 	UsbPipe* fInterruptPipe {};
 	usb_hub_descriptor fHubDescriptor {};
 
-	usb_port_status fInterruptStatus[USB_MAX_PORT_COUNT] {};
+	uint8 fInterruptStatus[USB_MAX_PORT_COUNT / 8] {};
 	usb_port_status fPortStatus[USB_MAX_PORT_COUNT] {};
 	UsbDevice* fChildren[USB_MAX_PORT_COUNT] {};
 };
@@ -166,7 +166,7 @@ UsbHubDriver::Init()
 #endif
 
 	if (fInterruptPipe != NULL)
-		fInterruptPipe->QueueInterrupt(fInterruptStatus, sizeof(fInterruptStatus), InterruptCallback, this);
+		fInterruptPipe->QueueInterrupt(fInterruptStatus, (fHubDescriptor.num_ports + 1 + 7) / 8, InterruptCallback, this);
 
 	return B_OK;
 }
@@ -462,13 +462,13 @@ UsbHubDriver::InterruptCallback(void *cookie, status_t status, void *data,
 void
 UsbHubDriver::DoDPC(DPCQueue* queue)
 {
-	uint8* bits = (uint8*)fInterruptStatus;
+	uint8* bits = fInterruptStatus;
 	for (uint32 i = 0; i < (uint32)fHubDescriptor.num_ports + 1; i++) {
 		if ((bits[i / 8] & (1 << (i % 8))) != 0)
 			UpdatePort(i);
 	}
 
-	fInterruptPipe->QueueInterrupt(fInterruptStatus, sizeof(fInterruptStatus), InterruptCallback, this);
+	fInterruptPipe->QueueInterrupt(fInterruptStatus, (fHubDescriptor.num_ports + 1 + 7) / 8, InterruptCallback, this);
 }
 
 

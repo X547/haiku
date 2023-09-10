@@ -45,6 +45,8 @@ private:
 	size_t fInputActualSize {};
 	ArrayDeleter<uint8> fInputBuffer;
 
+	HidInputCallback* fCallback {};
+
 	class HidDeviceImpl: public BusDriver, public HidDevice {
 	public:
 		HidDeviceImpl(UsbHidDriver& base): fBase(base) {}
@@ -180,9 +182,11 @@ UsbHidDriver::Init()
 void
 UsbHidDriver::InputCallback(void *cookie, status_t status, void *data, size_t actualLength)
 {
-	HidInputCallback* callback = (HidInputCallback*)cookie;
+	UsbHidDriver* driver = (UsbHidDriver*)cookie;
 
-#if 1
+	MutexLocker lock(&driver->fLock);
+
+#if 0
 	dprintf("UsbHidDriver::InputCallback(%#" B_PRIx32 ", %" B_PRIuSIZE ")\n", status, actualLength);
 
 	for (size_t i = 0; i < actualLength; i++) {
@@ -193,6 +197,10 @@ UsbHidDriver::InputCallback(void *cookie, status_t status, void *data, size_t ac
 	if (actualLength % 16 != 0)
 		dprintf("\n");
 #endif
+
+	HidInputCallback* callback = driver->fCallback;
+	driver->fCallback = NULL;
+	lock.Unlock();
 
 	callback->InputAvailable(status, (uint8*)data, actualLength);
 }
@@ -232,7 +240,14 @@ UsbHidDriver::HidDeviceImpl::Reset()
 status_t
 UsbHidDriver::HidDeviceImpl::RequestRead(uint32 size, uint8* data, HidInputCallback* callback)
 {
-	return fBase.fInterruptPipe->QueueInterrupt(data, size, InputCallback, callback);
+	MutexLocker lock(&fBase.fLock);
+
+	if (fBase.fCallback != NULL)
+		return B_BUSY;
+
+	fBase.fCallback = callback;
+
+	return fBase.fInterruptPipe->QueueInterrupt(data, size, InputCallback, &fBase);
 }
 
 

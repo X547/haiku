@@ -1596,11 +1596,6 @@ XHCI::_InsertEndpointForPipe(UsbBusPipe *pipe)
 {
 	TRACE("insert endpoint for pipe %p (%d)\n", pipe, pipe->EndpointAddress());
 
-	if (pipe->ControllerCookie() != NULL || pipe->GetDevice() == NULL) {
-		// default pipe is already referenced
-		return B_OK;
-	}
-
 	UsbBusDevice* usbDevice = pipe->GetDevice();
 	if (usbDevice->Parent() == NULL) {
 		// root hub needs no initialization
@@ -1688,8 +1683,6 @@ XHCI::_RemoveEndpointForPipe(UsbBusPipe *pipe)
 {
 	TRACE("remove endpoint for pipe %p (%d)\n", pipe, pipe->EndpointAddress());
 
-	if (pipe->GetDevice() == NULL)
-		return B_OK;
 	UsbBusDevice* usbDevice = pipe->GetDevice();
 	if (usbDevice->Parent() == NULL)
 		return B_BAD_VALUE;

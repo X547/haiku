@@ -9,7 +9,7 @@ status_t
 HIDDevice::Init(HidDevice* device, uint16 maxInputSize)
 {
 	fHidDevice = device;
-	fMaxInputSize = maxInputSize;
+	fMaxInputSize = fParser.MaxReportSize(0x01 /*HID_REPORT_TYPE_INPUT*/);
 	fInputBuffer.SetTo(new(std::nothrow) uint8[maxInputSize]);
 	if (!fInputBuffer.IsSet())
 		return B_NO_MEMORY;
