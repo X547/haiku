@@ -394,16 +394,12 @@ public:
 	virtual	int8 AllocateAddress() = 0;
 	virtual	void FreeAddress(int8 address) = 0;
 
-	virtual UsbBusDevice* GetRootHub() const = 0;
-	virtual void SetRootHub(UsbBusDevice* hub) = 0;
-
-
 	// new methods
 	virtual status_t	CreateDevice(UsbBusDevice*& outDevice, UsbBusDevice* parent, int8 hubAddress,
 							uint8 hubPort,
 							int8 deviceAddress,
-							usb_speed speed, bool isRootHub,
-							void *controllerCookie = NULL) = 0;
+							usb_speed speed,
+							void *controllerCookie) = 0;
 protected:
 	~UsbBusManager() = default;
 };

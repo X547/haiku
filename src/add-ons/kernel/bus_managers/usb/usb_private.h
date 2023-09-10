@@ -539,7 +539,7 @@ virtual									~Device();
 		UsbDevice *						GetDeviceIface() {return &fDeviceIface;}
 		UsbBusDevice *					GetBusDeviceIface() {return &fBusDeviceIface;}
 
-		status_t						InitCheck();
+		status_t						Init();
 
 virtual	status_t						Changed(change_item **changeList,
 											bool added);
@@ -599,21 +599,20 @@ virtual	status_t						GetStatus(uint16 *status);
 
 protected:
 		usb_device_descriptor			fDeviceDescriptor;
-		bool							fInitOK;
 
 private:
 		Device *						fParent;
-		bool							fAvailable;
+		bool							fAvailable = true;
 		bool							fIsRootHub;
-		usb_configuration_info *		fConfigurations;
-		usb_configuration_info *		fCurrentConfiguration;
+		usb_configuration_info *		fConfigurations {};
+		usb_configuration_info *		fCurrentConfiguration {};
 		usb_speed						fSpeed;
 		int8							fDeviceAddress;
 		int8							fHubAddress;
 		uint8							fHubPort;
-		ControlPipe *					fDefaultPipe;
+		ControlPipe *					fDefaultPipe {};
 		void *							fControllerCookie;
-		DeviceNode*						fNode;
+		DeviceNode*						fNode {};
 
 		UsbDeviceImpl					fDeviceIface;
 		UsbBusDeviceImpl				fBusDeviceIface;

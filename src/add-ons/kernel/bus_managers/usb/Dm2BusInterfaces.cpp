@@ -1,6 +1,7 @@
 #include "Dm2BusInterfaces.h"
 
 #include <AutoDeleter.h>
+#include <ScopeExit.h>
 
 #include "usb_private.h"
 
@@ -400,38 +401,34 @@ UsbBusManagerImpl::FreeAddress(int8 address)
 }
 
 
-UsbBusDevice *
-UsbBusManagerImpl::GetRootHub() const
-{
-	return fBase.GetRootHub()->GetBusDeviceIface();
-}
-
-
-void
-UsbBusManagerImpl::SetRootHub(UsbBusDevice* hub)
-{
-	return fBase.SetRootHub(static_cast<UsbBusDeviceImpl*>(hub)->Base());
-}
-
-
 status_t
 UsbBusManagerImpl::CreateDevice(UsbBusDevice*& outDevice, UsbBusDevice* parentIface, int8 hubAddress,
 	uint8 hubPort,
 	int8 deviceAddress,
-	usb_speed speed, bool isRootHub,
+	usb_speed speed,
 	void *controllerCookie)
 {
 	Device* parent = (parentIface == NULL) ? NULL : static_cast<UsbBusDeviceImpl*>(parentIface)->Base();
 
 	ObjectDeleter<Device> device(new(std::nothrow) Device(&fBase, parent, hubAddress, hubPort,
-		deviceAddress, speed, isRootHub, controllerCookie));
+		deviceAddress, speed, parent == NULL, controllerCookie));
 
 	if (!device.IsSet())
 		return B_NO_MEMORY;
 
-	CHECK_RET(device->InitCheck());
-
 	outDevice = device->GetBusDeviceIface();
+	DetachableScopeExit unsetOutDevice([&outDevice] {
+		outDevice = NULL;
+	});
+
+	CHECK_RET(device->Init());
+
+	if (parent == NULL) {
+		fBase.SetRootHub(device.Get());
+		device->RegisterNode(fBase.Node());
+	}
+
+	unsetOutDevice.Detach();
 	device.Detach();
 
 	return B_OK;

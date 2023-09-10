@@ -135,9 +135,6 @@ BusManager::Start()
 	fStackIndex = Stack::Instance().IndexOfBusManager(this);
 
 	CHECK_RET(fHostController->Start());
-	if (fRootHub != NULL) {
-		fRootHub->RegisterNode(fNode);
-	}
 
 	return B_OK;
 }

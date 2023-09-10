@@ -157,11 +157,13 @@ UsbHubDriver::Init()
 
 	TRACE_ALWAYS("initialised ok\n");
 
+#if 1
 	// initial port scan
 	for (int32 i = 0; i < fHubDescriptor.num_ports; i++) {
 		int32 index = i + 1;
 		UpdatePort(index);
 	}
+#endif
 
 	if (fInterruptPipe != NULL)
 		fInterruptPipe->QueueInterrupt(fInterruptStatus, sizeof(fInterruptStatus), InterruptCallback, this);
@@ -213,7 +215,7 @@ UsbHubDriver::ResetPort(uint8 index)
 
 	if ((fPortStatus[index].change & PORT_STATUS_RESET) == 0
 			&& (fPortStatus[index].status & PORT_STATUS_RESET) != 0) {
-		TRACE_ERROR("port %d won't reset (%#x, %#x)\n", index,
+		TRACE_ERROR("port %d won't reset (%#x, %#x)\n", index + 1,
 			fPortStatus[index].change, fPortStatus[index].status);
 		return B_ERROR;
 	}
@@ -226,7 +228,7 @@ UsbHubDriver::ResetPort(uint8 index)
 
 	// wait for reset recovery
 	snooze(USB_DELAY_PORT_RESET_RECOVERY);
-	TRACE("port %d was reset successfully\n", index);
+	TRACE("port %d was reset successfully\n", index + 1);
 	return B_OK;
 }
 
@@ -289,9 +291,9 @@ UsbHubDriver::UpdatePort(uint8 index)
 
 #ifdef TRACE_USB
 	if (fPortStatus[i].change) {
-		TRACE("port %" B_PRId32 ": status: 0x%04x; change: 0x%04x\n", i,
+		TRACE("port %" B_PRId32 ": status: 0x%04x; change: 0x%04x\n", index,
 			fPortStatus[i].status, fPortStatus[i].change);
-		TRACE("device at port %" B_PRId32 ": %p\n", i, fChildren[i]);
+		TRACE("device at port %" B_PRId32 ": %p\n", index, fChildren[i]);
 	}
 #endif
 
@@ -300,12 +302,12 @@ UsbHubDriver::UpdatePort(uint8 index)
 				&& fChildren[i] == NULL)) {
 		// clear status change
 		fUsbDevice->SendRequest(USB_REQTYPE_CLASS | USB_REQTYPE_OTHER_OUT,
-			USB_REQUEST_CLEAR_FEATURE, C_PORT_CONNECTION, i + 1,
+			USB_REQUEST_CLEAR_FEATURE, C_PORT_CONNECTION, index,
 			0, NULL, NULL);
 
 		if (fPortStatus[i].status & PORT_STATUS_CONNECTION) {
 			// new device attached!
-			TRACE_ALWAYS("port %" B_PRId32 ": new device connected\n", i);
+			TRACE_ALWAYS("port %" B_PRId32 ": new device connected\n", index);
 
 			int32 retry = 2;
 			while (retry--) {
@@ -313,7 +315,7 @@ UsbHubDriver::UpdatePort(uint8 index)
 				result = DebouncePort(i);
 				if (result != B_OK) {
 					TRACE_ERROR("debouncing port %" B_PRId32
-						" failed: %s\n", i, strerror(result));
+						" failed: %s\n", index, strerror(result));
 					break;
 				}
 
@@ -321,7 +323,7 @@ UsbHubDriver::UpdatePort(uint8 index)
 				result = ResetPort(i);
 				if (result < B_OK) {
 					TRACE_ERROR("resetting port %" B_PRId32 " failed\n",
-						i);
+						index);
 					break;
 				}
 
@@ -363,7 +365,7 @@ UsbHubDriver::UpdatePort(uint8 index)
 				if (speed > fUsbDevice->Speed())
 					speed = fUsbDevice->Speed();
 
-				uint8 hubPort = i + 1;
+				uint8 hubPort = index;
 				UsbDevice* newDevice = NULL;
 				if (fUsbDevice->AllocateDevice(hubPort, speed, &newDevice) >= B_OK) {
 					fChildren[i] = newDevice;
@@ -377,7 +379,7 @@ UsbHubDriver::UpdatePort(uint8 index)
 			}
 		} else {
 			// Device removed...
-			TRACE_ALWAYS("port %" B_PRId32 ": device removed\n", i);
+			TRACE_ALWAYS("port %" B_PRId32 ": device removed\n", index);
 			if (fChildren[i] != NULL) {
 				TRACE("removing device %p\n", fChildren[i]);
 				fUsbDevice->FreeDevice(fChildren[i]);
@@ -388,47 +390,47 @@ UsbHubDriver::UpdatePort(uint8 index)
 
 	// other port changes we do not really handle, report and clear them
 	if (fPortStatus[i].change & PORT_STATUS_ENABLE) {
-		TRACE_ALWAYS("port %" B_PRId32 " %sabled\n", i,
+		TRACE_ALWAYS("port %" B_PRId32 " %sabled\n", index,
 			(fPortStatus[i].status & PORT_STATUS_ENABLE) ? "en" : "dis");
 		fUsbDevice->SendRequest(USB_REQTYPE_CLASS | USB_REQTYPE_OTHER_OUT,
-			USB_REQUEST_CLEAR_FEATURE, C_PORT_ENABLE, i + 1,
+			USB_REQUEST_CLEAR_FEATURE, C_PORT_ENABLE, index,
 			0, NULL, NULL);
 	}
 
 	if (fPortStatus[i].change & PORT_STATUS_SUSPEND) {
-		TRACE_ALWAYS("port %" B_PRId32 " is %ssuspended\n", i,
+		TRACE_ALWAYS("port %" B_PRId32 " is %ssuspended\n", index,
 			(fPortStatus[i].status & PORT_STATUS_SUSPEND) ? "" : "not ");
 		fUsbDevice->SendRequest(USB_REQTYPE_CLASS | USB_REQTYPE_OTHER_OUT,
-			USB_REQUEST_CLEAR_FEATURE, C_PORT_SUSPEND, i + 1,
+			USB_REQUEST_CLEAR_FEATURE, C_PORT_SUSPEND, index,
 			0, NULL, NULL);
 	}
 
 	if (fPortStatus[i].change & PORT_STATUS_OVER_CURRENT) {
 		TRACE_ALWAYS("port %" B_PRId32 " is %sin an over current state\n",
-			i, (fPortStatus[i].status & PORT_STATUS_OVER_CURRENT) ? "" : "not ");
+			index, (fPortStatus[i].status & PORT_STATUS_OVER_CURRENT) ? "" : "not ");
 		fUsbDevice->SendRequest(USB_REQTYPE_CLASS | USB_REQTYPE_OTHER_OUT,
-			USB_REQUEST_CLEAR_FEATURE, C_PORT_OVER_CURRENT, i + 1,
+			USB_REQUEST_CLEAR_FEATURE, C_PORT_OVER_CURRENT, index,
 			0, NULL, NULL);
 	}
 
 	if (fPortStatus[i].change & PORT_STATUS_RESET) {
-		TRACE_ALWAYS("port %" B_PRId32 " was reset\n", i);
+		TRACE_ALWAYS("port %" B_PRId32 " was reset\n", index);
 		fUsbDevice->SendRequest(USB_REQTYPE_CLASS | USB_REQTYPE_OTHER_OUT,
-			USB_REQUEST_CLEAR_FEATURE, C_PORT_RESET, i + 1,
+			USB_REQUEST_CLEAR_FEATURE, C_PORT_RESET, index,
 			0, NULL, NULL);
 	}
 
 	if (fPortStatus[i].change & PORT_CHANGE_LINK_STATE) {
-		TRACE_ALWAYS("port %" B_PRId32 " link state changed\n", i);
+		TRACE_ALWAYS("port %" B_PRId32 " link state changed\n", index);
 		fUsbDevice->SendRequest(USB_REQTYPE_CLASS | USB_REQTYPE_OTHER_OUT,
-			USB_REQUEST_CLEAR_FEATURE, C_PORT_LINK_STATE, i + 1,
+			USB_REQUEST_CLEAR_FEATURE, C_PORT_LINK_STATE, index,
 			0, NULL, NULL);
 	}
 
 	if (fPortStatus[i].change & PORT_CHANGE_BH_PORT_RESET) {
-		TRACE_ALWAYS("port %" B_PRId32 " was warm reset\n", i);
+		TRACE_ALWAYS("port %" B_PRId32 " was warm reset\n", index);
 		fUsbDevice->SendRequest(USB_REQTYPE_CLASS | USB_REQTYPE_OTHER_OUT,
-			USB_REQUEST_CLEAR_FEATURE, C_PORT_BH_PORT_RESET, i + 1,
+			USB_REQUEST_CLEAR_FEATURE, C_PORT_BH_PORT_RESET, index,
 			0, NULL, NULL);
 	}
 }

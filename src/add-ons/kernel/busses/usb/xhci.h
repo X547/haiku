@@ -291,7 +291,7 @@ private:
 			bool				fStopThreads {};
 
 			// Root Hub
-			UsbBusDevice*		fRootHub {};
+			XHCIRootHub*		fRootHub {};
 
 			// Port management
 			uint8				fPortCount {};
@@ -339,8 +339,27 @@ private:
 
 class XHCIRootHub {
 public:
-static	status_t					Create(UsbBusDevice*& outHub, UsbBusManager *busManager,
-										int8 deviceAddress);
+static	status_t				Create(XHCIRootHub*& outHub, XHCI* xhci, UsbBusManager *busManager,
+									int8 deviceAddress);
 
-static	status_t					ProcessTransfer(XHCI *xhci, UsbBusTransfer *transfer);
+								XHCIRootHub(XHCI* xhci): fXhci(xhci) {}
+								~XHCIRootHub();
+
+		UsbBusDevice*			GetDevice() const {return fDevice;}
+
+		status_t				ProcessTransfer(UsbBusTransfer *transfer);
+
+		void					PortStatusChanged(uint32 portNo);
+
+private:
+		void					TryCompleteInterruptTransfer();
+
+private:
+	mutex fLock = MUTEX_INITIALIZER("XHCIRootHub");
+	XHCI *fXhci;
+	UsbBusDevice* fDevice {};
+	UsbBusTransfer* fInterruptTransfer {};
+
+	bool fHasChangedPorts {};
+	uint8 fChangedPorts[USB_MAX_PORT_COUNT / 8] {};
 };

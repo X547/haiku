@@ -324,6 +324,11 @@ XHCI::~XHCI()
 {
 	TRACE("tear down XHCI host controller driver\n");
 
+	if (fRootHub != NULL) {
+		delete fRootHub;
+		fRootHub = NULL;
+	}
+
 	WriteOpReg(XHCI_CMD, 0);
 
 	int32 result = 0;
@@ -568,13 +573,11 @@ XHCI::Start()
 		TRACE_ERROR("HCH start up timeout\n");
 	}
 
-	status_t res = XHCIRootHub::Create(fRootHub, fBusManager, 1);
+	status_t res = XHCIRootHub::Create(fRootHub, this, fBusManager, 1);
 	if (res < B_OK) {
 		TRACE_ERROR("root hub failed init check\n");
 		return res;
 	}
-
-	fBusManager->SetRootHub(fRootHub);
 
 	TRACE_ALWAYS("successfully started the controller\n");
 
@@ -597,14 +600,16 @@ XHCI::Stop()
 status_t
 XHCI::SubmitTransfer(UsbBusTransfer* transfer)
 {
-	// short circuit the root hub
-	if (transfer->TransferPipe()->DeviceAddress() == 1)
-		return XHCIRootHub::ProcessTransfer(this, transfer);
-
 	TRACE("SubmitTransfer(%p)\n", transfer);
+
+	// short circuit the root hub
+	if (transfer->TransferPipe()->GetDevice() == fRootHub->GetDevice())
+		return fRootHub->ProcessTransfer(transfer);
+
 	UsbBusPipe *pipe = transfer->TransferPipe();
 	if (pipe->Type() == USB_PIPE_CONTROL)
 		return SubmitControlRequest(transfer);
+
 	return SubmitNormalRequest(transfer);
 }
 
@@ -1467,7 +1472,7 @@ XHCI::AllocateDevice(UsbBusDevice* parent, int8 hubAddress, uint8 hubPort, usb_s
 	TRACE("creating new device\n");
 	UsbBusDevice *deviceObject = NULL;
 	status_t res = fBusManager->CreateDevice(deviceObject, parent, hubAddress, hubPort,
-		device->address + 1, speed, false, device);
+		device->address + 1, speed, device);
 	if (res < B_OK) {
 		if (res == B_NO_MEMORY) {
 			TRACE_ERROR("no memory to allocate device\n");
@@ -1504,11 +1509,11 @@ XHCI::InitDevice(UsbBusDevice* usbDevice, const usb_device_descriptor& deviceDes
 		deviceDescriptor.device_class, deviceDescriptor.device_subclass,
 		deviceDescriptor.device_protocol);
 
-	xhci_device* device = (xhci_device*)usbDevice->ControllerCookie();
-	if (device == NULL) {
-		// root hub
+	void* cookie = usbDevice->ControllerCookie();
+	if ((XHCIRootHub*)cookie == fRootHub)
 		return B_OK;
-	}
+
+	xhci_device* device = (xhci_device*)cookie;
 	usb_speed speed = usbDevice->Speed();
 
 	if (speed == USB_SPEED_FULLSPEED && deviceDescriptor.max_packet_size_0 != 8) {
@@ -1532,13 +1537,11 @@ XHCI::InitDevice(UsbBusDevice* usbDevice, const usb_device_descriptor& deviceDes
 status_t
 XHCI::InitHub(UsbBusDevice* usbDevice, const usb_hub_descriptor& hubDescriptor)
 {
-	dprintf("XHCI::InitHub(%p, %p)\n", usbDevice, &hubDescriptor);
-	xhci_device* device = (xhci_device*)usbDevice->ControllerCookie();
-	dprintf("  device: %p\n", device);
-	if (device == NULL) {
-		// root hub
+	void* cookie = usbDevice->ControllerCookie();
+	if ((XHCIRootHub*)cookie == fRootHub)
 		return B_OK;
-	}
+
+	xhci_device* device = (xhci_device*)cookie;
 	usb_speed speed = usbDevice->Speed();
 
 	uint32 dwslot0 = _ReadContext(&device->input_ctx->slot.dwslot0);
@@ -2755,7 +2758,7 @@ XHCI::ProcessEvents()
 			HandleTransferComplete(&fEventRing[i]);
 			break;
 		case TRB_TYPE_PORT_STATUS_CHANGE:
-			TRACE_ALWAYS("port change detected, port: %" B_PRIu32 "\n", (uint32)fEventRing[i].address >> 24);
+			fRootHub->PortStatusChanged((uint32)fEventRing[i].address >> 24);
 			break;
 		default:
 			TRACE_ERROR("Unhandled event = %u\n", event);

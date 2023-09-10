@@ -11,6 +11,14 @@
 #include "xhci.h"
 
 #include <string.h>
+#include <algorithm>
+#include <new>
+
+#include <AutoDeleter.h>
+#include <ScopeExit.h>
+#include <util/AutoLock.h>
+
+#define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
 #define USB_MODULE_NAME "xhci roothub"
 
@@ -137,17 +145,58 @@ static xhci_root_hub_string_s sXHCIRootHubStrings[3] = {
 
 
 status_t
-XHCIRootHub::Create(UsbBusDevice*& outHub, UsbBusManager *busManager, int8 deviceAddress)
+XHCIRootHub::Create(XHCIRootHub*& outHub, XHCI *xhci, UsbBusManager *busManager, int8 deviceAddress)
 {
-	return busManager->CreateDevice(outHub, NULL, 0, busManager->ID(),
-			deviceAddress, USB_SPEED_SUPERSPEED, true);
+	ObjectDeleter<XHCIRootHub> rootHub(new(std::nothrow) XHCIRootHub(xhci));
+	if (!rootHub.IsSet())
+		return B_NO_MEMORY;
+
+	outHub = rootHub.Get();
+	DetachableScopeExit unsetOutHub([&outHub] {
+		outHub = NULL;
+	});
+
+	CHECK_RET(busManager->CreateDevice(rootHub->fDevice, NULL, 0, busManager->ID(),
+		deviceAddress, USB_SPEED_SUPERSPEED, rootHub.Get()));
+
+	for (uint32 i = 0; i < xhci->PortCount(); i++) {
+		uint32 portNo = i + 1;
+		usb_port_status portStatus;
+		if (xhci->GetPortStatus(i, &portStatus) >= B_OK) {
+			if (portStatus.change != 0) {
+				rootHub->fHasChangedPorts = true;
+				rootHub->fChangedPorts[portNo / 8] |= 1 << (portNo % 8);
+			}
+		}
+	}
+
+	unsetOutHub.Detach();
+	rootHub.Detach();
+	return B_OK;
+}
+
+
+XHCIRootHub::~XHCIRootHub()
+{
+	fDevice->Free();
 }
 
 
 status_t
-XHCIRootHub::ProcessTransfer(XHCI *xhci, UsbBusTransfer *transfer)
+XHCIRootHub::ProcessTransfer(UsbBusTransfer *transfer)
 {
-	TRACE_ALWAYS("XHCIRootHub::ProcessTransfer(%p)\n", transfer);
+	TRACE("XHCIRootHub::ProcessTransfer(%p)\n", transfer);
+
+	if (transfer->TransferPipe()->Type() == USB_PIPE_INTERRUPT) {
+		TRACE_ALWAYS("  USB_PIPE_INTERRUPT\n");
+		MutexLocker lock(&fLock);
+		if (fInterruptTransfer != NULL)
+			return B_BUSY;
+
+		fInterruptTransfer = transfer;
+		TryCompleteInterruptTransfer();
+		return B_OK;
+	}
 
 	if (transfer->TransferPipe()->Type() != USB_PIPE_CONTROL)
 		return B_ERROR;
@@ -172,7 +221,7 @@ XHCIRootHub::ProcessTransfer(XHCI *xhci, UsbBusTransfer *transfer)
 			}
 
 			usb_port_status portStatus;
-			if (xhci->GetPortStatus(request->Index - 1, &portStatus) >= B_OK) {
+			if (fXhci->GetPortStatus(request->Index - 1, &portStatus) >= B_OK) {
 				actualLength = MIN(sizeof(usb_port_status), transfer->DataLength());
 				memcpy(transfer->Data(), (void *)&portStatus, actualLength);
 				status = B_OK;
@@ -207,7 +256,7 @@ XHCIRootHub::ProcessTransfer(XHCI *xhci, UsbBusTransfer *transfer)
 				case USB_DESCRIPTOR_CONFIGURATION: {
 					actualLength = MIN(sizeof(xhci_root_hub_configuration_s),
 						transfer->DataLength());
-					sXHCIRootHubConfig.hub.num_ports = xhci->PortCount();
+					sXHCIRootHubConfig.hub.num_ports = fXhci->PortCount();
 					memcpy(transfer->Data(), (void *)&sXHCIRootHubConfig,
 						actualLength);
 					status = B_OK;
@@ -230,7 +279,7 @@ XHCIRootHub::ProcessTransfer(XHCI *xhci, UsbBusTransfer *transfer)
 				case USB_DESCRIPTOR_HUB: {
 					actualLength = MIN(sizeof(usb_hub_descriptor),
 						transfer->DataLength());
-					sXHCIRootHubConfig.hub.num_ports = xhci->PortCount();
+					sXHCIRootHubConfig.hub.num_ports = fXhci->PortCount();
 					memcpy(transfer->Data(), (void *)&sXHCIRootHubConfig.hub,
 						actualLength);
 					status = B_OK;
@@ -251,7 +300,7 @@ XHCIRootHub::ProcessTransfer(XHCI *xhci, UsbBusTransfer *transfer)
 			}
 
 			TRACE_MODULE("clear feature: %d\n", request->Value);
-			if (xhci->ClearPortFeature(request->Index - 1, request->Value) >= B_OK)
+			if (fXhci->ClearPortFeature(request->Index - 1, request->Value) >= B_OK)
 				status = B_OK;
 			break;
 		}
@@ -264,7 +313,7 @@ XHCIRootHub::ProcessTransfer(XHCI *xhci, UsbBusTransfer *transfer)
 			}
 
 			TRACE_MODULE("set feature: %d\n", request->Value);
-			if (xhci->SetPortFeature(request->Index - 1, request->Value) >= B_OK)
+			if (fXhci->SetPortFeature(request->Index - 1, request->Value) >= B_OK)
 				status = B_OK;
 			break;
 		}
@@ -273,4 +322,50 @@ XHCIRootHub::ProcessTransfer(XHCI *xhci, UsbBusTransfer *transfer)
 	transfer->Finished(status, actualLength);
 	transfer->Free();
 	return B_OK;
+}
+
+
+void
+XHCIRootHub::TryCompleteInterruptTransfer()
+{
+	if (fInterruptTransfer != NULL && fHasChangedPorts) {
+		fHasChangedPorts = false;
+		for (uint32 i = 0; i < fXhci->PortCount(); i++) {
+			uint32 portNo = i + 1;
+			if ((fChangedPorts[portNo / 8] & (1 << (portNo % 8))) != 0) {
+				usb_port_status portStatus;
+				if (fXhci->GetPortStatus(i, &portStatus) < B_OK || portStatus.change == 0) {
+					fChangedPorts[portNo / 8] &= 1 << (portNo % 8);
+				} else {
+					fHasChangedPorts = true;
+				}
+			}
+		}
+
+		if (fHasChangedPorts) {
+			size_t actualLength = std::min<size_t>((fXhci->PortCount() + 1 + 7) / 8, fInterruptTransfer->DataLength());
+			memcpy(fInterruptTransfer->Data(), fChangedPorts, actualLength);
+
+			fInterruptTransfer->Finished(B_OK, actualLength);
+			fInterruptTransfer->Free();
+			fInterruptTransfer = NULL;
+		}
+	}
+}
+
+
+void
+XHCIRootHub::PortStatusChanged(uint32 portNo)
+{
+	TRACE_ALWAYS("port change detected, port: %" B_PRIu32 "\n", portNo);
+
+	if (portNo >= USB_MAX_PORT_COUNT)
+		return;
+
+	MutexLocker lock(&fLock);
+
+	fHasChangedPorts = true;
+	fChangedPorts[portNo / 8] |= 1 << (portNo % 8);
+
+	TryCompleteInterruptTransfer();
 }

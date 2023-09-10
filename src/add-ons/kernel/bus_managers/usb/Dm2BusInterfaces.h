@@ -108,14 +108,11 @@ public:
 	int8					AllocateAddress() final;
 	void					FreeAddress(int8 address) final;
 
-	UsbBusDevice *			GetRootHub() const final;
-	void					SetRootHub(UsbBusDevice* hub) final;
-
 	status_t				CreateDevice(UsbBusDevice*& outDevice, UsbBusDevice* parent, int8 hubAddress,
 								uint8 hubPort,
 								int8 deviceAddress,
-								usb_speed speed, bool isRootHub,
-								void *controllerCookie = NULL) final;
+								usb_speed speed,
+								void *controllerCookie) final;
 
 private:
 	BusManager& fBase;

@@ -24,27 +24,28 @@ Device::Device(BusManager *busManager, Device* parent, int8 hubAddress, uint8 hu
 	bool isRootHub, void* controllerCookie)
 	:
 	Object(busManager),
-	fInitOK(false),
 	fParent(parent),
-	fAvailable(true),
 	fIsRootHub(isRootHub),
-	fConfigurations(NULL),
-	fCurrentConfiguration(NULL),
 	fSpeed(speed),
 	fDeviceAddress(deviceAddress),
 	fHubAddress(hubAddress),
 	fHubPort(hubPort),
 	fControllerCookie(controllerCookie),
-	fNode(NULL),
 	fDeviceIface(*this),
 	fBusDeviceIface(*this)
+{
+}
+
+
+status_t
+Device::Init()
 {
 	TRACE_ALWAYS("creating device\n");
 
 	fDefaultPipe = new(std::nothrow) ControlPipe(this);
 	if (fDefaultPipe == NULL) {
 		TRACE_ERROR("could not allocate default pipe\n");
-		return;
+		return B_NO_MEMORY;
 	}
 
 	fDefaultPipe->InitCommon(fDeviceAddress, 0, fSpeed, Pipe::Default,
@@ -58,7 +59,7 @@ Device::Device(BusManager *busManager, Device* parent, int8 hubAddress, uint8 hu
 
 	if (status < B_OK || actualLength != sizeof(fDeviceDescriptor)) {
 		TRACE_ERROR("error while getting the device descriptor\n");
-		return;
+		return B_ERROR;
 	}
 
 	TRACE("full device descriptor for device %d:\n", fDeviceAddress);
@@ -84,7 +85,7 @@ Device::Device(BusManager *busManager, Device* parent, int8 hubAddress, uint8 hu
 		fDeviceDescriptor.num_configurations * sizeof(usb_configuration_info));
 	if (fConfigurations == NULL) {
 		TRACE_ERROR("out of memory during config creations!\n");
-		return;
+		return B_NO_MEMORY;
 	}
 
 	memset(fConfigurations, 0, fDeviceDescriptor.num_configurations
@@ -98,7 +99,7 @@ Device::Device(BusManager *busManager, Device* parent, int8 hubAddress, uint8 hu
 		if (status < B_OK
 			|| actualLength != sizeof(usb_configuration_descriptor)) {
 			TRACE_ERROR("error fetching configuration %" B_PRId32 "\n", i);
-			return;
+			return B_ERROR;
 		}
 
 		TRACE("configuration %" B_PRId32 "\n", i);
@@ -118,7 +119,7 @@ Device::Device(BusManager *busManager, Device* parent, int8 hubAddress, uint8 hu
 		uint8* configData = (uint8*)malloc(configDescriptor.total_length);
 		if (configData == NULL) {
 			TRACE_ERROR("out of memory when reading config\n");
-			return;
+			return B_NO_MEMORY;
 		}
 
 		status = GetDescriptor(USB_DESCRIPTOR_CONFIGURATION, i, 0,
@@ -129,7 +130,7 @@ Device::Device(BusManager *busManager, Device* parent, int8 hubAddress, uint8 hu
 				" descriptor %" B_PRId32 " got %" B_PRIuSIZE " expected %"
 				B_PRIu16 "\n", i, actualLength, configDescriptor.total_length);
 			free(configData);
-			return;
+			return B_ERROR;
 		}
 
 		usb_configuration_descriptor* configuration
@@ -140,7 +141,7 @@ Device::Device(BusManager *busManager, Device* parent, int8 hubAddress, uint8 hu
 			configuration->number_interfaces * sizeof(usb_interface_list));
 		if (fConfigurations[i].interface == NULL) {
 			TRACE_ERROR("out of memory when creating interfaces\n");
-			return;
+			return B_NO_MEMORY;
 		}
 
 		memset(fConfigurations[i].interface, 0,
@@ -194,7 +195,7 @@ Device::Device(BusManager *busManager, Device* parent, int8 hubAddress, uint8 hu
 						TRACE_ERROR("out of memory allocating"
 							" alternate interface\n");
 						interfaceList->alt_count--;
-						return;
+						return B_NO_MEMORY;
 					}
 
 					interfaceList->alt = newAlternates;
@@ -216,7 +217,7 @@ Device::Device(BusManager *busManager, Device* parent, int8 hubAddress, uint8 hu
 					if (interface == NULL) {
 						TRACE_ERROR("failed to allocate"
 							" interface object\n");
-						return;
+						return B_NO_MEMORY;
 					}
 
 					interfaceInfo->handle = interface->GetInterfaceIface();
@@ -254,7 +255,7 @@ Device::Device(BusManager *busManager, Device* parent, int8 hubAddress, uint8 hu
 					if (newEndpoints == NULL) {
 						TRACE_ERROR("out of memory allocating new endpoint\n");
 						currentInterface->endpoint_count--;
-						return;
+						return B_NO_MEMORY;
 					}
 
 					currentInterface->endpoint = newEndpoints;
@@ -310,7 +311,7 @@ Device::Device(BusManager *busManager, Device* parent, int8 hubAddress, uint8 hu
 						TRACE_ERROR("out of memory allocating"
 							" generic descriptor\n");
 						currentInterface->generic_count--;
-						return;
+						return B_NO_MEMORY;
 					}
 
 					currentInterface->generic = newGenerics;
@@ -330,10 +331,10 @@ Device::Device(BusManager *busManager, Device* parent, int8 hubAddress, uint8 hu
 	TRACE("setting default configuration\n");
 	if (SetConfigurationAt(0) != B_OK) {
 		TRACE_ERROR("failed to set default configuration\n");
-		return;
+		return B_ERROR;
 	}
 
-	fInitOK = true;
+	return B_OK;
 }
 
 
@@ -351,13 +352,15 @@ Device::~Device()
 	// though, since we may be deleted because the device was unplugged already.
 	Unconfigure(false);
 
-	DeviceNode* parentNode = fNode->GetParent();
-	status_t error = parentNode->UnregisterNode(fNode);
-	parentNode->ReleaseReference();
-	if (error != B_OK && error != B_BUSY)
-		TRACE_ERROR("failed to unregister device node\n");
-	fNode->ReleaseReference();
-	fNode = NULL;
+	if (fNode != NULL) {
+		DeviceNode* parentNode = fNode->GetParent();
+		status_t error = parentNode->UnregisterNode(fNode);
+		parentNode->ReleaseReference();
+		if (error != B_OK && error != B_BUSY)
+			TRACE_ERROR("failed to unregister device node\n");
+		fNode->ReleaseReference();
+		fNode = NULL;
+	}
 
 	// Destroy all Interfaces in the Configurations hierarchy.
 	for (int32 i = 0; fConfigurations != NULL
@@ -419,16 +422,6 @@ Device::~Device()
 	}
 
 	free(fConfigurations);
-}
-
-
-status_t
-Device::InitCheck()
-{
-	if (fInitOK)
-		return B_OK;
-
-	return B_ERROR;
 }
 
 
