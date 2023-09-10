@@ -102,6 +102,12 @@ static const DesignwareMmcCtrl kDesignwareMmcCtrlResetAll = {
 	.dmaReset = true,
 };
 
+enum class DesignwareMmcCardType: uint32 {
+	bit1 = 0,
+	bit4 = 1 << 0,
+	bit8 = 1 << 16
+};
+
 union DesignwareMmcStatus {
 	struct {
 		uint32 unknown1:   2; //  0
@@ -226,7 +232,7 @@ struct DesignwareMmcRegs {
 	uint32 clksrc;
 	uint32 clkena;
 	uint32 tmout;
-	uint32 ctype;
+	DesignwareMmcCardType ctype;
 	uint32 blksiz;
 	uint32 bytcnt;
 	DesignwareMmcInt intmask;
@@ -303,11 +309,6 @@ struct DesignwareMmcIdmacDesc {
 #define DWMCI_CLKEN_ENABLE		(1 << 0)
 #define DWMCI_CLKEN_LOW_PWR		(1 << 16)
 
-/* Card-type registe */
-#define DWMCI_CTYPE_1BIT		0
-#define DWMCI_CTYPE_4BIT		(1 << 0)
-#define DWMCI_CTYPE_8BIT		(1 << 16)
-
 /* UHS register */
 #define DWMCI_DDR_MODE			(1 << 16)
 
@@ -356,6 +357,11 @@ private:
 	uint64 fClockFreq {};
 	bool fDdrMode {};
 	bool fNeedInit = true;
+
+	AreaDeleter fDmaDescsArea;
+	uint32 fDmaDescCnt = 256;
+	DesignwareMmcIdmacDesc* fDmaDescs {};
+	phys_addr_t fDmaDescsPhysAdr {};
 
 	ConditionVariable fCmdCompletedCond;
 	ConditionVariable fDataOverCond;
@@ -503,6 +509,19 @@ DesignwareMmcDriver::Init()
 	if (!fRegsArea.IsSet())
 		return fRegsArea.Get();
 
+	fDmaDescsArea.SetTo(create_area(
+		"idmac",
+		(void**)&fDmaDescs, B_ANY_ADDRESS,
+		ROUNDUP(fDmaDescCnt * sizeof(DesignwareMmcIdmacDesc), B_PAGE_SIZE),
+		B_32_BIT_CONTIGUOUS,
+		B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA
+	));
+	CHECK_RET(fDmaDescsArea.Get());
+
+	physical_entry pe;
+	CHECK_RET(get_memory_map(fDmaDescs, B_PAGE_SIZE, &pe, 1));
+	fDmaDescsPhysAdr = pe.address;
+
 	if (fIrqVector >= 0) {
 		CHECK_RET(install_io_interrupt_handler(fIrqVector, HandleInterrupt, this, 0));
 		fInterruptHandlerInstalled = true;
@@ -594,27 +613,9 @@ DesignwareMmcDriver::ExecuteCommand(const mmc_command& cmd, const mmc_data* data
 {
 	//dprintf("MmcDriver::ExecuteCommand(%" B_PRIu8 ", %#" B_PRIx32 ")\n", cmd.command, cmd.argument);
 
-	AreaDeleter dmaDescsArea;
-	phys_addr_t dmaDescsPhysAdr {};
-
-	auto PrepareDmaDescs = [this, data, &dmaDescsArea, &dmaDescsPhysAdr]() -> status_t {
-		// TODO: Do not allocate an area for each IO operation.
-		DesignwareMmcIdmacDesc* dmaDescs;
-		dmaDescsArea.SetTo(create_area(
-			"idmac",
-			(void**)&dmaDescs, B_ANY_ADDRESS,
-			ROUNDUP(data->vecCount * sizeof(DesignwareMmcIdmacDesc), B_PAGE_SIZE),
-			B_32_BIT_CONTIGUOUS,
-			B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA
-		));
-		CHECK_RET(dmaDescsArea.Get());
-
-		physical_entry pe;
-		CHECK_RET(get_memory_map(dmaDescs, B_PAGE_SIZE, &pe, 1));
-		dmaDescsPhysAdr = pe.address;
-
+	auto PrepareDmaDescs = [this, data]() {
 		for (uint32 i = 0; i < data->vecCount; i++) {
-			DesignwareMmcIdmacDesc& idmac = dmaDescs[i];
+			DesignwareMmcIdmacDesc& idmac = fDmaDescs[i];
 			generic_io_vec& vec = data->vecs[i];
 			//dprintf("  vec[%" B_PRIu32 "]: %#" B_PRIxPHYSADDR ", %#" B_PRIxPHYSADDR "\n", i, vec.base, vec.length);
 			idmac.flags = {
@@ -625,20 +626,18 @@ DesignwareMmcDriver::ExecuteCommand(const mmc_command& cmd, const mmc_data* data
 			};
 			idmac.cnt = vec.length;
 			idmac.addr = vec.base;
-			idmac.nextAddr = dmaDescsPhysAdr + sizeof(DesignwareMmcIdmacDesc)*(i + 1);
+			idmac.nextAddr = fDmaDescsPhysAdr + sizeof(DesignwareMmcIdmacDesc)*(i + 1);
 		}
-
-		return B_OK;
 	};
 
 	ConditionVariableEntry dataOverCvEntry;
 
-	auto SetupDma = [this, data, &dmaDescsPhysAdr, &dataOverCvEntry] {
-		//dprintf("  dmaDescsPhysAdr: %#" B_PRIxPHYSADDR "\n", dmaDescsPhysAdr);
+	auto SetupDma = [this, data, &dataOverCvEntry] {
+		//dprintf("  fDmaDescsPhysAdr: %#" B_PRIxPHYSADDR "\n", fDmaDescsPhysAdr);
 
 		fDataOverCond.Add(&dataOverCvEntry);
 
-		fRegs->dbaddr = dmaDescsPhysAdr;
+		fRegs->dbaddr = fDmaDescsPhysAdr;
 
 		fRegs->ctrl.dmaEnable = true;
 
@@ -658,9 +657,8 @@ DesignwareMmcDriver::ExecuteCommand(const mmc_command& cmd, const mmc_data* data
 		fRegs->pldmnd = 1;
 	};
 
-	if (data != NULL) {
-		CHECK_RET(PrepareDmaDescs());
-	}
+	if (data != NULL)
+		PrepareDmaDescs();
 
 	bigtime_t startTime = system_time();
 	CHECK_RET(retry_timeout([this] {return !fRegs->status.busy;}, startTime + 500000));
@@ -844,20 +842,17 @@ DesignwareMmcDriver::MmcBusImpl::SetBusWidth(int width)
 {
 	dprintf("MmcBusImpl::SetBusWidth(%d)\n", width);
 
-	uint32 ctype;
 	switch (width) {
 	case 8:
-		ctype = DWMCI_CTYPE_8BIT;
+		fBase.fRegs->ctype = DesignwareMmcCardType::bit8;
 		break;
 	case 4:
-		ctype = DWMCI_CTYPE_4BIT;
+		fBase.fRegs->ctype = DesignwareMmcCardType::bit4;
 		break;
 	default:
-		ctype = DWMCI_CTYPE_1BIT;
+		fBase.fRegs->ctype = DesignwareMmcCardType::bit1;
 		break;
 	}
-
-	fBase.fRegs->ctype = ctype;
 
 	uint32 uhsReg = fBase.fRegs->uhsReg;
 	if (fBase.fDdrMode)
