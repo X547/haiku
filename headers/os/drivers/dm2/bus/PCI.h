@@ -10,6 +10,9 @@
 #include <PCI.h>
 
 
+class MSIInterface;
+
+
 class PciDevice {
 public:
 	static inline const char ifaceName[] = "bus_managers/pci/device";
@@ -81,6 +84,8 @@ public:
 	virtual status_t GetRange(uint32 index, pci_resource_range* range) = 0;
 
 	virtual status_t Finalize() = 0;
+
+	virtual MSIInterface* GetMsiDriver() {return NULL;};
 
 protected:
 	~PciController() = default;

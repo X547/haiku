@@ -178,6 +178,8 @@ private:
 
 		status_t Finalize() final;
 
+		MSIInterface* GetMsiDriver() final;
+
 	public:
 		PciControllerPlda& fBase;
 	} fPciCtrl;

@@ -1973,8 +1973,11 @@ PCI::ConfigureMSI(PCIDev *device, uint8 count, uint8 *startVector)
 	if (info->configured_count != 0)
 		return B_BUSY;
 
-	status_t result = msi_allocate_vectors(count, &info->start_vector,
-		&info->address_value, &info->data_value);
+	domain_data *domain = _GetDomainData(device->domain);
+	MSIInterface *driver = domain->controller->GetMsiDriver();
+
+	status_t result = driver->AllocateVectors(count, info->start_vector,
+		info->address_value, info->data_value);
 	if (result != B_OK)
 		return result;
 
@@ -2017,7 +2020,10 @@ PCI::UnconfigureMSI(PCIDev *device)
 	if (info->configured_count == 0)
 		return B_NO_INIT;
 
-	msi_free_vectors(info->configured_count, info->start_vector);
+	domain_data *domain = _GetDomainData(device->domain);
+	MSIInterface *driver = domain->controller->GetMsiDriver();
+
+	driver->FreeVectors(info->configured_count, info->start_vector);
 
 	info->control_value &= ~PCI_msi_control_mme_mask;
 	WriteConfig(device, info->capability_offset + PCI_msi_control, 2,
@@ -2165,8 +2171,11 @@ PCI::ConfigureMSIX(PCIDev *device, uint8 count, uint8 *startVector)
 		info->pba_area_id = -1;
 	info->pba_address = address + info->pba_offset;
 
-	status_t result = msi_allocate_vectors(count, &info->start_vector,
-		&info->address_value, &info->data_value);
+	domain_data *domain = _GetDomainData(device->domain);
+	MSIInterface *driver = domain->controller->GetMsiDriver();
+
+	status_t result = driver->AllocateVectors(count, info->start_vector,
+		info->address_value, info->data_value);
 	if (result != B_OK) {
 		delete_area(info->pba_area_id);
 		delete_area(info->table_area_id);
@@ -2367,7 +2376,10 @@ PCI::_UnconfigureMSIX(PCIDev *device)
 	WriteConfig(device, info->capability_offset + PCI_msix_control, 2,
 		info->control_value);
 
-	msi_free_vectors(info->configured_count, info->start_vector);
+	domain_data *domain = _GetDomainData(device->domain);
+	MSIInterface *driver = domain->controller->GetMsiDriver();
+
+	driver->FreeVectors(info->configured_count, info->start_vector);
 	for (uint8 index = 0; index < info->configured_count; index++) {
 		volatile uint32 *entry = (uint32*)(info->table_address + 16 * index);
 		if ((*(entry + 3) & PCI_msix_vctrl_mask) == 0)

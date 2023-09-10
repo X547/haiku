@@ -742,6 +742,13 @@ PciControllerPlda::PciControllerImpl::Finalize()
 }
 
 
+MSIInterface*
+PciControllerPlda::PciControllerImpl::GetMsiDriver()
+{
+	return static_cast<MSIInterface*>(&fBase.fIrqCtrl);
+}
+
+
 static driver_module_info sPciControllerPldaModule = {
 	.info = {
 		.name = PLDA_PCI_DRIVER_MODULE_NAME,
