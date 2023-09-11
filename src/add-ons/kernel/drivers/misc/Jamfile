@@ -24,3 +24,7 @@ KernelAddon <driver>test :
 KernelAddon <driver>syscon :
 	syscon.cpp
 	;
+
+KernelAddon <driver>fu740_cache :
+	fu740_cache.cpp
+	;

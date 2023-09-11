@@ -7,6 +7,7 @@
 #include <KernelExport.h>
 
 #include <arch/cpu.h>
+#include <arch/generic/cache_controller.h>
 #include <boot/kernel_args.h>
 #include <vm/VMAddressSpace.h>
 #include <vm/vm_priv.h>
@@ -21,28 +22,33 @@
 #include <algorithm>
 
 
-enum {
-	L2_CACHE_BASE_ADDR = 0x2010000,
-};
-
-enum {
-	CACHELINE_SIZE = 64,
-};
-
-struct L2CacheRegs {
-	uint32 unknown1[128];
-	uint64 flush64;
-};
-
-static_assert(offsetof(L2CacheRegs, flush64) == 0x200);
-
-
 extern "C" void SVec();
 
 extern uint32 gPlatform;
 
-static area_id sL2CacheArea = B_ERROR;
-static L2CacheRegs volatile* sL2CacheRegs;
+
+static CacheController* sCacheController {};
+uint32 sCacheBlockSize;
+
+
+status_t
+install_cache_controller(CacheController* ctrl)
+{
+	if (sCacheController != NULL)
+		return B_ERROR;
+
+	sCacheController = ctrl;
+	sCacheBlockSize = sCacheController->CacheBlockSize();
+	return TRUE;
+}
+
+
+void
+uninstall_cache_controller(CacheController* ctrl)
+{
+	if (sCacheController == ctrl)
+		sCacheController = NULL;
+}
 
 
 status_t
@@ -101,10 +107,6 @@ arch_cpu_init_post_vm(kernel_args *args)
 		VMAddressSpace::Kernel()->Get();
 	}
 
-	sL2CacheArea = map_physical_memory("L2 Cache MMIO", L2_CACHE_BASE_ADDR, sizeof(L2CacheRegs), B_ANY_KERNEL_ADDRESS,
-		B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA, (void**)&sL2CacheRegs);
-	ASSERT_ALWAYS(sL2CacheArea >= B_OK);
-
 	return B_OK;
 }
 
@@ -119,15 +121,18 @@ arch_cpu_init_post_modules(kernel_args *args)
 void
 arch_cpu_flush_dcache(void *address, size_t len)
 {
+	if (sCacheController == NULL)
+		return;
+
 	VMAddressSpacePutter addressSpace(VMAddressSpace::GetCurrent());
 	auto map = (RISCV64VMTranslationMap*)addressSpace->TranslationMap();
 
 	memory_full_barrier();
-	addr_t begin = ROUNDDOWN((addr_t)address, CACHELINE_SIZE);
-	addr_t end = ROUNDUP((addr_t)address + len, CACHELINE_SIZE);
+	addr_t begin = ROUNDDOWN((addr_t)address, sCacheBlockSize);
+	addr_t end = ROUNDUP((addr_t)address + len, sCacheBlockSize);
 	phys_addr_t physAdr = 0;
 	uint32 pageFlags = 0;
-	for (addr_t line = begin; line != end; line += CACHELINE_SIZE) {
+	for (addr_t line = begin; line != end; line += sCacheBlockSize) {
 		if (line == begin || (line % B_PAGE_SIZE) == 0) {
 			map->Lock();
 			map->Query(ROUNDDOWN(line, B_PAGE_SIZE), &physAdr, &pageFlags);
@@ -136,7 +141,7 @@ arch_cpu_flush_dcache(void *address, size_t len)
 		if ((PAGE_PRESENT & pageFlags) == 0)
 			continue;
 
-		sL2CacheRegs->flush64 = physAdr + (line % B_PAGE_SIZE);
+		sCacheController->FlushCache(physAdr + (line % B_PAGE_SIZE));
 		memory_full_barrier();
 	}
 }
