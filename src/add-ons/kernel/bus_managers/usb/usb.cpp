@@ -68,8 +68,6 @@ UsbBusManagerImpl2::Init()
 	if (!fBusManager.IsSet())
 		return B_NO_MEMORY;
 
-	CHECK_RET(fBusManager->InitCheck());
-
 	fHostCtrl->SetBusManager(Stack::Instance().GetStackIface(), fBusManager->GetBusManagerIface());
 
 	CHECK_RET(fBusManager->Start());

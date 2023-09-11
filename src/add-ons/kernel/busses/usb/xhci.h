@@ -145,6 +145,7 @@ public:
 
 			// Port operations for root hub
 			uint8				PortCount() const { return fPortCount; }
+			usb_speed			GetPortProtocol(uint8 index) const { return fPortSpeeds[index]; }
 			status_t			GetPortStatus(uint8 index,
 									usb_port_status *status);
 			status_t			SetPortFeature(uint8 index, uint16 feature);
@@ -291,12 +292,16 @@ private:
 			bool				fStopThreads {};
 
 			// Root Hub
-			XHCIRootHub*		fRootHub {};
+			XHCIRootHub*		fRootHub2 {};
+			XHCIRootHub*		fRootHub3 {};
 
 			// Port management
 			uint8				fPortCount {};
+			uint8				fUsb2PortCount {};
+			uint8				fUsb3PortCount {};
 			uint8				fSlotCount {};
 			usb_speed			fPortSpeeds[XHCI_MAX_PORTS] {};
+			uint8				fRootHubPorts[XHCI_MAX_PORTS] {};
 
 			// Scratchpad
 			uint32				fScratchpadCount {};
@@ -339,27 +344,48 @@ private:
 
 class XHCIRootHub {
 public:
-static	status_t				Create(XHCIRootHub*& outHub, XHCI* xhci, UsbBusManager *busManager,
-									int8 deviceAddress);
+static	status_t				Create(XHCIRootHub*& outHub, XHCI* xhci, UsbBusManager *busManager, bool isUsb3);
 
 								XHCIRootHub(XHCI* xhci): fXhci(xhci) {}
-								~XHCIRootHub();
+virtual							~XHCIRootHub();
 
 		UsbBusDevice*			GetDevice() const {return fDevice;}
+		uint8					GetXHCIPort(uint32 portNo) {return fPorts[portNo - 1];}
 
-		status_t				ProcessTransfer(UsbBusTransfer *transfer);
+virtual	status_t				ProcessTransfer(UsbBusTransfer *transfer);
 
 		void					PortStatusChanged(uint32 portNo);
 
 private:
 		void					TryCompleteInterruptTransfer();
 
-private:
+protected:
 	mutex fLock = MUTEX_INITIALIZER("XHCIRootHub");
 	XHCI *fXhci;
 	UsbBusDevice* fDevice {};
-	UsbBusTransfer* fInterruptTransfer {};
 
+	uint32 fPortCount {};
+	uint8 fPorts[USB_MAX_PORT_COUNT] {};
+
+	UsbBusTransfer* fInterruptTransfer {};
 	bool fHasChangedPorts {};
 	uint8 fChangedPorts[USB_MAX_PORT_COUNT / 8] {};
+};
+
+
+class XHCI2RootHub: public XHCIRootHub {
+public:
+								XHCI2RootHub(XHCI* xhci): XHCIRootHub(xhci) {}
+virtual							~XHCI2RootHub() = default;
+
+		status_t				ProcessTransfer(UsbBusTransfer *transfer) final;
+};
+
+
+class XHCI3RootHub: public XHCIRootHub {
+public:
+								XHCI3RootHub(XHCI* xhci): XHCIRootHub(xhci) {}
+virtual							~XHCI3RootHub() = default;
+
+		status_t				ProcessTransfer(UsbBusTransfer *transfer) final;
 };

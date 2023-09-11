@@ -411,7 +411,7 @@ UsbBusManagerImpl::CreateDevice(UsbBusDevice*& outDevice, UsbBusDevice* parentIf
 	Device* parent = (parentIface == NULL) ? NULL : static_cast<UsbBusDeviceImpl*>(parentIface)->Base();
 
 	ObjectDeleter<Device> device(new(std::nothrow) Device(&fBase, parent, hubAddress, hubPort,
-		deviceAddress, speed, parent == NULL, controllerCookie));
+		deviceAddress, speed, controllerCookie));
 
 	if (!device.IsSet())
 		return B_NO_MEMORY;
@@ -423,10 +423,8 @@ UsbBusManagerImpl::CreateDevice(UsbBusDevice*& outDevice, UsbBusDevice* parentIf
 
 	CHECK_RET(device->Init());
 
-	if (parent == NULL) {
-		fBase.SetRootHub(device.Get());
+	if (parent == NULL)
 		device->RegisterNode(fBase.Node());
-	}
 
 	unsetOutDevice.Detach();
 	device.Detach();

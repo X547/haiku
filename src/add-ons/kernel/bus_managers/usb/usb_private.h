@@ -177,8 +177,6 @@ public:
 virtual									~BusManager();
 		UsbBusManager *					GetBusManagerIface() {return &fBusManagerIface;}
 
-virtual	status_t						InitCheck();
-
 		bool							Lock();
 		void							Unlock();
 
@@ -206,9 +204,6 @@ inline	status_t						CancelQueuedTransfers(Pipe *pipe,
 inline	status_t						NotifyPipeChange(Pipe *pipe,
 											usb_change change);
 
-		Device *						GetRootHub() const { return fRootHub; }
-		void							SetRootHub(Device *hub) { fRootHub = hub; }
-
 		const char *					TypeName() const {return fHostController->TypeName();}
 
 		DeviceNode *					Node() const
@@ -219,9 +214,6 @@ inline	status_t						NotifyPipeChange(Pipe *pipe,
 protected:
 		usb_id							USBID() const { return fStackIndex; }
 
-protected:
-		bool							fInitOK;
-
 private:
 		UsbHostController *				fHostController;
 
@@ -229,8 +221,6 @@ private:
 
 		bool							fDeviceMap[128];
 		int8							fDeviceIndex;
-
-		Device *						fRootHub;
 
 		usb_id							fStackIndex;
 
@@ -530,7 +520,7 @@ public:
 										Device(BusManager *busManager, Device *parent, int8 hubAddress,
 											uint8 hubPort,
 											int8 deviceAddress,
-											usb_speed speed, bool isRootHub,
+											usb_speed speed,
 											void *controllerCookie = NULL);
 virtual									~Device();
 

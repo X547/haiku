@@ -59,6 +59,8 @@ public:
 private:
 	status_t Init();
 
+	bool IsUsb3() {return fUsbDevice->GetDeviceDescriptor()->usb_version >= 0x0300;}
+
 	status_t UpdatePortStatus(uint8 index);
 	status_t ResetPort(uint8 index);
 	status_t DisablePort(uint8 index);
@@ -102,6 +104,9 @@ UsbHubDriver::Init()
 	dprintf("UsbHubDriver::Init()\n");
 
 	fUsbDevice = fNode->QueryBusInterface<UsbDevice>();
+
+	dprintf("  IsUsb3(): %d\n", IsUsb3());
+	dprintf("  Speed(): %d\n", fUsbDevice->Speed());
 
 	size_t actualLength;
 	CHECK_RET_MSG(fUsbDevice->SendRequest(
@@ -346,24 +351,16 @@ UsbHubDriver::UpdatePort(uint8 index)
 
 				// Determine the device speed.
 				usb_speed speed;
-
-				// PORT_STATUS_LOW_SPEED and PORT_STATUS_SS_POWER are the
-				// same, but PORT_STATUS_POWER will not be set for SS
-				// devices, hence this somewhat convoluted logic.
-				if ((fPortStatus[i].status & PORT_STATUS_POWER) != 0) {
+				if (IsUsb3()) {
+					speed = USB_SPEED_SUPERSPEED;
+				} else {
 					if ((fPortStatus[i].status & PORT_STATUS_HIGH_SPEED) != 0)
 						speed = USB_SPEED_HIGHSPEED;
 					else if ((fPortStatus[i].status & PORT_STATUS_LOW_SPEED) != 0)
 						speed = USB_SPEED_LOWSPEED;
 					else
 						speed = USB_SPEED_FULLSPEED;
-				} else {
-					// This must be a SuperSpeed device, which will
-					// simply inherit our speed.
-					speed = fUsbDevice->Speed();
 				}
-				if (speed > fUsbDevice->Speed())
-					speed = fUsbDevice->Speed();
 
 				uint8 hubPort = index;
 				UsbDevice* newDevice = NULL;

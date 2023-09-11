@@ -21,11 +21,11 @@
 
 Device::Device(BusManager *busManager, Device* parent, int8 hubAddress, uint8 hubPort,
 	int8 deviceAddress, usb_speed speed,
-	bool isRootHub, void* controllerCookie)
+	void* controllerCookie)
 	:
 	Object(busManager),
 	fParent(parent),
-	fIsRootHub(isRootHub),
+	fIsRootHub(parent == NULL),
 	fSpeed(speed),
 	fDeviceAddress(deviceAddress),
 	fHubAddress(hubAddress),

@@ -13,9 +13,7 @@
 
 
 BusManager::BusManager(UsbHostController* hostCtrl, DeviceNode* node)
-	:	fInitOK(false),
-		fHostController(hostCtrl),
-		fRootHub(NULL),
+	:	fHostController(hostCtrl),
 		fStackIndex((uint32)-1),
 		fNode(node),
 		fBusManagerIface(*this)
@@ -26,8 +24,6 @@ BusManager::BusManager(UsbHostController* hostCtrl, DeviceNode* node)
 	for (int32 i = 0; i < 128; i++)
 		fDeviceMap[i] = false;
 	fDeviceIndex = 0;
-
-	fInitOK = true;
 }
 
 
@@ -35,16 +31,6 @@ BusManager::~BusManager()
 {
 	Lock();
 	mutex_destroy(&fLock);
-}
-
-
-status_t
-BusManager::InitCheck()
-{
-	if (fInitOK)
-		return B_OK;
-
-	return B_ERROR;
 }
 
 

@@ -305,9 +305,6 @@ XHCI::Init()
 	TRACE("installing interrupt handler, irq: %" B_PRIu8 "\n", fIRQ);
 	install_io_interrupt_handler(fIRQ, InterruptHandler, (void *)this, 0);
 
-	memset(fPortSpeeds, 0, sizeof(fPortSpeeds));
-	memset(fDevices, 0, sizeof(fDevices));
-
 	static const device_attr attrs[] = {
 		{B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "USB Bus Manager"}},
 		{B_DEVICE_FIXED_CHILD, B_STRING_TYPE, {.string = "bus_managers/usb/driver/v1"}},
@@ -324,9 +321,14 @@ XHCI::~XHCI()
 {
 	TRACE("tear down XHCI host controller driver\n");
 
-	if (fRootHub != NULL) {
-		delete fRootHub;
-		fRootHub = NULL;
+	if (fRootHub2 != NULL) {
+		delete fRootHub2;
+		fRootHub2 = NULL;
+	}
+
+	if (fRootHub3 != NULL) {
+		delete fRootHub3;
+		fRootHub3 = NULL;
 	}
 
 	WriteOpReg(XHCI_CMD, 0);
@@ -426,12 +428,15 @@ XHCI::Start()
 			continue;
 		offset--;
 		for (uint32 i = offset; i < offset + count; i++) {
-			if (XHCI_SUPPORTED_PROTOCOLS_0_MAJOR(eec) == 0x3)
+			if (XHCI_SUPPORTED_PROTOCOLS_0_MAJOR(eec) == 0x3) {
+				fRootHubPorts[i] = ++fUsb3PortCount;
 				fPortSpeeds[i] = USB_SPEED_SUPERSPEED;
-			else
+			} else {
+				fRootHubPorts[i] = ++fUsb2PortCount;
 				fPortSpeeds[i] = USB_SPEED_HIGHSPEED;
+			}
 
-			TRACE("speed for port %" B_PRId32 " is %s\n", i,
+			TRACE_ALWAYS("speed for port %" B_PRId32 " is %s\n", i,
 				fPortSpeeds[i] == USB_SPEED_SUPERSPEED ? "super" : "high");
 		}
 		portFound += count;
@@ -573,10 +578,12 @@ XHCI::Start()
 		TRACE_ERROR("HCH start up timeout\n");
 	}
 
-	status_t res = XHCIRootHub::Create(fRootHub, this, fBusManager, 1);
-	if (res < B_OK) {
-		TRACE_ERROR("root hub failed init check\n");
-		return res;
+	if (fUsb2PortCount > 0) {
+		CHECK_RET(XHCIRootHub::Create(fRootHub2, this, fBusManager, false));
+	}
+
+	if (fUsb3PortCount > 0) {
+		CHECK_RET(XHCIRootHub::Create(fRootHub3, this, fBusManager, true));
 	}
 
 	TRACE_ALWAYS("successfully started the controller\n");
@@ -603,8 +610,10 @@ XHCI::SubmitTransfer(UsbBusTransfer* transfer)
 	TRACE("SubmitTransfer(%p)\n", transfer);
 
 	// short circuit the root hub
-	if (transfer->TransferPipe()->GetDevice() == fRootHub->GetDevice())
-		return fRootHub->ProcessTransfer(transfer);
+	if (fRootHub2 != NULL && transfer->TransferPipe()->GetDevice() == fRootHub2->GetDevice())
+		return fRootHub2->ProcessTransfer(transfer);
+	if (fRootHub3 != NULL && transfer->TransferPipe()->GetDevice() == fRootHub3->GetDevice())
+		return fRootHub3->ProcessTransfer(transfer);
 
 	UsbBusPipe *pipe = transfer->TransferPipe();
 	if (pipe->Type() == USB_PIPE_CONTROL)
@@ -1327,7 +1336,20 @@ XHCI::AllocateDevice(UsbBusDevice* parent, int8 hubAddress, uint8 hubPort, usb_s
 	_WriteContext(&device->input_ctx->input.dropFlags, 0);
 	_WriteContext(&device->input_ctx->input.addFlags, 3);
 
-	uint8 rhPort = hubPort;
+	auto TranslateRootHubPort = [this] (UsbBusDevice* parent, uint8 hubPort) -> uint8 {
+		if (fRootHub2 != NULL && parent == fRootHub2->GetDevice()) {
+			uint8 xhciPort = fRootHub2->GetXHCIPort(hubPort);
+			TRACE_ALWAYS("USB 2 port %d -> XHCI port %d\n", hubPort, xhciPort);
+			return xhciPort + 1;
+		} else if (fRootHub3 != NULL && parent == fRootHub3->GetDevice()) {
+			uint8 xhciPort = fRootHub3->GetXHCIPort(hubPort);
+			TRACE_ALWAYS("USB 3 port %d -> XHCI port %d\n", hubPort, xhciPort);
+			return xhciPort + 1;
+		}
+		return hubPort;
+	};
+
+	uint8 rhPort = TranslateRootHubPort(parent, hubPort);
 	uint32 route = 0;
 	for (UsbBusDevice *hubDevice = parent; hubDevice != NULL; hubDevice = hubDevice->Parent()) {
 		if (hubDevice->Parent() == NULL)
@@ -1338,17 +1360,19 @@ XHCI::AllocateDevice(UsbBusDevice* parent, int8 hubAddress, uint8 hubPort, usb_s
 		route = route << 4;
 		route |= rhPort;
 
-		rhPort = hubDevice->HubPort();
+		rhPort = TranslateRootHubPort(hubDevice, hubDevice->HubPort());
 	}
 
 	uint32 dwslot0 = SLOT_0_NUM_ENTRIES(1) | SLOT_0_ROUTE(route);
 
+#if 0
 	// Get speed of port, only if device connected to root hub port
 	// else we have to rely on value reported by the Hub Explore thread
 	if (route == 0) {
 		GetPortSpeed(hubPort - 1, &speed);
-		TRACE("speed updated %d\n", speed);
+		TRACE_ALWAYS("speed updated %d\n", speed);
 	}
+#endif
 
 	// add the speed
 	switch (speed) {
@@ -1510,7 +1534,7 @@ XHCI::InitDevice(UsbBusDevice* usbDevice, const usb_device_descriptor& deviceDes
 		deviceDescriptor.device_protocol);
 
 	void* cookie = usbDevice->ControllerCookie();
-	if ((XHCIRootHub*)cookie == fRootHub)
+	if (cookie != NULL && ((XHCIRootHub*)cookie == fRootHub2 || (XHCIRootHub*)cookie == fRootHub3))
 		return B_OK;
 
 	xhci_device* device = (xhci_device*)cookie;
@@ -1538,7 +1562,7 @@ status_t
 XHCI::InitHub(UsbBusDevice* usbDevice, const usb_hub_descriptor& hubDescriptor)
 {
 	void* cookie = usbDevice->ControllerCookie();
-	if ((XHCIRootHub*)cookie == fRootHub)
+	if (cookie != NULL && ((XHCIRootHub*)cookie == fRootHub2 || (XHCIRootHub*)cookie == fRootHub3))
 		return B_OK;
 
 	xhci_device* device = (xhci_device*)cookie;
@@ -2750,9 +2774,18 @@ XHCI::ProcessEvents()
 		case TRB_TYPE_TRANSFER:
 			HandleTransferComplete(&fEventRing[i]);
 			break;
-		case TRB_TYPE_PORT_STATUS_CHANGE:
-			fRootHub->PortStatusChanged((uint32)fEventRing[i].address >> 24);
+		case TRB_TYPE_PORT_STATUS_CHANGE: {
+			uint32 portNo = (uint32)fEventRing[i].address >> 24;
+			if (portNo < 1 || portNo - 1 >= fPortCount)
+				break;
+
+			if (fPortSpeeds[portNo - 1] == USB_SPEED_SUPERSPEED)
+				fRootHub3->PortStatusChanged(fRootHubPorts[portNo - 1]);
+			else
+				fRootHub2->PortStatusChanged(fRootHubPorts[portNo - 1]);
+
 			break;
+		}
 		default:
 			TRACE_ERROR("Unhandled event = %u\n", event);
 			break;
