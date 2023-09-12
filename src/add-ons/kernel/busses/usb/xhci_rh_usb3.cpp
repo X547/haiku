@@ -1,10 +1,12 @@
 /*
- * Copyright 2006, Haiku Inc. All rights reserved.
+ * Copyright 2011, Haiku Inc. All rights reserved.
  * Distributed under the terms of the MIT License.
  *
  * Authors:
  *		Michael Lotz <mmlr@mlotz.ch>
+ * 		Jian Chiang <j.jian.chiang@gmail.com>
  */
+
 
 #include "xhci.h"
 
@@ -16,14 +18,14 @@ static usb_device_descriptor sXHCIRootHubDevice =
 {
 	18,								// Descriptor length
 	USB_DESCRIPTOR_DEVICE,			// Descriptor type
-	0x200,							// USB 2.0
+	0x300,							// USB 3.0
 	0x09,							// Class (9 = Hub)
 	0,								// Subclass
-	0,								// Protocol
-	64,								// Max packet size on endpoint 0
+	3,								// Protocol
+	9,								// Max packet size on endpoint 0
 	0,								// Vendor ID
 	0,								// Product ID
-	0x200,							// Version
+	0x300,							// Version
 	1,								// Index of manufacturer string
 	2,								// Index of product string
 	0,								// Index of serial number string
@@ -35,6 +37,7 @@ struct xhci_root_hub_configuration_s {
 	usb_configuration_descriptor	configuration;
 	usb_interface_descriptor		interface;
 	usb_endpoint_descriptor			endpoint;
+	usb_endpoint_ss_companion_descriptor endpoint_ss_companion;
 	usb_hub_descriptor				hub;
 } _PACKED;
 
@@ -44,7 +47,7 @@ static xhci_root_hub_configuration_s sXHCIRootHubConfig =
 	{ // configuration descriptor
 		9,								// Descriptor length
 		USB_DESCRIPTOR_CONFIGURATION,	// Descriptor type
-		34,								// Total length of configuration (including
+		sizeof(sXHCIRootHubConfig),		// Total length of configuration (including
 										// interface, endpoint and hub descriptors)
 		1,								// Number of interfaces
 		1,								// Value of this configuration
@@ -70,8 +73,16 @@ static xhci_root_hub_configuration_s sXHCIRootHubConfig =
 		USB_DESCRIPTOR_ENDPOINT,		// Descriptor type
 		USB_REQTYPE_DEVICE_IN | 1,		// Endpoint address (first in IN endpoint)
 		0x03,							// Attributes (0x03 = interrupt endpoint)
-		8,								// Max packet size
+		2,								// Max packet size
 		0xff							// Interval
+	},
+
+	{ // endpoint companion descriptor
+		6,
+		USB_DESCRIPTOR_ENDPOINT_SS_COMPANION,
+		0,
+		0,
+		0
 	},
 
 	{ // hub descriptor
@@ -80,10 +91,10 @@ static xhci_root_hub_configuration_s sXHCIRootHubConfig =
 		USB_DESCRIPTOR_HUB,				// Descriptor type
 		0x0f,							// Number of ports
 		0x0000,							// Hub characteristics
-		0,								// Power on to power good (in 2ms units)
+		10,								// Power on to power good (in 2ms units)
 		0,								// Maximum current (in mA)
 		0x00,							// All ports are removable
-		0xff							// Depricated power control mask
+		0xff							// Deprecated power control mask
 	}
 };
 
@@ -119,7 +130,7 @@ static xhci_root_hub_string_s sXHCIRootHubStrings[3] = {
 
 
 status_t
-XHCI2RootHub::ProcessTransfer(UsbBusTransfer *transfer)
+XHCI3RootHub::ProcessTransfer(UsbBusTransfer *transfer)
 {
 	if (transfer->TransferPipe()->Type() != USB_PIPE_CONTROL)
 		return XHCIRootHub::ProcessTransfer(transfer);

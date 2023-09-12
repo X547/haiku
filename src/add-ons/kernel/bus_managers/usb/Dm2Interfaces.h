@@ -2,6 +2,8 @@
 
 #include <dm2/bus/USB.h>
 
+#include "usb_raw_private.h"
+
 
 class Object;
 class Device;
@@ -25,7 +27,9 @@ private:
 
 class UsbDeviceImpl final: public BusDriver, public UsbDevice {
 public:
-	UsbDeviceImpl(Device& base): fBase(base) {}
+	UsbDeviceImpl(Device& base): fBase(base), fDevfsNode(this) {}
+
+	status_t Init();
 
 	// BusDriver
 	void* QueryInterface(const char* name) final;
@@ -74,6 +78,7 @@ public:
 
 private:
 	Device& fBase;
+	UsbDevFsNode fDevfsNode;
 };
 
 

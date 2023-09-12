@@ -41,7 +41,7 @@
 struct xhci_td;
 struct xhci_device;
 struct xhci_endpoint;
-class XHCIRootHub;
+class XHCI;
 
 
 /* Each transfer requires 2 TRBs on the endpoint "ring" (one for the link TRB,
@@ -106,9 +106,65 @@ typedef struct xhci_device {
 } xhci_device;
 
 
+class XHCIRootHub {
+public:
+		status_t				Init(UsbBusManager *busManager);
+
+								XHCIRootHub(XHCI* xhci): fXhci(xhci) {}
+virtual							~XHCIRootHub();
+
+		UsbBusDevice*			GetDevice() const {return fDevice;}
+		uint8					AddPort(uint32 xhciPort);
+		uint8					GetXHCIPort(uint32 portNo) {return fPorts[portNo - 1];}
+
+virtual	bool					IsUsb3() = 0;
+virtual	status_t				ProcessTransfer(UsbBusTransfer *transfer);
+
+		void					PortStatusChanged(uint32 portNo);
+
+private:
+		void					TryCompleteInterruptTransfer();
+
+protected:
+	mutex fLock = MUTEX_INITIALIZER("XHCIRootHub");
+	XHCI *fXhci;
+	UsbBusDevice* fDevice {};
+
+	uint8 fPortCount {};
+	uint8 fPorts[USB_MAX_PORT_COUNT] {};
+
+	UsbBusTransfer* fInterruptTransfer {};
+	bool fHasChangedPorts {};
+	uint8 fChangedPorts[USB_MAX_PORT_COUNT / 8] {};
+};
+
+
+class XHCI2RootHub: public XHCIRootHub {
+public:
+								XHCI2RootHub(XHCI* xhci): XHCIRootHub(xhci) {}
+virtual							~XHCI2RootHub() = default;
+
+		bool					IsUsb3() final { return false; };
+		status_t				ProcessTransfer(UsbBusTransfer *transfer) final;
+};
+
+
+class XHCI3RootHub: public XHCIRootHub {
+public:
+								XHCI3RootHub(XHCI* xhci): XHCIRootHub(xhci) {}
+virtual							~XHCI3RootHub() = default;
+
+		bool					IsUsb3() final { return true; };
+		status_t				ProcessTransfer(UsbBusTransfer *transfer) final;
+};
+
+
 class XHCI: public DeviceDriver, public UsbHostController {
 public:
-					XHCI(DeviceNode* node): fNode(node), fBusManagerDriver(*this) {}
+					XHCI(DeviceNode* node):
+						fNode(node),
+						fRootHub2(this), fRootHub3(this),
+						fBusManagerDriver(*this) {}
 	virtual 		~XHCI();
 
 	// DeviceDriver
@@ -291,14 +347,12 @@ private:
 			sem_id				fCmdCompSem = -1;
 			bool				fStopThreads {};
 
-			// Root Hub
-			XHCIRootHub*		fRootHub2 {};
-			XHCIRootHub*		fRootHub3 {};
+			// Root Hubs
+			XHCI2RootHub		fRootHub2;
+			XHCI3RootHub		fRootHub3;
 
 			// Port management
 			uint8				fPortCount {};
-			uint8				fUsb2PortCount {};
-			uint8				fUsb3PortCount {};
 			uint8				fSlotCount {};
 			usb_speed			fPortSpeeds[XHCI_MAX_PORTS] {};
 			uint8				fRootHubPorts[XHCI_MAX_PORTS] {};
@@ -339,53 +393,4 @@ private:
 	private:
 		XHCI& fBase;
 	} fBusManagerDriver;
-};
-
-
-class XHCIRootHub {
-public:
-static	status_t				Create(XHCIRootHub*& outHub, XHCI* xhci, UsbBusManager *busManager, bool isUsb3);
-
-								XHCIRootHub(XHCI* xhci): fXhci(xhci) {}
-virtual							~XHCIRootHub();
-
-		UsbBusDevice*			GetDevice() const {return fDevice;}
-		uint8					GetXHCIPort(uint32 portNo) {return fPorts[portNo - 1];}
-
-virtual	status_t				ProcessTransfer(UsbBusTransfer *transfer);
-
-		void					PortStatusChanged(uint32 portNo);
-
-private:
-		void					TryCompleteInterruptTransfer();
-
-protected:
-	mutex fLock = MUTEX_INITIALIZER("XHCIRootHub");
-	XHCI *fXhci;
-	UsbBusDevice* fDevice {};
-
-	uint32 fPortCount {};
-	uint8 fPorts[USB_MAX_PORT_COUNT] {};
-
-	UsbBusTransfer* fInterruptTransfer {};
-	bool fHasChangedPorts {};
-	uint8 fChangedPorts[USB_MAX_PORT_COUNT / 8] {};
-};
-
-
-class XHCI2RootHub: public XHCIRootHub {
-public:
-								XHCI2RootHub(XHCI* xhci): XHCIRootHub(xhci) {}
-virtual							~XHCI2RootHub() = default;
-
-		status_t				ProcessTransfer(UsbBusTransfer *transfer) final;
-};
-
-
-class XHCI3RootHub: public XHCIRootHub {
-public:
-								XHCI3RootHub(XHCI* xhci): XHCIRootHub(xhci) {}
-virtual							~XHCI3RootHub() = default;
-
-		status_t				ProcessTransfer(UsbBusTransfer *transfer) final;
 };

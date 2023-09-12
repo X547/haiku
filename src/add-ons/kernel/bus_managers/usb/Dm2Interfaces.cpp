@@ -2,27 +2,29 @@
 
 #include "usb_private.h"
 
+#define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
+
 
 // #pragma mark - UsbObjectImpl
 
 status_t
 UsbObjectImpl::SetFeature(uint16 selector)
 {
-	return fBase.SetFeature(selector);;
+	return fBase.SetFeature(selector);
 }
 
 
 status_t
 UsbObjectImpl::ClearFeature(uint16 selector)
 {
-	return fBase.ClearFeature(selector);;
+	return fBase.ClearFeature(selector);
 }
 
 
 status_t
 UsbObjectImpl::GetStatus(uint16 *status)
 {
-	return fBase.GetStatus(status);;
+	return fBase.GetStatus(status);
 }
 
 
@@ -35,6 +37,22 @@ UsbDeviceImpl::QueryInterface(const char* name)
 		return static_cast<UsbDevice*>(this);
 
 	return NULL;
+}
+
+
+status_t
+UsbDeviceImpl::Init()
+{
+	dprintf("UsbDeviceImpl::Init()\n");
+	DeviceNode* node = fBase.Node();
+
+	char path[256];
+	uint32 index = 0;
+	CHECK_RET(fBase.BuildDeviceName(path, index, B_COUNT_OF(path)));
+	dprintf("  path: \"%s\"\n", path);
+
+	CHECK_RET(node->RegisterDevFsNode(path, &fDevfsNode));
+	return B_OK;
 }
 
 

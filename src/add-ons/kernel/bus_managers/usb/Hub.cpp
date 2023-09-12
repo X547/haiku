@@ -354,10 +354,10 @@ UsbHubDriver::UpdatePort(uint8 index)
 				if (IsUsb3()) {
 					speed = USB_SPEED_SUPERSPEED;
 				} else {
-					if ((fPortStatus[i].status & PORT_STATUS_HIGH_SPEED) != 0)
-						speed = USB_SPEED_HIGHSPEED;
-					else if ((fPortStatus[i].status & PORT_STATUS_LOW_SPEED) != 0)
+					if ((fPortStatus[i].status & PORT_STATUS_LOW_SPEED) != 0)
 						speed = USB_SPEED_LOWSPEED;
+					else if ((fPortStatus[i].status & PORT_STATUS_HIGH_SPEED) != 0)
+						speed = USB_SPEED_HIGHSPEED;
 					else
 						speed = USB_SPEED_FULLSPEED;
 				}

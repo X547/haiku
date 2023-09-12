@@ -30,6 +30,7 @@ KernelAddon <usb>xhci :
 	xhci.cpp
 	xhci_rh.cpp
 	xhci_rh_usb2.cpp
+	xhci_rh_usb3.cpp
 	:
 	: xhci.rdef
 	;

@@ -423,8 +423,10 @@ UsbBusManagerImpl::CreateDevice(UsbBusDevice*& outDevice, UsbBusDevice* parentIf
 
 	CHECK_RET(device->Init());
 
-	if (parent == NULL)
+	if (parent == NULL) {
+		Stack::Instance().AddRootHub(device.Get());
 		device->RegisterNode(fBase.Node());
+	}
 
 	unsetOutDevice.Detach();
 	device.Detach();

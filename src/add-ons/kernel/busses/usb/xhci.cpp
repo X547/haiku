@@ -321,16 +321,6 @@ XHCI::~XHCI()
 {
 	TRACE("tear down XHCI host controller driver\n");
 
-	if (fRootHub2 != NULL) {
-		delete fRootHub2;
-		fRootHub2 = NULL;
-	}
-
-	if (fRootHub3 != NULL) {
-		delete fRootHub3;
-		fRootHub3 = NULL;
-	}
-
 	WriteOpReg(XHCI_CMD, 0);
 
 	int32 result = 0;
@@ -429,10 +419,10 @@ XHCI::Start()
 		offset--;
 		for (uint32 i = offset; i < offset + count; i++) {
 			if (XHCI_SUPPORTED_PROTOCOLS_0_MAJOR(eec) == 0x3) {
-				fRootHubPorts[i] = ++fUsb3PortCount;
+				fRootHubPorts[i] = fRootHub3.AddPort(i);
 				fPortSpeeds[i] = USB_SPEED_SUPERSPEED;
 			} else {
-				fRootHubPorts[i] = ++fUsb2PortCount;
+				fRootHubPorts[i] = fRootHub2.AddPort(i);
 				fPortSpeeds[i] = USB_SPEED_HIGHSPEED;
 			}
 
@@ -578,13 +568,8 @@ XHCI::Start()
 		TRACE_ERROR("HCH start up timeout\n");
 	}
 
-	if (fUsb2PortCount > 0) {
-		CHECK_RET(XHCIRootHub::Create(fRootHub2, this, fBusManager, false));
-	}
-
-	if (fUsb3PortCount > 0) {
-		CHECK_RET(XHCIRootHub::Create(fRootHub3, this, fBusManager, true));
-	}
+	CHECK_RET(fRootHub2.Init(fBusManager));
+	CHECK_RET(fRootHub3.Init(fBusManager));
 
 	TRACE_ALWAYS("successfully started the controller\n");
 
@@ -600,6 +585,7 @@ XHCI::Start()
 status_t
 XHCI::Stop()
 {
+	// TODO
 	return B_OK;
 }
 
@@ -610,10 +596,10 @@ XHCI::SubmitTransfer(UsbBusTransfer* transfer)
 	TRACE("SubmitTransfer(%p)\n", transfer);
 
 	// short circuit the root hub
-	if (fRootHub2 != NULL && transfer->TransferPipe()->GetDevice() == fRootHub2->GetDevice())
-		return fRootHub2->ProcessTransfer(transfer);
-	if (fRootHub3 != NULL && transfer->TransferPipe()->GetDevice() == fRootHub3->GetDevice())
-		return fRootHub3->ProcessTransfer(transfer);
+	if (transfer->TransferPipe()->GetDevice() == fRootHub2.GetDevice())
+		return fRootHub2.ProcessTransfer(transfer);
+	if (transfer->TransferPipe()->GetDevice() == fRootHub3.GetDevice())
+		return fRootHub3.ProcessTransfer(transfer);
 
 	UsbBusPipe *pipe = transfer->TransferPipe();
 	if (pipe->Type() == USB_PIPE_CONTROL)
@@ -1337,12 +1323,12 @@ XHCI::AllocateDevice(UsbBusDevice* parent, int8 hubAddress, uint8 hubPort, usb_s
 	_WriteContext(&device->input_ctx->input.addFlags, 3);
 
 	auto TranslateRootHubPort = [this] (UsbBusDevice* parent, uint8 hubPort) -> uint8 {
-		if (fRootHub2 != NULL && parent == fRootHub2->GetDevice()) {
-			uint8 xhciPort = fRootHub2->GetXHCIPort(hubPort);
+		if (parent == fRootHub2.GetDevice()) {
+			uint8 xhciPort = fRootHub2.GetXHCIPort(hubPort);
 			TRACE_ALWAYS("USB 2 port %d -> XHCI port %d\n", hubPort, xhciPort);
 			return xhciPort + 1;
-		} else if (fRootHub3 != NULL && parent == fRootHub3->GetDevice()) {
-			uint8 xhciPort = fRootHub3->GetXHCIPort(hubPort);
+		} else if (parent == fRootHub3.GetDevice()) {
+			uint8 xhciPort = fRootHub3.GetXHCIPort(hubPort);
 			TRACE_ALWAYS("USB 3 port %d -> XHCI port %d\n", hubPort, xhciPort);
 			return xhciPort + 1;
 		}
@@ -1534,7 +1520,7 @@ XHCI::InitDevice(UsbBusDevice* usbDevice, const usb_device_descriptor& deviceDes
 		deviceDescriptor.device_protocol);
 
 	void* cookie = usbDevice->ControllerCookie();
-	if (cookie != NULL && ((XHCIRootHub*)cookie == fRootHub2 || (XHCIRootHub*)cookie == fRootHub3))
+	if (cookie != NULL && ((XHCIRootHub*)cookie == &fRootHub2 || (XHCIRootHub*)cookie == &fRootHub3))
 		return B_OK;
 
 	xhci_device* device = (xhci_device*)cookie;
@@ -1562,7 +1548,7 @@ status_t
 XHCI::InitHub(UsbBusDevice* usbDevice, const usb_hub_descriptor& hubDescriptor)
 {
 	void* cookie = usbDevice->ControllerCookie();
-	if (cookie != NULL && ((XHCIRootHub*)cookie == fRootHub2 || (XHCIRootHub*)cookie == fRootHub3))
+	if (cookie != NULL && ((XHCIRootHub*)cookie == &fRootHub2 || (XHCIRootHub*)cookie == &fRootHub3))
 		return B_OK;
 
 	xhci_device* device = (xhci_device*)cookie;
@@ -2780,9 +2766,9 @@ XHCI::ProcessEvents()
 				break;
 
 			if (fPortSpeeds[portNo - 1] == USB_SPEED_SUPERSPEED)
-				fRootHub3->PortStatusChanged(fRootHubPorts[portNo - 1]);
+				fRootHub3.PortStatusChanged(fRootHubPorts[portNo - 1]);
 			else
-				fRootHub2->PortStatusChanged(fRootHubPorts[portNo - 1]);
+				fRootHub2.PortStatusChanged(fRootHubPorts[portNo - 1]);
 
 			break;
 		}

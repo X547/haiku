@@ -134,6 +134,9 @@ static	Stack &							Instance();
 		int32							IndexOfBusManager(BusManager *bus);
 		BusManager *					BusManagerAt(int32 index) const;
 
+		void							AddRootHub(Device *hub);
+		void							RemoveRootHub(Device *hub);
+
 		status_t						AllocateChunk(void **logicalAddress,
 											phys_addr_t *physicalAddress,
 											size_t size);
@@ -154,6 +157,7 @@ private:
 static	Stack							sInstance;
 
 		Vector<BusManager *>			fBusManagers;
+		Vector<Device *>				fRootHubs;
 
 		mutex							fStackLock;
 		PhysicalMemoryAllocator *		fAllocator;
@@ -566,11 +570,16 @@ virtual	status_t						GetDescriptor(uint8 descriptorType,
 		void							InitEndpoints(int32 interfaceIndex);
 		void							ClearEndpoints(int32 interfaceIndex);
 
+		status_t						BuildDeviceName(char *string,
+											uint32 &index, size_t bufferSize, bool isLeaf = true);
+
 		DeviceNode *					RegisterNode(DeviceNode* parent = NULL);
 
 		int8							HubAddress() const
 											{ return fHubAddress; }
 		uint8							HubPort() const { return fHubPort; }
+		void							SetHubPort(uint8 hubPort)
+											{ fHubPort = hubPort; }
 
 		void							SetControllerCookie(void *cookie)
 											{ fControllerCookie = cookie; }

@@ -22,172 +22,33 @@
 
 #define USB_MODULE_NAME "xhci roothub"
 
-static usb_device_descriptor sXHCIRootHubDevice =
-{
-	18,								// Descriptor length
-	USB_DESCRIPTOR_DEVICE,			// Descriptor type
-	0x300,							// USB 3.0
-	0x09,							// Class (9 = Hub)
-	0,								// Subclass
-	3,								// Protocol
-	9,								// Max packet size on endpoint 0
-	0,								// Vendor ID
-	0,								// Product ID
-	0x300,							// Version
-	1,								// Index of manufacturer string
-	2,								// Index of product string
-	0,								// Index of serial number string
-	1								// Number of configurations
-};
-
-
-struct xhci_root_hub_configuration_s {
-	usb_configuration_descriptor	configuration;
-	usb_interface_descriptor		interface;
-	usb_endpoint_descriptor			endpoint;
-	usb_endpoint_ss_companion_descriptor endpoint_ss_companion;
-	usb_hub_descriptor				hub;
-} _PACKED;
-
-
-static xhci_root_hub_configuration_s sXHCIRootHubConfig =
-{
-	{ // configuration descriptor
-		9,								// Descriptor length
-		USB_DESCRIPTOR_CONFIGURATION,	// Descriptor type
-		sizeof(sXHCIRootHubConfig),		// Total length of configuration (including
-										// interface, endpoint and hub descriptors)
-		1,								// Number of interfaces
-		1,								// Value of this configuration
-		0,								// Index of configuration string
-		0x40,							// Attributes (0x40 = self powered)
-		0								// Max power (0, since self powered)
-	},
-
-	{ // interface descriptor
-		9,								// Descriptor length
-		USB_DESCRIPTOR_INTERFACE,		// Descriptor type
-		0,								// Interface number
-		0,								// Alternate setting
-		1,								// Number of endpoints
-		0x09,							// Interface class (9 = Hub)
-		0,								// Interface subclass
-		0,								// Interface protocol
-		0								// Index of interface string
-	},
-
-	{ // endpoint descriptor
-		7,								// Descriptor length
-		USB_DESCRIPTOR_ENDPOINT,		// Descriptor type
-		USB_REQTYPE_DEVICE_IN | 1,		// Endpoint address (first in IN endpoint)
-		0x03,							// Attributes (0x03 = interrupt endpoint)
-		2,								// Max packet size
-		0xff							// Interval
-	},
-
-	{ // endpoint companion descriptor
-		6,
-		USB_DESCRIPTOR_ENDPOINT_SS_COMPANION,
-		0,
-		0,
-		0
-	},
-
-	{ // hub descriptor
-		9,								// Descriptor length (including
-										// deprecated power control mask)
-		USB_DESCRIPTOR_HUB,				// Descriptor type
-		0x0f,							// Number of ports
-		0x0000,							// Hub characteristics
-		10,								// Power on to power good (in 2ms units)
-		0,								// Maximum current (in mA)
-		0x00,							// All ports are removable
-		0xff							// Deprecated power control mask
-	}
-};
-
-
-struct xhci_root_hub_string_s {
-	uint8	length;
-	uint8	descriptor_type;
-	uint16	unicode_string[12];
-} _PACKED;
-
-
-static xhci_root_hub_string_s sXHCIRootHubStrings[3] = {
-	{
-		4,								// Descriptor length
-		USB_DESCRIPTOR_STRING,			// Descriptor type
-		{
-			0x0409						// Supported language IDs (English US)
-		}
-	},
-
-	{
-		22,								// Descriptor length
-		USB_DESCRIPTOR_STRING,			// Descriptor type
-		{
-			'H', 'A', 'I', 'K', 'U',	// Characters
-			' ', 'I', 'n', 'c', '.'
-		}
-	},
-
-	{
-		26,								// Descriptor length
-		USB_DESCRIPTOR_STRING,			// Descriptor type
-		{
-			'X', 'H', 'C', 'I', ' ',	// Characters
-			'R', 'o', 'o', 't', 'H',
-			'u', 'b'
-		}
-	}
-};
-
 
 status_t
-XHCIRootHub::Create(XHCIRootHub*& outHub, XHCI *xhci, UsbBusManager *busManager, bool isUsb3)
+XHCIRootHub::Init(UsbBusManager *busManager)
 {
-	TRACE_ALWAYS("XHCIRootHub::Create(isUsb3: %d)\n", isUsb3);
+	TRACE_ALWAYS("XHCIRootHub::Init(isUsb3: %d)\n", IsUsb3());
 
-	ObjectDeleter<XHCIRootHub> rootHub(
-		isUsb3
-			? static_cast<XHCIRootHub*>(new(std::nothrow) XHCI3RootHub(xhci))
-			: static_cast<XHCIRootHub*>(new(std::nothrow) XHCI2RootHub(xhci)));
-	if (!rootHub.IsSet())
-		return B_NO_MEMORY;
-
-	for (uint32 i = 0; i < xhci->PortCount(); i++) {
-		if ((xhci->GetPortProtocol(i) == USB_SPEED_SUPERSPEED) == isUsb3) {
-			rootHub->fPorts[rootHub->fPortCount] = i;
-			TRACE_ALWAYS("  port[%" B_PRIu32 "]: %" B_PRIu32 "\n", rootHub->fPortCount, i);
-			rootHub->fPortCount++;
-		}
+	for (uint32 i = 0; i < fPortCount; i++) {
+		TRACE_ALWAYS("  port[%" B_PRIu32 "]: %" B_PRIu32 "\n", i, fPorts[i]);
 	}
 
-	if (rootHub->fPortCount == 0)
-		return ENODEV;
+	if (fPortCount == 0)
+		return B_OK;
 
-	outHub = rootHub.Get();
-	DetachableScopeExit unsetOutHub([&outHub] {
-		outHub = NULL;
-	});
+	CHECK_RET(busManager->CreateDevice(fDevice, NULL, 0, busManager->ID(),
+		1, IsUsb3() ? USB_SPEED_SUPERSPEED : USB_SPEED_HIGHSPEED, this));
 
-	CHECK_RET(busManager->CreateDevice(rootHub->fDevice, NULL, 0, busManager->ID(),
-		1, isUsb3 ? USB_SPEED_SUPERSPEED : USB_SPEED_HIGHSPEED, rootHub.Get()));
-
-	for (uint32 i = 0; i < xhci->PortCount(); i++) {
+	for (uint32 i = 0; i < fXhci->PortCount(); i++) {
 		uint32 portNo = i + 1;
 		usb_port_status portStatus;
-		if (xhci->GetPortStatus(i, &portStatus) >= B_OK) {
+		if (fXhci->GetPortStatus(i, &portStatus) >= B_OK) {
 			if (portStatus.change != 0) {
-				rootHub->fHasChangedPorts = true;
-				rootHub->fChangedPorts[portNo / 8] |= 1 << (portNo % 8);
+				fHasChangedPorts = true;
+				fChangedPorts[portNo / 8] |= 1 << (portNo % 8);
 			}
 		}
 	}
 
-	unsetOutHub.Detach();
-	rootHub.Detach();
 	return B_OK;
 }
 
@@ -195,6 +56,15 @@ XHCIRootHub::Create(XHCIRootHub*& outHub, XHCI *xhci, UsbBusManager *busManager,
 XHCIRootHub::~XHCIRootHub()
 {
 	fDevice->Free();
+}
+
+
+uint8
+XHCIRootHub::AddPort(uint32 xhciPort)
+{
+	fPorts[fPortCount] = xhciPort;
+	fPortCount++;
+	return fPortCount;
 }
 
 
@@ -215,136 +85,6 @@ XHCIRootHub::ProcessTransfer(UsbBusTransfer *transfer)
 	}
 
 	return B_ERROR;
-}
-
-
-status_t
-XHCI3RootHub::ProcessTransfer(UsbBusTransfer *transfer)
-{
-	if (transfer->TransferPipe()->Type() != USB_PIPE_CONTROL)
-		return XHCIRootHub::ProcessTransfer(transfer);
-
-	usb_request_data *request = transfer->RequestData();
-	TRACE_MODULE("request: %d\n", request->Request);
-
-	status_t status = B_TIMED_OUT;
-	size_t actualLength = 0;
-	switch (request->Request) {
-		case USB_REQUEST_GET_STATUS: {
-			if (request->Index == 0) {
-				// get hub status
-				actualLength = MIN(sizeof(usb_port_status),
-					transfer->DataLength());
-				// the hub reports whether the local power failed (bit 0)
-				// and if there is a over-current condition (bit 1).
-				// everything as 0 means all is ok.
-				memset(transfer->Data(), 0, actualLength);
-				status = B_OK;
-				break;
-			}
-
-			usb_port_status portStatus;
-			if (fXhci->GetPortStatus(fPorts[request->Index - 1], &portStatus) >= B_OK) {
-				actualLength = MIN(sizeof(usb_port_status), transfer->DataLength());
-				memcpy(transfer->Data(), (void *)&portStatus, actualLength);
-				status = B_OK;
-			}
-
-			break;
-		}
-
-		case USB_REQUEST_SET_ADDRESS:
-			if (request->Value >= 128) {
-				status = B_TIMED_OUT;
-				break;
-			}
-
-			TRACE_MODULE("set address: %d\n", request->Value);
-			status = B_OK;
-			break;
-
-		case USB_REQUEST_GET_DESCRIPTOR:
-			TRACE_MODULE("get descriptor: %d\n", request->Value >> 8);
-
-			switch (request->Value >> 8) {
-				case USB_DESCRIPTOR_DEVICE: {
-					actualLength = MIN(sizeof(usb_device_descriptor),
-						transfer->DataLength());
-					memcpy(transfer->Data(), (void *)&sXHCIRootHubDevice,
-						actualLength);
-					status = B_OK;
-					break;
-				}
-
-				case USB_DESCRIPTOR_CONFIGURATION: {
-					actualLength = MIN(sizeof(xhci_root_hub_configuration_s),
-						transfer->DataLength());
-					sXHCIRootHubConfig.hub.num_ports = fPortCount;
-					memcpy(transfer->Data(), (void *)&sXHCIRootHubConfig,
-						actualLength);
-					status = B_OK;
-					break;
-				}
-
-				case USB_DESCRIPTOR_STRING: {
-					uint8 index = request->Value & 0x00ff;
-					if (index > 2)
-						break;
-
-					actualLength = MIN(sXHCIRootHubStrings[index].length,
-						transfer->DataLength());
-					memcpy(transfer->Data(), (void *)&sXHCIRootHubStrings[index],
-						actualLength);
-					status = B_OK;
-					break;
-				}
-
-				case USB_DESCRIPTOR_HUB: {
-					actualLength = MIN(sizeof(usb_hub_descriptor),
-						transfer->DataLength());
-					sXHCIRootHubConfig.hub.num_ports = fPortCount;
-					memcpy(transfer->Data(), (void *)&sXHCIRootHubConfig.hub,
-						actualLength);
-					status = B_OK;
-					break;
-				}
-			}
-			break;
-
-		case USB_REQUEST_SET_CONFIGURATION:
-			status = B_OK;
-			break;
-
-		case USB_REQUEST_CLEAR_FEATURE: {
-			if (request->Index == 0) {
-				// we don't support any hub changes
-				TRACE_MODULE_ERROR("clear feature: no hub changes\n");
-				break;
-			}
-
-			TRACE_MODULE("clear feature: %d\n", request->Value);
-			if (fXhci->ClearPortFeature(fPorts[request->Index - 1], request->Value) >= B_OK)
-				status = B_OK;
-			break;
-		}
-
-		case USB_REQUEST_SET_FEATURE: {
-			if (request->Index == 0) {
-				// we don't support any hub changes
-				TRACE_MODULE_ERROR("set feature: no hub changes\n");
-				break;
-			}
-
-			TRACE_MODULE("set feature: %d\n", request->Value);
-			if (fXhci->SetPortFeature(fPorts[request->Index - 1], request->Value) >= B_OK)
-				status = B_OK;
-			break;
-		}
-	}
-
-	transfer->Finished(status, actualLength);
-	transfer->Free();
-	return B_OK;
 }
 
 

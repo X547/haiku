@@ -389,6 +389,9 @@ Device::~Device()
 	PutUSBID();
 	delete fDefaultPipe;
 
+	if (fParent == NULL)
+		Stack::Instance().RemoveRootHub(this);
+
 	if (fConfigurations == NULL) {
 		// we didn't get far in device setup, so everything below is unneeded
 		return;
@@ -660,6 +663,26 @@ Device::ClearEndpoints(int32 interfaceIndex)
 
 
 status_t
+Device::BuildDeviceName(char *string, uint32 &index, size_t bufferSize, bool isLeaf)
+{
+	if (fParent != NULL) {
+		fParent->BuildDeviceName(string, index, bufferSize, false);
+	} else {
+		index += sprintf(string + index, "bus/usb");
+	}
+
+	bool isHub = fDeviceDescriptor.device_class == 9;
+	if (isLeaf && isHub) {
+		index += sprintf(string + index, "/%" B_PRIu8 "/hub", fHubPort);
+	} else {
+		index += sprintf(string + index, "/%" B_PRIu8, fHubPort);
+	}
+
+	return B_OK;
+}
+
+
+status_t
 Device::SetAltInterface(const usb_interface_info* interface)
 {
 	uint8 interfaceNumber = interface->descr->interface_number;
@@ -846,7 +869,9 @@ Device::RegisterNode(DeviceNode *parent)
 	DeviceNode* node = NULL;
 	if (parent->RegisterNode(NULL, &fDeviceIface, attrs, &node) != B_OK) {
 		TRACE_ERROR("failed to register device node\n");
-	} else
+	} else {
 		fNode = node;
+		fDeviceIface.Init();
+	}
 	return node;
 }

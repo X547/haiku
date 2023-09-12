@@ -200,6 +200,29 @@ Stack::BusManagerAt(int32 index) const
 }
 
 
+void
+Stack::AddRootHub(Device *hub)
+{
+	MutexLocker lock(&fStackLock);
+
+	int32 index = fRootHubs.IndexOf(NULL);
+	if (index < 0)
+		index = fRootHubs.Count();
+
+	fRootHubs.Insert(hub, index);
+	hub->SetHubPort(index + 1);
+}
+
+
+void
+Stack::RemoveRootHub(Device *hub)
+{
+	MutexLocker lock(&fStackLock);
+
+	fRootHubs.Remove(hub);
+}
+
+
 status_t
 Stack::AllocateChunk(void **logicalAddress, phys_addr_t *physicalAddress,
 	size_t size)

@@ -25,6 +25,7 @@ UsePrivateKernelHeaders ;
 
 KernelAddon usb :
 	usb.cpp
+	usb_raw.cpp
 	compile_check.cpp
 	Dm2Interfaces.cpp
 	Dm2BusInterfaces.cpp
