@@ -421,7 +421,7 @@ DeviceNodeImpl::UnregisterDevFsNode(const char* path)
 	fDevFsNodes.Remove(wrapper);
 	lock.Unlock();
 	devfs_unpublish_device(device, true);
-	delete wrapper;
+	wrapper->Finalize();
 	return B_OK;
 }
 
@@ -596,6 +596,7 @@ DeviceNodeImpl::UnsetDeviceDriver()
 	if (fDeviceDriver != NULL) {
 		lock.Unlock();
 		DeviceManager::Instance().GetRootNodeNoRef()->UnregisterOwnedNodes(this);
+		fDeviceDriver->DeviceRemoved();
 		lock.Lock();
 		dprintf("UnsetDeviceDriver(\"%s\", \"%s\")\n", GetName(), fDriverModuleName.Get());
 		while (!fDevFsNodes.IsEmpty()) {
@@ -603,7 +604,7 @@ DeviceNodeImpl::UnsetDeviceDriver()
 			lock.Unlock();
 			devfs_unpublish_device(wrapper, true);
 			lock.Lock();
-			delete wrapper;
+			wrapper->Finalize();
 		}
 		BusDriver* busDriver = fBusDriver;
 		DeviceDriver* deviceDriver = fDeviceDriver;

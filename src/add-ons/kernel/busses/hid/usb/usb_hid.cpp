@@ -58,6 +58,7 @@ private:
 		// HidDevice
 		status_t Reset() final;
 		status_t RequestRead(uint32 size, uint8* data, HidInputCallback* callback) final;
+		void CancelRead() final;
 		status_t Write(uint32 size, const uint8* data) final;
 		status_t GetReport(uint8 reportType, uint8 reportId, uint32 size, uint8 *data) final;
 		status_t SetReport(uint8 reportType, uint8 reportId, uint32 size, const uint8* data) final;
@@ -202,7 +203,8 @@ UsbHidDriver::InputCallback(void *cookie, status_t status, void *data, size_t ac
 	driver->fCallback = NULL;
 	lock.Unlock();
 
-	callback->InputAvailable(status, (uint8*)data, actualLength);
+	if (callback != NULL)
+		callback->InputAvailable(status, (uint8*)data, actualLength);
 }
 
 
@@ -245,9 +247,27 @@ UsbHidDriver::HidDeviceImpl::RequestRead(uint32 size, uint8* data, HidInputCallb
 	if (fBase.fCallback != NULL)
 		return B_BUSY;
 
-	fBase.fCallback = callback;
+	CHECK_RET(fBase.fInterruptPipe->QueueInterrupt(data, size, InputCallback, &fBase));
 
-	return fBase.fInterruptPipe->QueueInterrupt(data, size, InputCallback, &fBase);
+	fBase.fCallback = callback;
+	return B_OK;
+}
+
+
+void
+UsbHidDriver::HidDeviceImpl::CancelRead()
+{
+	// fBase.fInterruptPipe->CancelQueuedTransfers();
+
+	// redurant, but to be sure if CancelQueuedTransfers do not call callback
+	MutexLocker lock(&fBase.fLock);
+
+	HidInputCallback* callback = fBase.fCallback;
+	fBase.fCallback = NULL;
+	lock.Unlock();
+
+	if (callback != NULL)
+		callback->InputAvailable(B_CANCELED, NULL, 0);
 }
 
 

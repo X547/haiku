@@ -245,6 +245,7 @@ virtual									~Object();
 											{ return fBusManager; }
 
 		usb_id							USBID() const { return fUSBID; }
+		bool							Acquire();
 		void							SetBusy(bool busy)
 											{ atomic_add(&fBusy, busy ? 1 : -1); }
 

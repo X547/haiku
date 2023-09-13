@@ -37,6 +37,19 @@ Object::PutUSBID(bool waitForUnbusy)
 }
 
 
+bool
+Object::Acquire()
+{
+#if 0
+	if (fUSBID == UINT32_MAX)
+		return false;
+
+	SetBusy(true);
+#endif
+	return true;
+}
+
+
 void
 Object::WaitForUnbusy()
 {

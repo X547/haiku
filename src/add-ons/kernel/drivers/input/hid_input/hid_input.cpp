@@ -30,7 +30,7 @@ class HidInputDriver;
 class HidInputDevFsNodeHandle: public DevFsNodeHandle {
 public:
 	HidInputDevFsNodeHandle(ProtocolHandler* handler): fHandler(handler) {}
-	virtual ~HidInputDevFsNodeHandle();
+	virtual ~HidInputDevFsNodeHandle() = default;
 
 	void Free() final {delete this;}
 	status_t Close() final;
@@ -64,6 +64,7 @@ public:
 	// DeviceDriver
 	static status_t Probe(DeviceNode* node, DeviceDriver** driver);
 	void Free() final {delete this;}
+	void DeviceRemoved() final;
 
 private:
 	status_t Init();
@@ -83,23 +84,6 @@ private:
 
 
 // #pragma mark - HidInputDevFsNodeHandle
-
-HidInputDevFsNodeHandle::~HidInputDevFsNodeHandle()
-{
-	mutex_lock(&sDriverLock);
-
-	HIDDevice *device = fHandler->Device();
-	if (device->IsOpen()) {
-		// another handler of this device is still open so we can't free it
-	} else if (device->IsRemoved()) {
-		// the parent device is removed already and none of its handlers are
-		// open anymore so we can free it here
-		delete device;
-	}
-
-	mutex_unlock(&sDriverLock);
-}
-
 
 status_t
 HidInputDevFsNodeHandle::Close()
@@ -172,6 +156,15 @@ HidInputDriver::Probe(DeviceNode* node, DeviceDriver** outDriver)
 	CHECK_RET(driver->Init());
 	*outDriver = driver.Detach();
 	return B_OK;
+}
+
+
+void
+HidInputDriver::DeviceRemoved()
+{
+	dprintf("HidInputDriver::DeviceRemoved()\n");
+
+	fHandler.Removed();
 }
 
 

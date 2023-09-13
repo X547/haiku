@@ -69,6 +69,7 @@ private:
 		// HidDevice
 		status_t Reset() final;
 		status_t RequestRead(uint32 size, uint8* data, HidInputCallback* callback) final;
+		void CancelRead() final;
 		status_t Write(uint32 size, const uint8* data) final;
 		status_t GetReport(uint8 reportType, uint8 reportId, uint32 size, uint8 *data) final;
 		status_t SetReport(uint8 reportType, uint8 reportId, uint32 size, const uint8* data) final;
@@ -253,6 +254,7 @@ I2cHidDriver::DoDPC(DPCQueue* queue)
 	uint8* buffer = fInputBuffer;
 	HidInputCallback* callback = fInputCallback;
 	fInputBuffer = NULL;
+	fInputCallback = NULL;
 	lock.Unlock();
 
 	callback->InputAvailable(res, buffer, res < B_OK ? 0 : actualSize);
@@ -280,6 +282,7 @@ I2cHidDriver::HidDeviceImpl::DriverAttached(bool isAttached)
 			uint8* buffer = fBase.fInputBuffer;
 			HidInputCallback* callback = fBase.fInputCallback;
 			fBase.fInputBuffer = NULL;
+			fBase.fInputCallback = NULL;
 			lock.Unlock();
 
 			callback->InputAvailable(B_CANCELED, buffer, 0);
@@ -329,6 +332,22 @@ I2cHidDriver::HidDeviceImpl::RequestRead(uint32 size, uint8* data, HidInputCallb
 	install_io_interrupt_handler(fBase.fIrqVector, HandleInterrupt, &fBase, B_DEFERRED_COMPLETION);
 
 	return B_OK;
+}
+
+
+void
+I2cHidDriver::HidDeviceImpl::CancelRead()
+{
+	MutexLocker lock(&fBase.fLock);
+
+	uint8* buffer = fBase.fInputBuffer;
+	HidInputCallback* callback = fBase.fInputCallback;
+	fBase.fInputBuffer = NULL;
+	fBase.fInputCallback = NULL;
+	lock.Unlock();
+
+	if (callback != NULL)
+		callback->InputAvailable(B_CANCELED, buffer, 0);
 }
 
 

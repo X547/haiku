@@ -39,6 +39,7 @@ void
 HIDDevice::Removed()
 {
 	fRemoved = true;
+	fHidDevice->CancelRead();
 }
 
 

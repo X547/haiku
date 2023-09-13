@@ -15,6 +15,7 @@ DevFsNodeWrapper::DevFsNodeWrapper(DevFsNode* devFsNode)
 	fDevFsNode(devFsNode),
 	fCapabilities(devFsNode->GetCapabilities())
 {
+	dprintf("+%p.DevFsNodeWrapper()\n", this);
 }
 
 
@@ -54,8 +55,39 @@ DevFsNodeWrapper::HasIO() const
 
 
 status_t
+DevFsNodeWrapper::InitDevice()
+{
+	if (fIsFinalized)
+		return B_DEV_NOT_READY;
+
+	AcquireReference();
+
+	return B_OK;
+}
+
+
+void
+DevFsNodeWrapper::UninitDevice()
+{
+	ReleaseReference();
+}
+
+
+void
+DevFsNodeWrapper::Finalize()
+{
+	dprintf("%p.DevFsNodeWrapper::Finalize()\n", this);
+	fIsFinalized = true;
+	ReleaseReference();
+}
+
+
+status_t
 DevFsNodeWrapper::Open(const char* path, int openMode, void** _cookie)
 {
+	if (fIsFinalized)
+		return B_DEV_NOT_READY;
+
 	return fDevFsNode->Open(path, openMode, (DevFsNodeHandle**)_cookie);
 }
 
@@ -89,6 +121,9 @@ DevFsNodeWrapper::Read(void* cookie, off_t pos, void* buffer, size_t* _length)
 		return _DoIO(cookie, pos, buffer, _length, false);
 	}
 
+	if (fIsFinalized)
+		return B_DEV_NOT_READY;
+
 	DevFsNodeHandle* handle = (DevFsNodeHandle*)cookie;
 	return handle->Read(pos, buffer, _length);
 }
@@ -104,6 +139,9 @@ DevFsNodeWrapper::Write(void* cookie, off_t pos, const void* buffer, size_t* _le
 		return _DoIO(cookie, pos, const_cast<void*>(buffer), _length, true);
 	}
 
+	if (fIsFinalized)
+		return B_DEV_NOT_READY;
+
 	DevFsNodeHandle* handle = (DevFsNodeHandle*)cookie;
 	return handle->Write(pos, buffer, _length);
 }
@@ -114,6 +152,9 @@ DevFsNodeWrapper::IO(void* cookie, io_request* request)
 {
 	if (!fCapabilities.io)
 		return BaseDevice::IO(cookie, request);
+
+	if (fIsFinalized)
+		return B_DEV_NOT_READY;
 
 	DevFsNodeHandle* handle = (DevFsNodeHandle*)cookie;
 	return handle->IO(request);
@@ -126,6 +167,9 @@ DevFsNodeWrapper::Control(void* cookie, int32 op, void* buffer, size_t length)
 	if (!fCapabilities.control)
 		return BaseDevice::Control(cookie, op, buffer, length);
 
+	if (fIsFinalized)
+		return B_DEV_NOT_READY;
+
 	DevFsNodeHandle* handle = (DevFsNodeHandle*)cookie;
 	return handle->Control(op, buffer, length);
 }
@@ -136,6 +180,9 @@ DevFsNodeWrapper::Select(void* cookie, uint8 event, selectsync* sync)
 {
 	if (!fCapabilities.select)
 		return BaseDevice::Select(cookie, event, sync);
+
+	if (fIsFinalized)
+		return B_DEV_NOT_READY;
 
 	DevFsNodeHandle* handle = (DevFsNodeHandle*)cookie;
 	return handle->Select(event, sync);
@@ -148,6 +195,9 @@ DevFsNodeWrapper::Deselect(void* cookie, uint8 event, selectsync* sync)
 	if (!fCapabilities.select)
 		return BaseDevice::Deselect(cookie, event, sync);
 
+	if (fIsFinalized)
+		return B_DEV_NOT_READY;
+
 	DevFsNodeHandle* handle = (DevFsNodeHandle*)cookie;
 	return handle->Deselect(event, sync);
 }
@@ -156,6 +206,9 @@ DevFsNodeWrapper::Deselect(void* cookie, uint8 event, selectsync* sync)
 status_t
 DevFsNodeWrapper::Close(void* cookie)
 {
+	if (fIsFinalized)
+		return B_OK;
+
 	DevFsNodeHandle* handle = (DevFsNodeHandle*)cookie;
 	return handle->Close();
 }
@@ -164,6 +217,9 @@ DevFsNodeWrapper::Close(void* cookie)
 status_t
 DevFsNodeWrapper::Free(void* cookie)
 {
+	if (fIsFinalized)
+		return B_OK;
+
 	DevFsNodeHandle* handle = (DevFsNodeHandle*)cookie;
 	handle->Free();
 	return B_OK;

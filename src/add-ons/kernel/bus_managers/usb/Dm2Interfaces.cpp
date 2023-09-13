@@ -5,11 +5,59 @@
 #define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
 
+// #pragma mark - ObjectBusyReleaser
+
+
+class ObjectBusyReleaser {
+public:
+	ObjectBusyReleaser(Object* object) : fObject(NULL)
+	{
+		if (object->Acquire())
+			fObject = object;
+	}
+
+	~ObjectBusyReleaser()
+	{
+		Release();
+	}
+
+	void Release()
+	{
+		if (fObject != NULL) {
+			fObject->SetBusy(false);
+			fObject = NULL;
+		}
+	}
+
+	inline bool IsSet() const
+	{
+		return fObject != NULL;
+	}
+
+	inline Object *Get() const
+	{
+		return fObject;
+	}
+
+	inline Object *operator->() const
+	{
+		return fObject;
+	}
+
+private:
+	Object *fObject;
+};
+
+
 // #pragma mark - UsbObjectImpl
 
 status_t
 UsbObjectImpl::SetFeature(uint16 selector)
 {
+	ObjectBusyReleaser object(&fBase);
+	if (!object.IsSet())
+		return B_DEV_INVALID_PIPE;
+
 	return fBase.SetFeature(selector);
 }
 
@@ -17,6 +65,10 @@ UsbObjectImpl::SetFeature(uint16 selector)
 status_t
 UsbObjectImpl::ClearFeature(uint16 selector)
 {
+	ObjectBusyReleaser object(&fBase);
+	if (!object.IsSet())
+		return B_DEV_INVALID_PIPE;
+
 	return fBase.ClearFeature(selector);
 }
 
@@ -24,6 +76,10 @@ UsbObjectImpl::ClearFeature(uint16 selector)
 status_t
 UsbObjectImpl::GetStatus(uint16 *status)
 {
+	ObjectBusyReleaser object(&fBase);
+	if (!object.IsSet())
+		return B_DEV_INVALID_PIPE;
+
 	return fBase.GetStatus(status);
 }
 
@@ -73,6 +129,10 @@ UsbDeviceImpl::Speed() const
 const usb_device_descriptor *
 UsbDeviceImpl::GetDeviceDescriptor()
 {
+	ObjectBusyReleaser object(&fBase);
+	if (!object.IsSet())
+		return NULL;
+
 	return fBase.DeviceDescriptor();
 }
 
@@ -80,6 +140,10 @@ UsbDeviceImpl::GetDeviceDescriptor()
 const usb_configuration_info *
 UsbDeviceImpl::GetNthConfiguration(uint32 index)
 {
+	ObjectBusyReleaser object(&fBase);
+	if (!object.IsSet())
+		return NULL;
+
 	return fBase.ConfigurationAt(index);
 }
 
@@ -87,6 +151,10 @@ UsbDeviceImpl::GetNthConfiguration(uint32 index)
 const usb_configuration_info *
 UsbDeviceImpl::GetConfiguration()
 {
+	ObjectBusyReleaser object(&fBase);
+	if (!object.IsSet())
+		return NULL;
+
 	return fBase.Configuration();
 }
 
@@ -94,6 +162,10 @@ UsbDeviceImpl::GetConfiguration()
 status_t
 UsbDeviceImpl::SetConfiguration(const usb_configuration_info *configuration)
 {
+	ObjectBusyReleaser object(&fBase);
+	if (!object.IsSet())
+		return B_DEV_INVALID_PIPE;
+
 	return fBase.SetConfiguration(configuration);
 }
 
@@ -101,6 +173,10 @@ UsbDeviceImpl::SetConfiguration(const usb_configuration_info *configuration)
 status_t
 UsbDeviceImpl::SetAltInterface(const usb_interface_info *interface)
 {
+	ObjectBusyReleaser object(&fBase);
+	if (!object.IsSet())
+		return B_DEV_INVALID_PIPE;
+
 	return fBase.SetAltInterface(interface);
 }
 
@@ -112,6 +188,10 @@ UsbDeviceImpl::GetDescriptor(
 	size_t dataLength,
 	size_t *actualLength)
 {
+	ObjectBusyReleaser object(&fBase);
+	if (!object.IsSet())
+		return B_DEV_INVALID_PIPE;
+
 	return fBase.GetDescriptor(descriptorType, index, languageID, data, dataLength, actualLength);
 }
 
@@ -123,6 +203,10 @@ UsbDeviceImpl::SendRequest(
 	uint16 length, void *data,
 	size_t *actualLength)
 {
+	ObjectBusyReleaser object(&fBase);
+	if (!object.IsSet())
+		return B_DEV_INVALID_PIPE;
+
 	return fBase.DefaultPipe()->SendRequest(requestType, request, value, index, length, data, length, actualLength);
 }
 
@@ -135,6 +219,10 @@ UsbDeviceImpl::QueueRequest(
 	usb_callback_func callback,
 	void *callbackCookie)
 {
+	ObjectBusyReleaser object(&fBase);
+	if (!object.IsSet())
+		return B_DEV_INVALID_PIPE;
+
 	return fBase.DefaultPipe()->QueueRequest(requestType, request, value, index, length, data, length, callback, callbackCookie);
 }
 
@@ -142,6 +230,10 @@ UsbDeviceImpl::QueueRequest(
 status_t
 UsbDeviceImpl::CancelQueuedRequests()
 {
+	ObjectBusyReleaser object(&fBase);
+	if (!object.IsSet())
+		return B_DEV_INVALID_PIPE;
+
 	return fBase.DefaultPipe()->CancelQueuedTransfers(false);
 }
 
@@ -149,6 +241,10 @@ UsbDeviceImpl::CancelQueuedRequests()
 status_t
 UsbDeviceImpl::InitHub(const usb_hub_descriptor& hubDescriptor)
 {
+	ObjectBusyReleaser object(&fBase);
+	if (!object.IsSet())
+		return B_DEV_INVALID_PIPE;
+
 	return fBase.GetBusManager()->InitHub(&fBase, hubDescriptor);
 }
 
@@ -156,6 +252,10 @@ UsbDeviceImpl::InitHub(const usb_hub_descriptor& hubDescriptor)
 status_t
 UsbDeviceImpl::AllocateDevice(uint8 hubPort, usb_speed speed, UsbDevice** outDevice)
 {
+	ObjectBusyReleaser object(&fBase);
+	if (!object.IsSet())
+		return B_DEV_INVALID_PIPE;
+
 	Device* device = fBase.GetBusManager()->AllocateDevice(&fBase, fBase.DeviceAddress(), hubPort, speed);
 	if (device == NULL)
 		return B_ERROR;
@@ -168,6 +268,10 @@ UsbDeviceImpl::AllocateDevice(uint8 hubPort, usb_speed speed, UsbDevice** outDev
 void
 UsbDeviceImpl::FreeDevice(UsbDevice* deviceIface)
 {
+	ObjectBusyReleaser object(&fBase);
+	if (!object.IsSet())
+		return;
+
 	Device* device = &static_cast<UsbDeviceImpl*>(deviceIface)->fBase;
 	fBase.GetBusManager()->FreeDevice(device);
 }
@@ -196,6 +300,10 @@ UsbInterfaceImpl::GetDescriptor(
 	void *data, size_t dataLength,
 	size_t *actualLength)
 {
+	ObjectBusyReleaser object(&fBase);
+	if (!object.IsSet())
+		return B_DEV_INVALID_PIPE;
+
 	Device *device = static_cast<Device*>(fBase.Parent());
 	int8 interfaceIndex = fBase.InterfaceIndex();
 	return device->DefaultPipe()->SendRequest(
@@ -212,6 +320,10 @@ UsbInterfaceImpl::SendRequest(
 	uint16 length, void *data,
 	size_t *actualLength)
 {
+	ObjectBusyReleaser object(&fBase);
+	if (!object.IsSet())
+		return B_DEV_INVALID_PIPE;
+
 	Device *device = static_cast<Device*>(fBase.Parent());
 	int8 index = fBase.InterfaceIndex();
 	return device->DefaultPipe()->SendRequest(requestType, request, value, index, length, data, length, actualLength);
@@ -226,6 +338,10 @@ UsbInterfaceImpl::QueueRequest(
 	usb_callback_func callback,
 	void *callbackCookie)
 {
+	ObjectBusyReleaser object(&fBase);
+	if (!object.IsSet())
+		return B_DEV_INVALID_PIPE;
+
 	Device *device = static_cast<Device*>(fBase.Parent());
 	int8 index = fBase.InterfaceIndex();
 	return device->DefaultPipe()->QueueRequest(requestType, request, value, index, length, data, length, callback, callbackCookie);
@@ -247,6 +363,10 @@ UsbPipeImpl::QueueInterrupt(
 	usb_callback_func callback,
 	void *callbackCookie)
 {
+	ObjectBusyReleaser object(&fBase);
+	if (!object.IsSet())
+		return B_DEV_INVALID_PIPE;
+
 	if ((fBase.Type() & USB_OBJECT_INTERRUPT_PIPE) == 0)
 		return B_DEV_INVALID_PIPE;
 
@@ -260,6 +380,10 @@ UsbPipeImpl::QueueBulk(
 	usb_callback_func callback,
 	void *callbackCookie)
 {
+	ObjectBusyReleaser object(&fBase);
+	if (!object.IsSet())
+		return B_DEV_INVALID_PIPE;
+
 	if ((fBase.Type() & USB_OBJECT_BULK_PIPE) == 0)
 		return B_DEV_INVALID_PIPE;
 
@@ -273,6 +397,10 @@ UsbPipeImpl::QueueBulkV(
 	usb_callback_func callback,
 	void *callbackCookie)
 {
+	ObjectBusyReleaser object(&fBase);
+	if (!object.IsSet())
+		return B_DEV_INVALID_PIPE;
+
 	if ((fBase.Type() & USB_OBJECT_BULK_PIPE) == 0)
 		return B_DEV_INVALID_PIPE;
 
@@ -286,6 +414,10 @@ UsbPipeImpl::QueueBulkVPhysical(
 	usb_callback_func callback,
 	void *callbackCookie)
 {
+	ObjectBusyReleaser object(&fBase);
+	if (!object.IsSet())
+		return B_DEV_INVALID_PIPE;
+
 	if ((fBase.Type() & USB_OBJECT_BULK_PIPE) == 0)
 		return B_DEV_INVALID_PIPE;
 
@@ -303,6 +435,10 @@ UsbPipeImpl::QueueIsochronous(
 	usb_callback_func callback,
 	void *callbackCookie)
 {
+	ObjectBusyReleaser object(&fBase);
+	if (!object.IsSet())
+		return B_DEV_INVALID_PIPE;
+
 	if ((fBase.Type() & USB_OBJECT_ISO_PIPE) == 0)
 		return B_DEV_INVALID_PIPE;
 
@@ -319,6 +455,10 @@ UsbPipeImpl::SetPipePolicy(
 	uint16 maxBufferDurationMS,
 	uint16 sampleSize)
 {
+	ObjectBusyReleaser object(&fBase);
+	if (!object.IsSet())
+		return B_DEV_INVALID_PIPE;
+
 	if ((fBase.Type() & USB_OBJECT_ISO_PIPE) == 0)
 		return B_DEV_INVALID_PIPE;
 
@@ -330,5 +470,9 @@ UsbPipeImpl::SetPipePolicy(
 status_t
 UsbPipeImpl::CancelQueuedTransfers()
 {
+	ObjectBusyReleaser object(&fBase);
+	if (!object.IsSet())
+		return B_DEV_INVALID_PIPE;
+
 	return fBase.CancelQueuedTransfers(false);
 }

@@ -4,7 +4,7 @@
 #include <dm2/bus/USB.h>
 #include <dm2/bus/PCI.h>
 
-#include <lock.h>
+#include <util/AutoLock.h>
 #include <util/iovec_support.h>
 
 #include "usbspec_private.h"
@@ -123,7 +123,7 @@ virtual	status_t				ProcessTransfer(UsbBusTransfer *transfer);
 		void					PortStatusChanged(uint32 portNo);
 
 private:
-		void					TryCompleteInterruptTransfer();
+		void					TryCompleteInterruptTransfer(MutexLocker& lock);
 
 protected:
 	mutex fLock = MUTEX_INITIALIZER("XHCIRootHub");

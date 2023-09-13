@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 
 #include <dm2/bus/HID.h>
 
@@ -44,7 +45,7 @@ private:
 
 private:
 			int32				fOpenCount {};
-			bool				fRemoved {};
+			std::atomic<bool>	fRemoved {};
 
 			HIDParser			fParser;
 

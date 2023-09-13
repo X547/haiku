@@ -595,13 +595,14 @@ XHCI::SubmitTransfer(UsbBusTransfer* transfer)
 {
 	TRACE("SubmitTransfer(%p)\n", transfer);
 
+	UsbBusPipe *pipe = transfer->TransferPipe();
+
 	// short circuit the root hub
-	if (transfer->TransferPipe()->GetDevice() == fRootHub2.GetDevice())
+	if (pipe->GetDevice() == fRootHub2.GetDevice())
 		return fRootHub2.ProcessTransfer(transfer);
-	if (transfer->TransferPipe()->GetDevice() == fRootHub3.GetDevice())
+	if (pipe->GetDevice() == fRootHub3.GetDevice())
 		return fRootHub3.ProcessTransfer(transfer);
 
-	UsbBusPipe *pipe = transfer->TransferPipe();
 	if (pipe->Type() == USB_PIPE_CONTROL)
 		return SubmitControlRequest(transfer);
 

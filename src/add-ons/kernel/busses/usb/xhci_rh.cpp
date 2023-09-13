@@ -16,11 +16,31 @@
 
 #include <AutoDeleter.h>
 #include <ScopeExit.h>
-#include <util/AutoLock.h>
 
 #define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
 #define USB_MODULE_NAME "xhci roothub"
+
+
+static void
+set_bit(uint8* bits, uint32 index)
+{
+	bits[index / 8] |= 1 << (index % 8);
+}
+
+
+static void
+clear_bit(uint8* bits, uint32 index)
+{
+	bits[index / 8] &= ~(1 << (index % 8));
+}
+
+
+static bool
+is_bit_set(const uint8* bits, uint32 index)
+{
+	return (bits[index / 8] & (1 << (index % 8))) != 0;
+}
 
 
 status_t
@@ -41,10 +61,10 @@ XHCIRootHub::Init(UsbBusManager *busManager)
 	for (uint32 i = 0; i < fXhci->PortCount(); i++) {
 		uint32 portNo = i + 1;
 		usb_port_status portStatus;
-		if (fXhci->GetPortStatus(i, &portStatus) >= B_OK) {
+		if (fXhci->GetPortStatus(fPorts[i], &portStatus) >= B_OK) {
 			if (portStatus.change != 0) {
 				fHasChangedPorts = true;
-				fChangedPorts[portNo / 8] |= 1 << (portNo % 8);
+				set_bit(fChangedPorts, portNo);
 			}
 		}
 	}
@@ -74,13 +94,15 @@ XHCIRootHub::ProcessTransfer(UsbBusTransfer *transfer)
 	TRACE("XHCIRootHub::ProcessTransfer(%p)\n", transfer);
 
 	if (transfer->TransferPipe()->Type() == USB_PIPE_INTERRUPT) {
-		TRACE_ALWAYS("  USB_PIPE_INTERRUPT\n");
+		TRACE_ALWAYS("XHCIRootHub::ProcessInterruptTransfer(%p)\n", transfer);
 		MutexLocker lock(&fLock);
-		if (fInterruptTransfer != NULL)
+		if (fInterruptTransfer != NULL) {
+			TRACE_ALWAYS("  B_BUSY\n");
 			return B_BUSY;
+		}
 
 		fInterruptTransfer = transfer;
-		TryCompleteInterruptTransfer();
+		TryCompleteInterruptTransfer(lock);
 		return B_OK;
 	}
 
@@ -89,19 +111,18 @@ XHCIRootHub::ProcessTransfer(UsbBusTransfer *transfer)
 
 
 void
-XHCIRootHub::TryCompleteInterruptTransfer()
+XHCIRootHub::TryCompleteInterruptTransfer(MutexLocker& lock)
 {
 	if (fInterruptTransfer != NULL && fHasChangedPorts) {
 		fHasChangedPorts = false;
 		for (uint32 i = 0; i < fXhci->PortCount(); i++) {
 			uint32 portNo = i + 1;
-			if ((fChangedPorts[portNo / 8] & (1 << (portNo % 8))) != 0) {
+			if (is_bit_set(fChangedPorts, portNo)) {
 				usb_port_status portStatus;
-				if (fXhci->GetPortStatus(i, &portStatus) < B_OK || portStatus.change == 0) {
-					fChangedPorts[portNo / 8] &= 1 << (portNo % 8);
-				} else {
+				if (fXhci->GetPortStatus(fPorts[i], &portStatus) < B_OK || portStatus.change == 0)
+					clear_bit(fChangedPorts, portNo);
+				else
 					fHasChangedPorts = true;
-				}
 			}
 		}
 
@@ -109,9 +130,12 @@ XHCIRootHub::TryCompleteInterruptTransfer()
 			size_t actualLength = std::min<size_t>((fXhci->PortCount() + 1 + 7) / 8, fInterruptTransfer->DataLength());
 			memcpy(fInterruptTransfer->Data(), fChangedPorts, actualLength);
 
-			fInterruptTransfer->Finished(B_OK, actualLength);
-			fInterruptTransfer->Free();
+			UsbBusTransfer* transfer = fInterruptTransfer;
 			fInterruptTransfer = NULL;
+			lock.Unlock();
+
+			transfer->Finished(B_OK, actualLength);
+			transfer->Free();
 		}
 	}
 }
@@ -128,7 +152,8 @@ XHCIRootHub::PortStatusChanged(uint32 portNo)
 	MutexLocker lock(&fLock);
 
 	fHasChangedPorts = true;
-	fChangedPorts[portNo / 8] |= 1 << (portNo % 8);
 
-	TryCompleteInterruptTransfer();
+	set_bit(fChangedPorts, portNo);
+
+	TryCompleteInterruptTransfer(lock);
 }

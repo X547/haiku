@@ -7,19 +7,26 @@
 
 #include "BaseDevice.h"
 
+#include <atomic>
+
+#include <Referenceable.h>
+
 #include <dm2/device_manager.h>
 
 #include <util/DoublyLinkedList.h>
 
 
-class DevFsNodeWrapper : public BaseDevice {
+class DevFsNodeWrapper : public BaseDevice, public BReferenceable {
 public:
 							DevFsNodeWrapper(DevFsNode* devFsNode);
-	virtual					~DevFsNodeWrapper() = default;
+	virtual					~DevFsNodeWrapper() {dprintf("-%p.DevFsNodeWrapper()\n", this);}
 
 	DevFsNode*				GetDevFsNode() {return fDevFsNode;}
 
-	virtual	status_t		InitDevice() {return B_OK;}
+	virtual	status_t		InitDevice();
+			void			UninitDevice();
+
+	void					Finalize();
 
 	virtual	bool			HasSelect() const;
 	virtual	bool			HasDeselect() const;
@@ -58,4 +65,6 @@ public:
 protected:
 	DevFsNode*				fDevFsNode;
 	DevFsNode::Capabilities	fCapabilities;
+	std::atomic<bool>		fIsFinalized {false};
+	int32					fOpenCount {};
 };

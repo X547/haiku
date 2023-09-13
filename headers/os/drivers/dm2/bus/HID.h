@@ -36,6 +36,7 @@ public:
 
 	virtual status_t Reset() = 0;
 	virtual status_t RequestRead(uint32 size, uint8* data, HidInputCallback* callback) = 0;
+	virtual void CancelRead() = 0;
 	virtual status_t Write(uint32 size, const uint8* data) = 0;
 	virtual status_t GetReport(uint8 reportType, uint8 reportId, uint32 size, uint8* data) = 0;
 	virtual status_t SetReport(uint8 reportType, uint8 reportId, uint32 size, const uint8* data) = 0;
