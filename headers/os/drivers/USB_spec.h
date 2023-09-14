@@ -46,6 +46,7 @@
 #define USB_DESCRIPTOR_INTERFACE			0x04
 #define USB_DESCRIPTOR_ENDPOINT				0x05
 #define USB_DESCRIPTOR_HUB					0x29
+#define USB_DESCRIPTOR_SS_HUB				0x2A
 /* conventional class-specific descriptors */
 #define USB_DESCRIPTOR_CS_DEVICE			0x21
 #define USB_DESCRIPTOR_CS_CONFIGURATION		0x22

@@ -340,6 +340,16 @@ Device::Init()
 
 Device::~Device()
 {
+	if (fNode != NULL) {
+		DeviceNode* parentNode = fNode->GetParent();
+		status_t error = parentNode->UnregisterNode(fNode);
+		parentNode->ReleaseReference();
+		if (error != B_OK && error != B_BUSY)
+			TRACE_ERROR("failed to unregister device node\n");
+		fNode->ReleaseReference();
+		fNode = NULL;
+	}
+
 	// Cancel transfers on the default pipe and put its USBID to prevent
 	// further transfers from being queued.
 	if (fDefaultPipe != NULL) {
@@ -351,16 +361,6 @@ Device::~Device()
 	// Destroy open endpoints. Do not send a device request to unconfigure
 	// though, since we may be deleted because the device was unplugged already.
 	Unconfigure(false);
-
-	if (fNode != NULL) {
-		DeviceNode* parentNode = fNode->GetParent();
-		status_t error = parentNode->UnregisterNode(fNode);
-		parentNode->ReleaseReference();
-		if (error != B_OK && error != B_BUSY)
-			TRACE_ERROR("failed to unregister device node\n");
-		fNode->ReleaseReference();
-		fNode = NULL;
-	}
 
 	// Destroy all Interfaces in the Configurations hierarchy.
 	for (int32 i = 0; fConfigurations != NULL

@@ -215,6 +215,8 @@ private:
 
 			status_t			Init();
 
+			void				BuildRoute(UsbBusDevice* hub, uint8 hubPort, uint8& rhPort, uint32& route);
+
 			// Controller resets
 			status_t			ControllerReset();
 			status_t			ControllerHalt();

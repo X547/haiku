@@ -108,11 +108,13 @@ UsbHubDriver::Init()
 	dprintf("  IsUsb3(): %d\n", IsUsb3());
 	dprintf("  Speed(): %d\n", fUsbDevice->Speed());
 
+	uint8 hubDescriptorType = IsUsb3() ? USB_DESCRIPTOR_SS_HUB : USB_DESCRIPTOR_HUB;
+
 	size_t actualLength;
 	CHECK_RET_MSG(fUsbDevice->SendRequest(
 		USB_REQTYPE_DEVICE_IN | USB_REQTYPE_CLASS,
 		USB_REQUEST_GET_DESCRIPTOR,
-		(USB_DESCRIPTOR_HUB << 8) | 0,
+		(hubDescriptorType << 8) | 0,
 		0,
 		sizeof(usb_hub_descriptor),
 		(void *)&fHubDescriptor,

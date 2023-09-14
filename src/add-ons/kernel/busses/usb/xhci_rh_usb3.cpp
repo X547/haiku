@@ -210,7 +210,8 @@ XHCI3RootHub::ProcessTransfer(UsbBusTransfer *transfer)
 					break;
 				}
 
-				case USB_DESCRIPTOR_HUB: {
+				case USB_DESCRIPTOR_HUB:
+				case USB_DESCRIPTOR_SS_HUB: {
 					actualLength = MIN(sizeof(usb_hub_descriptor),
 						transfer->DataLength());
 					sXHCIRootHubConfig.hub.num_ports = fPortCount;

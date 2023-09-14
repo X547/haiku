@@ -12,6 +12,9 @@
 
 #include <algorithm>
 
+#include <AutoDeleter.h>
+
+#include <condition_variable.h>
 #include <kernel.h>
 
 
@@ -25,17 +28,62 @@
 #define DRIVER_NAME		"usb_raw"
 
 
-status_t
-UsbDevFsNode::Open(const char* path, int openMode, DevFsNodeHandle** outHandle)
+struct CommandResult {
+	ConditionVariable cond;
+	ConditionVariableEntry entry;
+	status_t status {};
+	size_t actualLength {};
+
+	CommandResult()
+	{
+		cond.Init(this, "CommandResult");
+		cond.Add(&entry);
+	}
+
+	status_t Wait()
+	{
+		return entry.Wait(B_KILL_CAN_INTERRUPT);
+	}
+
+	static void Callback(void* cookie, status_t status, void* data, size_t actualLength);
+};
+
+
+void
+CommandResult::Callback(void* cookie, status_t status, void* data, size_t actualLength)
 {
-	*outHandle = static_cast<DevFsNodeHandle*>(this);
-	return B_OK;
+	CommandResult* result = (CommandResult*)cookie;
+
+	switch (status) {
+		case B_OK:
+			result->status = B_USB_RAW_STATUS_SUCCESS;
+			break;
+		case B_TIMED_OUT:
+			result->status = B_USB_RAW_STATUS_TIMEOUT;
+			break;
+		case B_CANCELED:
+			result->status = B_USB_RAW_STATUS_ABORTED;
+			break;
+		case B_DEV_CRC_ERROR:
+			result->status = B_USB_RAW_STATUS_CRC_ERROR;
+			break;
+		case B_DEV_STALLED:
+			result->status = B_USB_RAW_STATUS_STALLED;
+			break;
+		default:
+			result->status = B_USB_RAW_STATUS_FAILED;
+			break;
+	}
+
+	result->actualLength = actualLength;
+	result->cond.NotifyAll();
 }
 
 
 status_t
-UsbDevFsNode::Close()
+UsbDevFsNode::Open(const char* path, int openMode, DevFsNodeHandle** outHandle)
 {
+	*outHandle = static_cast<DevFsNodeHandle*>(this);
 	return B_OK;
 }
 
@@ -69,7 +117,7 @@ UsbDevFsNode::Control(uint32 op, void* buffer, size_t length)
 				return B_BUFFER_OVERFLOW;
 
 			status = B_OK;
-			const usb_device_descriptor *deviceDescriptor =
+			const usb_device_descriptor* deviceDescriptor =
 				fDevice->GetDeviceDescriptor();
 			if (deviceDescriptor == NULL)
 				return B_OK;
@@ -95,7 +143,7 @@ UsbDevFsNode::Control(uint32 op, void* buffer, size_t length)
 				return B_BUFFER_OVERFLOW;
 
 			status = B_OK;
-			const usb_configuration_info *configurationInfo =
+			const usb_configuration_info* configurationInfo =
 				GetConfiguration(command.config.config_index,
 					&command.config.status);
 			if (configurationInfo == NULL)
@@ -124,7 +172,7 @@ UsbDevFsNode::Control(uint32 op, void* buffer, size_t length)
 				return B_BUFFER_OVERFLOW;
 
 			status = B_OK;
-			const usb_configuration_info *configurationInfo =
+			const usb_configuration_info* configurationInfo =
 				GetConfiguration(
 					command.alternate.config_index,
 					&command.alternate.status);
@@ -137,7 +185,7 @@ UsbDevFsNode::Control(uint32 op, void* buffer, size_t length)
 				break;
 			}
 
-			const usb_interface_list *interfaceList
+			const usb_interface_list* interfaceList
 				= &configurationInfo->interface[
 					command.alternate.interface_index];
 			if (op == B_USB_RAW_COMMAND_GET_ALT_INTERFACE_COUNT) {
@@ -158,7 +206,7 @@ UsbDevFsNode::Control(uint32 op, void* buffer, size_t length)
 		case B_USB_RAW_COMMAND_GET_INTERFACE_DESCRIPTOR:
 		case B_USB_RAW_COMMAND_GET_INTERFACE_DESCRIPTOR_ETC:
 		{
-			const usb_interface_info *interfaceInfo = NULL;
+			const usb_interface_info* interfaceInfo = NULL;
 			status = B_OK;
 			if (op == B_USB_RAW_COMMAND_GET_INTERFACE_DESCRIPTOR) {
 				if (length < sizeof(command.interface))
@@ -197,7 +245,7 @@ UsbDevFsNode::Control(uint32 op, void* buffer, size_t length)
 		case B_USB_RAW_COMMAND_GET_ENDPOINT_DESCRIPTOR_ETC:
 		{
 			uint32 endpointIndex = 0;
-			const usb_interface_info *interfaceInfo = NULL;
+			const usb_interface_info* interfaceInfo = NULL;
 			status = B_OK;
 			if (op == B_USB_RAW_COMMAND_GET_ENDPOINT_DESCRIPTOR) {
 				if (length < sizeof(command.endpoint))
@@ -245,7 +293,7 @@ UsbDevFsNode::Control(uint32 op, void* buffer, size_t length)
 		{
 			uint32 genericIndex = 0;
 			size_t genericLength = 0;
-			const usb_interface_info *interfaceInfo = NULL;
+			const usb_interface_info* interfaceInfo = NULL;
 			status = B_OK;
 			if (op == B_USB_RAW_COMMAND_GET_GENERIC_DESCRIPTOR) {
 				if (length < sizeof(command.generic))
@@ -279,7 +327,7 @@ UsbDevFsNode::Control(uint32 op, void* buffer, size_t length)
 				break;
 			}
 
-			usb_descriptor *descriptor = interfaceInfo->generic[genericIndex];
+			usb_descriptor* descriptor = interfaceInfo->generic[genericIndex];
 			if (descriptor == NULL)
 				break;
 
@@ -329,7 +377,7 @@ UsbDevFsNode::Control(uint32 op, void* buffer, size_t length)
 			}
 
 			uint8 stringLength = std::min<uint8>(temp[0], command.string.length);
-			char *string = (char *)malloc(stringLength);
+			char* string = (char*)malloc(stringLength);
 			if (string == NULL) {
 				command.string.status = B_USB_RAW_STATUS_ABORTED;
 				command.string.length = 0;
@@ -382,7 +430,7 @@ UsbDevFsNode::Control(uint32 op, void* buffer, size_t length)
 
 			uint8 descriptorLength = std::min<uint8>(firstTwoBytes[0],
 				command.descriptor.length);
-			uint8 *descriptorBuffer = (uint8 *)malloc(descriptorLength);
+			uint8* descriptorBuffer = (uint8*)malloc(descriptorLength);
 			if (descriptorBuffer == NULL) {
 				command.descriptor.status = B_USB_RAW_STATUS_ABORTED;
 				command.descriptor.length = 0;
@@ -420,7 +468,7 @@ UsbDevFsNode::Control(uint32 op, void* buffer, size_t length)
 				return B_BUFFER_OVERFLOW;
 
 			status = B_OK;
-			const usb_configuration_info *configurationInfo =
+			const usb_configuration_info* configurationInfo =
 				GetConfiguration(command.config.config_index,
 					&command.config.status);
 			if (configurationInfo == NULL)
@@ -441,7 +489,7 @@ UsbDevFsNode::Control(uint32 op, void* buffer, size_t length)
 				return B_BUFFER_OVERFLOW;
 
 			status = B_OK;
-			const usb_configuration_info *configurationInfo =
+			const usb_configuration_info* configurationInfo =
 				GetConfiguration(
 					command.alternate.config_index,
 					&command.alternate.status);
@@ -454,7 +502,7 @@ UsbDevFsNode::Control(uint32 op, void* buffer, size_t length)
 				break;
 			}
 
-			const usb_interface_list *interfaceList =
+			const usb_interface_list* interfaceList =
 				&configurationInfo->interface[command.alternate.interface_index];
 			if (command.alternate.alternate_info >= interfaceList->alt_count) {
 				command.alternate.status = B_USB_RAW_STATUS_INVALID_INTERFACE;
@@ -476,7 +524,7 @@ UsbDevFsNode::Control(uint32 op, void* buffer, size_t length)
 			if (length < sizeof(command.control))
 				return B_BUFFER_OVERFLOW;
 
-			void *controlData = malloc(command.control.length);
+			void* controlData = malloc(command.control.length);
 			if (controlData == NULL)
 				return B_NO_MEMORY;
 			MemoryDeleter dataDeleter(controlData);
@@ -489,26 +537,25 @@ UsbDevFsNode::Control(uint32 op, void* buffer, size_t length)
 				return B_BAD_ADDRESS;
 			}
 
+			CommandResult result;
 			MutexLocker deviceLocker(fLock);
 			if (fDevice->QueueRequest(
 				command.control.request_type, command.control.request,
 				command.control.value, command.control.index,
 				command.control.length, controlData,
-				Callback, this) < B_OK) {
+				CommandResult::Callback, &result) < B_OK) {
 				command.control.status = B_USB_RAW_STATUS_FAILED;
 				command.control.length = 0;
 				status = B_OK;
 				break;
 			}
 
-			status = acquire_sem_etc(fNotify.Get(), 1, B_KILL_CAN_INTERRUPT, 0);
-			if (status != B_OK) {
+			status = result.Wait();
+			if (status != B_OK)
 				fDevice->CancelQueuedRequests();
-				acquire_sem(fNotify.Get());
-			}
 
-			command.control.status = fStatus;
-			command.control.length = fActualLength;
+			command.control.status = result.status;
+			command.control.length = result.actualLength;
 			deviceLocker.Unlock();
 
 			if (command.control.status == B_OK)
@@ -528,7 +575,7 @@ UsbDevFsNode::Control(uint32 op, void* buffer, size_t length)
 				return B_BUFFER_OVERFLOW;
 
 			status = B_OK;
-			const usb_configuration_info *configurationInfo =
+			const usb_configuration_info* configurationInfo =
 				fDevice->GetConfiguration();
 			if (configurationInfo == NULL) {
 				command.transfer.status = B_USB_RAW_STATUS_INVALID_CONFIGURATION;
@@ -540,7 +587,7 @@ UsbDevFsNode::Control(uint32 op, void* buffer, size_t length)
 				break;
 			}
 
-			const usb_interface_info *interfaceInfo =
+			const usb_interface_info* interfaceInfo =
 				configurationInfo->interface[command.transfer.interface].active;
 			if (interfaceInfo == NULL) {
 				command.transfer.status = B_USB_RAW_STATUS_ABORTED;
@@ -552,7 +599,7 @@ UsbDevFsNode::Control(uint32 op, void* buffer, size_t length)
 				break;
 			}
 
-			const usb_endpoint_info *endpointInfo =
+			const usb_endpoint_info* endpointInfo =
 				&interfaceInfo->endpoint[command.transfer.endpoint];
 			if (!endpointInfo->handle) {
 				command.transfer.status = B_USB_RAW_STATUS_INVALID_ENDPOINT;
@@ -560,8 +607,8 @@ UsbDevFsNode::Control(uint32 op, void* buffer, size_t length)
 			}
 
 			size_t descriptorsSize = 0;
-			usb_iso_packet_descriptor *packetDescriptors = NULL;
-			void *transferData = NULL;
+			usb_iso_packet_descriptor* packetDescriptors = NULL;
+			void* transferData = NULL;
 			MemoryDeleter descriptorsDeleter, dataDeleter;
 
 			bool inTransfer = (endpointInfo->descr->endpoint_address
@@ -573,7 +620,7 @@ UsbDevFsNode::Control(uint32 op, void* buffer, size_t length)
 				descriptorsSize = sizeof(usb_iso_packet_descriptor)
 					* command.isochronous.packet_count;
 				packetDescriptors
-					= (usb_iso_packet_descriptor *)malloc(descriptorsSize);
+					= (usb_iso_packet_descriptor*)malloc(descriptorsSize);
 				if (packetDescriptors == NULL) {
 					command.transfer.status = B_USB_RAW_STATUS_NO_MEMORY;
 					command.transfer.length = 0;
@@ -605,20 +652,21 @@ UsbDevFsNode::Control(uint32 op, void* buffer, size_t length)
 			}
 
 			status_t status;
+			CommandResult result;
 			MutexLocker deviceLocker(fLock);
 			if (op == B_USB_RAW_COMMAND_INTERRUPT_TRANSFER) {
 				status = endpointInfo->handle->QueueInterrupt(
 					transferData, command.transfer.length,
-					Callback, this);
+					CommandResult::Callback, &result);
 			} else if (op == B_USB_RAW_COMMAND_BULK_TRANSFER) {
 				status = endpointInfo->handle->QueueBulk(
 					transferData, command.transfer.length,
-					Callback, this);
+					CommandResult::Callback, &result);
 			} else {
 				status = endpointInfo->handle->QueueIsochronous(
 					command.isochronous.data, command.isochronous.length,
 					packetDescriptors, command.isochronous.packet_count, NULL,
-					0, Callback, this);
+					0, CommandResult::Callback, &result);
 			}
 
 			if (status < B_OK) {
@@ -628,14 +676,12 @@ UsbDevFsNode::Control(uint32 op, void* buffer, size_t length)
 				break;
 			}
 
-			status = acquire_sem_etc(fNotify.Get(), 1, B_KILL_CAN_INTERRUPT, 0);
-			if (status != B_OK) {
+			status = result.Wait();
+			if (status != B_OK)
 				endpointInfo->handle->CancelQueuedTransfers();
-				acquire_sem(fNotify.Get());
-			}
 
-			command.transfer.status = fStatus;
-			command.transfer.length = fActualLength;
+			command.transfer.status = result.status;
+			command.transfer.length = result.actualLength;
 			deviceLocker.Unlock();
 
 			if (command.transfer.status == B_OK)
@@ -664,9 +710,9 @@ UsbDevFsNode::Control(uint32 op, void* buffer, size_t length)
 
 
 const usb_configuration_info*
-UsbDevFsNode::GetConfiguration(uint32 configIndex, status_t *status)
+UsbDevFsNode::GetConfiguration(uint32 configIndex, status_t* status) const
 {
-	const usb_configuration_info *result = fDevice->GetNthConfiguration(configIndex);
+	const usb_configuration_info* result = fDevice->GetNthConfiguration(configIndex);
 	if (result == NULL) {
 		*status = B_USB_RAW_STATUS_INVALID_CONFIGURATION;
 		return NULL;
@@ -678,9 +724,9 @@ UsbDevFsNode::GetConfiguration(uint32 configIndex, status_t *status)
 
 const usb_interface_info*
 UsbDevFsNode::GetInterface(uint32 configIndex,
-	uint32 interfaceIndex, uint32 alternateIndex, status_t *status)
+	uint32 interfaceIndex, uint32 alternateIndex, status_t* status) const
 {
-	const usb_configuration_info *configurationInfo
+	const usb_configuration_info* configurationInfo
 		= GetConfiguration(configIndex, status);
 	if (configurationInfo == NULL)
 		return NULL;
@@ -690,11 +736,11 @@ UsbDevFsNode::GetInterface(uint32 configIndex,
 		return NULL;
 	}
 
-	const usb_interface_info *result = NULL;
+	const usb_interface_info* result = NULL;
 	if (alternateIndex == B_USB_RAW_ACTIVE_ALTERNATE)
 		result = configurationInfo->interface[interfaceIndex].active;
 	else {
-		const usb_interface_list *interfaceList =
+		const usb_interface_list* interfaceList =
 			&configurationInfo->interface[interfaceIndex];
 		if (alternateIndex >= interfaceList->alt_count) {
 			*status = B_USB_RAW_STATUS_INVALID_INTERFACE;
@@ -705,35 +751,4 @@ UsbDevFsNode::GetInterface(uint32 configIndex,
 	}
 
 	return result;
-}
-
-
-void
-UsbDevFsNode::Callback(void* cookie, status_t status, void *data, size_t actualLength)
-{
-	UsbDevFsNode* device = (UsbDevFsNode*)cookie;
-
-	switch (status) {
-		case B_OK:
-			device->fStatus = B_USB_RAW_STATUS_SUCCESS;
-			break;
-		case B_TIMED_OUT:
-			device->fStatus = B_USB_RAW_STATUS_TIMEOUT;
-			break;
-		case B_CANCELED:
-			device->fStatus = B_USB_RAW_STATUS_ABORTED;
-			break;
-		case B_DEV_CRC_ERROR:
-			device->fStatus = B_USB_RAW_STATUS_CRC_ERROR;
-			break;
-		case B_DEV_STALLED:
-			device->fStatus = B_USB_RAW_STATUS_STALLED;
-			break;
-		default:
-			device->fStatus = B_USB_RAW_STATUS_FAILED;
-			break;
-	}
-
-	device->fActualLength = actualLength;
-	release_sem(device->fNotify.Get());
 }

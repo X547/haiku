@@ -1279,6 +1279,31 @@ XHCI::ReadDescriptor(xhci_td *descriptor, generic_io_vec *vector, size_t vectorC
 }
 
 
+void
+XHCI::BuildRoute(UsbBusDevice* hub, uint8 hubPort, uint8& rhPort, uint32& route)
+{
+	if (hub->Parent() == NULL) {
+		if (hub == fRootHub2.GetDevice()) {
+			uint8 xhciPort = fRootHub2.GetXHCIPort(hubPort);
+			TRACE_ALWAYS("USB 2 port %d -> XHCI port %d\n", hubPort, xhciPort);
+			rhPort = xhciPort + 1;
+		} else if (hub == fRootHub3.GetDevice()) {
+			uint8 xhciPort = fRootHub3.GetXHCIPort(hubPort);
+			TRACE_ALWAYS("USB 3 port %d -> XHCI port %d\n", hubPort, xhciPort);
+			rhPort = xhciPort + 1;
+		} else {
+			panic("xhci: unknown root hub\n");
+		}
+	} else {
+		if (hubPort > 15)
+			hubPort = 15;
+
+		route = (route << 4) + hubPort;
+		BuildRoute(hub->Parent(), hub->HubPort(), rhPort, route);
+	}
+}
+
+
 UsbBusDevice*
 XHCI::AllocateDevice(UsbBusDevice* parent, int8 hubAddress, uint8 hubPort, usb_speed speed)
 {
@@ -1323,32 +1348,9 @@ XHCI::AllocateDevice(UsbBusDevice* parent, int8 hubAddress, uint8 hubPort, usb_s
 	_WriteContext(&device->input_ctx->input.dropFlags, 0);
 	_WriteContext(&device->input_ctx->input.addFlags, 3);
 
-	auto TranslateRootHubPort = [this] (UsbBusDevice* parent, uint8 hubPort) -> uint8 {
-		if (parent == fRootHub2.GetDevice()) {
-			uint8 xhciPort = fRootHub2.GetXHCIPort(hubPort);
-			TRACE_ALWAYS("USB 2 port %d -> XHCI port %d\n", hubPort, xhciPort);
-			return xhciPort + 1;
-		} else if (parent == fRootHub3.GetDevice()) {
-			uint8 xhciPort = fRootHub3.GetXHCIPort(hubPort);
-			TRACE_ALWAYS("USB 3 port %d -> XHCI port %d\n", hubPort, xhciPort);
-			return xhciPort + 1;
-		}
-		return hubPort;
-	};
-
-	uint8 rhPort = TranslateRootHubPort(parent, hubPort);
+	uint8 rhPort = 0;
 	uint32 route = 0;
-	for (UsbBusDevice *hubDevice = parent; hubDevice != NULL; hubDevice = hubDevice->Parent()) {
-		if (hubDevice->Parent() == NULL)
-			break;
-
-		if (rhPort > 15)
-			rhPort = 15;
-		route = route << 4;
-		route |= rhPort;
-
-		rhPort = TranslateRootHubPort(hubDevice, hubDevice->HubPort());
-	}
+	BuildRoute(parent, hubPort, rhPort, route);
 
 	uint32 dwslot0 = SLOT_0_NUM_ENTRIES(1) | SLOT_0_ROUTE(route);
 
