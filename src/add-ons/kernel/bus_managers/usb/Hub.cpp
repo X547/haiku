@@ -60,6 +60,7 @@ private:
 	status_t Init();
 
 	bool IsUsb3() {return fUsbDevice->GetDeviceDescriptor()->usb_version >= 0x0300;}
+	int32 GetDepth();
 
 	status_t UpdatePortStatus(uint8 index);
 	status_t ResetPort(uint8 index);
@@ -143,6 +144,17 @@ UsbHubDriver::Init()
 
 	CHECK_RET(fUsbDevice->InitHub(fHubDescriptor));
 
+	if (IsUsb3()) {
+		int32 depth = GetDepth();
+		TRACE("hub depth: %" B_PRId32 "\n", depth);
+		if (depth >= 0) {
+			status_t result = fUsbDevice->SendRequest(USB_REQTYPE_CLASS | USB_REQTYPE_DEVICE_OUT,
+				USB_REQUEST_SET_HUB_DEPTH, depth, 0, 0, NULL, NULL);
+			if (result < B_OK)
+				TRACE_ERROR("can't set USB 3 hub depth\n");
+		}
+	}
+
 	const usb_configuration_info* configuration = fUsbDevice->GetConfiguration();
 	usb_interface_info* interface = configuration->interface[0].active;
 	fInterruptPipe = interface->endpoint[0].handle;
@@ -176,6 +188,23 @@ UsbHubDriver::Init()
 		fInterruptPipe->QueueInterrupt(fInterruptStatus, (fHubDescriptor.num_ports + 1 + 7) / 8, InterruptCallback, this);
 
 	return B_OK;
+}
+
+
+int32
+UsbHubDriver::GetDepth()
+{
+	int32 depth = -1;
+
+	DeviceNode* node = fNode->GetParent();
+	while (node->QueryBusInterface<UsbDevice>() != NULL) {
+		depth++;
+		node->ReleaseReference();
+		node = node->GetParent();
+	}
+	node->ReleaseReference();
+
+	return depth;
 }
 
 
