@@ -344,35 +344,46 @@ struct xhci_slot_ctx {
 	uint32	reserved[4];
 };
 
-#define SLOT_0_ROUTE(x)					((x) & 0xFFFFF)
-#define SLOT_0_ROUTE_GET(x)				((x) & 0xFFFFF)
-#define SLOT_0_SPEED(x)					(((x) & 0xF) << 20)
-#define SLOT_0_SPEED_GET(x)				(((x) >> 20) & 0xF)
-#define SLOT_0_MTT_BIT					(1U << 25)
-#define SLOT_0_HUB_BIT					(1U << 26)
-#define SLOT_0_NUM_ENTRIES(x)			(((x) & 0x1F) << 27)
-#define SLOT_0_NUM_ENTRIES_GET(x)		(((x) >> 27) & 0x1F)
+union xhci_slot0 {
+	struct {
+		uint32 route:       20; //  0
+		uint32 speed:        4; // 20
+		uint32 reserved1:    1; // 24
+		uint32 is_mtt:       1; // 25
+		uint32 is_hub:       1; // 26
+		uint32 num_entries:  5; // 27
+	};
+	uint32 value;
+};
 
-#define SLOT_1_MAX_EXIT_LATENCY(x)		((x) & 0xFFFF)
-#define SLOT_1_MAX_EXIT_LATENCY_GET(x)	((x) & 0xFFFF)
-#define SLOT_1_RH_PORT(x)				(((x) & 0xFF) << 16)
-#define SLOT_1_RH_PORT_GET(x)			(((x) >> 16) & 0xFF)
-#define SLOT_1_NUM_PORTS(x)				(((x) & 0xFF) << 24)
-#define SLOT_1_NUM_PORTS_GET(x)			(((x) >> 24) & 0xFF)
+union xhci_slot1 {
+	struct {
+		uint32 max_exit_latency: 16; //  0
+		uint32 rh_port:           8; // 16
+		uint32 num_ports:         8; // 24
+	};
+	uint32 value;
+};
 
-#define SLOT_2_TT_HUB_SLOT(x)			((x) & 0xFF)
-#define SLOT_2_TT_HUB_SLOT_GET(x)		((x) & 0xFF)
-#define SLOT_2_PORT_NUM(x)				(((x) & 0xFF) << 8)
-#define SLOT_2_PORT_NUM_GET(x)			(((x) >> 8) & 0xFF)
-#define SLOT_2_TT_TIME(x)				(((x) & 0x3) << 16)
-#define SLOT_2_TT_TIME_GET(x)			(((x) >> 16) & 0x3)
-#define SLOT_2_IRQ_TARGET(x)			(((x) & 0x7F) << 22)
-#define SLOT_2_IRQ_TARGET_GET(x)		(((x) >> 22) & 0x7F)
+union xhci_slot2 {
+	struct {
+		uint32 tt_hub_slot:  8; //  0
+		uint32 tt_port_num:  8; //  8
+		uint32 tt_time:      2; // 16
+		uint32 reserved1:    4; // 18
+		uint32 irq_target:  10; // 22
+	};
+	uint32 value;
+};
 
-#define SLOT_3_DEVICE_ADDRESS(x)		((x) & 0xFF)
-#define SLOT_3_DEVICE_ADDRESS_GET(x)	((x) & 0xFF)
-#define SLOT_3_SLOT_STATE(x)			(((x) & 0x1F) << 27)
-#define SLOT_3_SLOT_STATE_GET(x)		(((x) >> 27) & 0x1F)
+union xhci_slot3 {
+	struct {
+		uint32 device_address:  8; //  0
+		uint32 reserved1:      19; //  8
+		uint32 slot_state:      5; // 27
+	};
+	uint32 value;
+};
 
 #define	HUB_TTT_GET(x)					(((x) >> 5) & 0x3)
 
@@ -384,42 +395,48 @@ struct xhci_endpoint_ctx {
 	uint32	reserved[3];
 };
 
+union xhci_endpoint0 {
+	struct {
+		uint32 state:               3; //  0
+		uint32 reserved1:           5; //  3
+		uint32 mult:                2; //  8
+		uint32 max_p_streams:       5; // 10
+		uint32 lsa:                 1; // 15
+		uint32 interval:            8; // 16
+		uint32 max_esit_payload_hi: 8; // 24
+	};
+	uint32 value;
+};
 
-#define ENDPOINT_0_STATE(x)				((x) & 0x7)
-#define ENDPOINT_0_STATE_GET(x)			((x) & 0x7)
-#define ENDPOINT_0_MULT(x)				(((x) & 0x3) << 8)
-#define ENDPOINT_0_MULT_GET(x)			(((x) >> 8) & 0x3)
-#define ENDPOINT_0_MAXPSTREAMS(x)		(((x) & 0x1F) << 10)
-#define ENDPOINT_0_MAXPSTREAMS_GET(x)	(((x) >> 10) & 0x1F)
-#define ENDPOINT_0_LSA_BIT				(1U << 15)
-#define ENDPOINT_0_INTERVAL(x)			(((x) & 0xFF) << 16)
-#define ENDPOINT_0_INTERVAL_GET(x)		(((x) >> 16) & 0xFF)
+union xhci_endpoint1 {
+	struct {
+		uint32 reserved1:        1; //  0
+		uint32 c_err:            2; //  1
+		uint32 ep_type:          3; //  3
+		uint32 reserved2:        1; //  6
+		uint32 hid:              1; //  7
+		uint32 max_burst:        8; //  8
+		uint32 max_packet_size: 16; // 16
+	};
+	uint32 value;
+};
 
-#define ENDPOINT_1_CERR(x)				(((x) & 0x3) << 1)
-#define ENDPOINT_1_CERR_GET(x)			(((x) >> 1) & 0x3)
-#define ENDPOINT_1_EPTYPE(x)			(((x) & 0x7) << 3)
-#define ENDPOINT_1_EPTYPE_GET(x)		(((x) >> 3) & 0x7)
-#define ENDPOINT_1_HID_BIT				(1U << 7)
-#define ENDPOINT_1_MAXBURST(x)			(((x) & 0xFF) << 8)
-#define ENDPOINT_1_MAXBURST_GET(x)		(((x) >> 8) & 0xFF)
-#define ENDPOINT_1_MAXPACKETSIZE(x)		(((x) & 0xFFFF) << 16)
-#define ENDPOINT_1_MAXPACKETSIZE_GET(x)	(((x) >> 16) & 0xFFFF)
+union xhci_endpoint4 {
+	struct {
+		uint32 avg_trb_length:      16; //  0
+		uint32 max_esit_payload_lo: 16; // 16
+	};
+	uint32 value;
+};
+
 
 #define ENDPOINT_2_DCS_BIT				(1U << 0)
-
-#define ENDPOINT_4_AVGTRBLENGTH(x)		((x) & 0xFFFF)
-#define ENDPOINT_4_AVGTRBLENGTH_GET(x)	((x) & 0xFFFF)
-#define ENDPOINT_4_MAXESITPAYLOAD(x)	(((x) & 0xFFFF) << 16)
-#define ENDPOINT_4_MAXESITPAYLOAD_GET(x) (((x) >> 16) & 0xFFFF)
 
 #define ENDPOINT_STATE_DISABLED		0
 #define ENDPOINT_STATE_RUNNING		1
 #define ENDPOINT_STATE_HALTED		2
 #define ENDPOINT_STATE_STOPPED		3
 #define ENDPOINT_STATE_ERROR		4
-#define ENDPOINT_STATE_RESERVED_5	5
-#define ENDPOINT_STATE_RESERVED_6	6
-#define ENDPOINT_STATE_RESERVED_7	7
 
 struct xhci_stream_ctx {
 	uint64	qwstream0;

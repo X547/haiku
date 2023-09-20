@@ -130,6 +130,34 @@ arch_vm_translation_map_init(kernel_args *args,
 	*_physicalPageMapper = new(&sPhysicalPageMapperData)
 		RISCV64VMPhysicalPageMapper();
 
+
+	dprintf("\n=== Memory Test ===\n");
+	uint64 totalSize = 0;
+	for (uint32 i = 0; i < args->num_physical_memory_ranges; i++) {
+		totalSize += args->physical_memory_range[i].size;
+	}
+	dprintf("total: %" B_PRIu64 " bytes\n", totalSize);
+	uint64 totalPages = totalSize / B_PAGE_SIZE;
+	uint64 probedPages = 0;
+
+	uint32 percent = 0;
+	uint32 probe;
+
+	for (uint32 i = 0; i < args->num_physical_memory_ranges; i++) {
+		const auto& range = args->physical_memory_range[i];
+		for (uint64 page = range.start; page < range.start + range.size; page += B_PAGE_SIZE) {
+			if (user_memcpy(&probe, VirtFromPhys(page), sizeof(probe)) < B_OK) {
+				dprintf("[!] bad page: %#" B_PRIx64 "\n", page);
+			}
+			if (probedPages * 100 / totalPages >= percent + 1) {
+				percent++;
+				dprintf("%" B_PRIu32 "%%\n", percent);
+			}
+			probedPages++;
+		}
+	}
+	dprintf("done\n\n");
+
 	return B_OK;
 }
 

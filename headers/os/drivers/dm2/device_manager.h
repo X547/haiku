@@ -98,6 +98,8 @@ public:
 	virtual int32 AcquireReference() = 0;
 	virtual int32 ReleaseReference() = 0;
 
+	virtual int32 Id() = 0;
+
 	virtual DeviceNode* GetParent() const = 0;
 	virtual status_t GetNextChildNode(const device_attr* attrs, DeviceNode** node) const = 0;
 	virtual status_t FindChildNode(const device_attr* attrs, DeviceNode** node) const = 0;
@@ -200,13 +202,18 @@ protected:
 class DevFsNodeHandle {
 public:
 	virtual void Free() {}
-	virtual status_t Close() {return B_OK;}
-	virtual status_t Read(off_t pos, void* buffer, size_t* _length) {return ENOSYS;}
-	virtual status_t Write(off_t pos, const void* buffer, size_t* _length) {return ENOSYS;}
+	virtual status_t Close() {return B_OK;};
+	virtual status_t Read(off_t pos, void* buffer, size_t* length) {return ENOSYS;}
+	virtual status_t Write(off_t pos, const void* buffer, size_t* length) {return ENOSYS;}
+	virtual off_t Seek(off_t pos, int seekType) {return ENOSYS;}
 	virtual status_t IO(io_request* request) {return ENOSYS;}
-	virtual status_t Control(uint32 op, void* buffer, size_t length) {return ENOSYS;}
-	virtual status_t Select(uint8 event, selectsync* sync) {return ENOSYS;}
-	virtual status_t Deselect(uint8 event, selectsync* sync) {return ENOSYS;}
+	virtual status_t Map(/* TODO */) {return ENOSYS;}
+	virtual status_t Control(uint32 op, void* buffer, size_t length/*, bool isKernel*/) {return ENOSYS;}
+	virtual status_t SetFlags(int flags) {return ENOSYS;}
+	virtual status_t Select(uint8 event, struct selectsync* sync) {return ENOSYS;}
+	virtual status_t Deselect(uint8 event, struct selectsync* sync) {return ENOSYS;}
+	virtual status_t ReadStat(struct stat* stat) {return ENOSYS;}
+	virtual status_t WriteStat(const struct stat* stat, int statMask) {return ENOSYS;}
 
 protected:
 	~DevFsNodeHandle() = default;

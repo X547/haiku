@@ -90,6 +90,7 @@ typedef struct xhci_endpoint {
 typedef struct xhci_device {
 	uint8 slot;
 	uint8 address;
+	bool is_multi_tt;
 	area_id trb_area;
 	phys_addr_t trb_addr;
 	struct xhci_trb *trbs; // [XHCI_MAX_ENDPOINTS - 1][XHCI_ENDPOINT_RING_SIZE]
@@ -328,7 +329,7 @@ private:
 			uint32				fDoorbellRegisterOffset {};
 
 			pci_info			fPCIInfo {};
-			PciDevice*			fDevice {};
+			PciDevice*			fPciDevice {};
 
 			UsbStack*			fStack {};
 			uint8				fIRQ {};

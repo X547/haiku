@@ -211,7 +211,6 @@ SYSTEM_ADD_ONS_DRIVERS_AUDIO_OLD +=
 
 SYSTEM_ADD_ONS_DRIVERS_GRAPHICS += [ FFilterByBuildFeatures
 	x86,x86_64 @{
-		ati
 		intel_810 intel_extreme
 		matrox
 		nvidia

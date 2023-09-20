@@ -12,6 +12,7 @@
 #include "RootDevice.h"
 #include "DevFsNodeWrapper.h"
 #include "UserlandInterface.h"
+#include "UserlandInterface2Private.h"
 
 
 // TODO: locking
@@ -19,8 +20,6 @@
 
 
 DeviceManager DeviceManager::sInstance;
-
-
 
 
 class UnlockLocking {
@@ -701,6 +700,19 @@ DeviceManager::Init()
 	};
 	CHECK_RET(rootNode->Register(NULL, NULL, rootBusDriver.Detach(), rootAttrs));
 
+
+	static const device_attr deviceManagerAttrs[] = {
+		{B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "Device Manager"}},
+		{B_DEVICE_FIXED_CHILD, B_STRING_TYPE, {.string = DEVICE_MANAGER_DRIVER_MODULE_NAME}},
+		{}
+	};
+
+	rootBusDriver.SetTo(new(std::nothrow) RootDevice());
+	if (!rootBusDriver.IsSet())
+		return B_NO_MEMORY;
+
+	CHECK_RET(rootNode->RegisterNode(rootNode.Get(), rootBusDriver.Detach(), deviceManagerAttrs, NULL));
+
 	return B_OK;
 }
 
@@ -923,6 +935,7 @@ static device_manager_info sDeviceManagerModule = {
 
 
 _EXPORT module_info* modules[] = {
-	(module_info* )&sDeviceManagerModule,
+	(module_info*)&sDeviceManagerModule,
+	(module_info*)&gDeviceManagerDriverModule,
 	NULL
 };

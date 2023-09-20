@@ -33,6 +33,7 @@ public:
 private:
 	status_t Init();
 	static void InputCallback(void *cookie, status_t status, void *data, size_t actualLength);
+	static void UnstallCallback(void *cookie, status_t status, void *data, size_t actualLength);
 
 private:
 	mutex fLock = MUTEX_INITIALIZER("usb_hid");
@@ -40,6 +41,7 @@ private:
 	UsbDevice* fUsbDevice {};
 	UsbInterface* fInterface {};
 	UsbPipe* fInterruptPipe {};
+	uint8 fEndpointAddress {};
 
 	size_t fInputBufferSize {};
 	size_t fInputActualSize {};
@@ -119,6 +121,7 @@ UsbHidDriver::Init()
 
 		if ((endpoint->descr->endpoint_address & USB_ENDPOINT_ADDR_DIR_IN)
 			&& endpoint->descr->attributes == USB_ENDPOINT_ATTR_INTERRUPT) {
+			fEndpointAddress = endpoint->descr->endpoint_address;
 			fInterruptPipe = endpoint->handle;
 			break;
 		}
@@ -198,6 +201,12 @@ UsbHidDriver::InputCallback(void *cookie, status_t status, void *data, size_t ac
 	if (actualLength % 16 != 0)
 		dprintf("\n");
 #endif
+	if (status == B_DEV_STALLED) {
+		driver->fUsbDevice->QueueRequest(USB_REQTYPE_STANDARD | USB_REQTYPE_ENDPOINT_OUT,
+			USB_REQUEST_CLEAR_FEATURE, USB_FEATURE_ENDPOINT_HALT,
+			driver->fEndpointAddress, 0, NULL, UnstallCallback, driver);
+		return;
+	}
 
 	HidInputCallback* callback = driver->fCallback;
 	driver->fCallback = NULL;
@@ -205,6 +214,19 @@ UsbHidDriver::InputCallback(void *cookie, status_t status, void *data, size_t ac
 
 	if (callback != NULL)
 		callback->InputAvailable(status, (uint8*)data, actualLength);
+}
+
+
+void
+UsbHidDriver::UnstallCallback(void *cookie, status_t status, void *data, size_t actualLength)
+{
+	if (status != B_OK) {
+		dprintf("Unable to unstall device: %s\n", strerror(status));
+	}
+
+	// Now report the original failure, since we're ready to retry
+	InputCallback(cookie, B_IO_ERROR, data, 0);
+
 }
 
 

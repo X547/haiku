@@ -24,6 +24,8 @@ public:
 	DeviceNodeImpl();
 	virtual ~DeviceNodeImpl();
 
+	int32 Id() final { return fId; }
+
 	int32 AcquireReference() final { return BReferenceable::AcquireReference(); }
 	int32 ReleaseReference() final { return BReferenceable::ReleaseReference(); }
 
@@ -92,6 +94,7 @@ private:
 	};
 
 	mutable mutex fLock = MUTEX_INITIALIZER("DeviceNode");
+	int32 fId = -1;
 	State fState {};
 	ConditionVariable fProbeCompletedCond;
 	DeviceNodeImpl* fParent {};
@@ -118,8 +121,6 @@ public:
 	DeviceNode* GetRootNode() const;
 	DeviceNodeImpl* GetRootNodeNoRef() const {return fRoot;}
 	void SetRootNode(DeviceNodeImpl* node);
-
-	mutex* GetLock() {return &fLock;}
 
 	DeviceNodeImpl::PendingList& PendingNodes() {return fPendingList;}
 	void AddToProbePendingList(DeviceNodeImpl* node, bool doAdd);

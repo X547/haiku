@@ -116,8 +116,8 @@ XHCI::SetBusManager(UsbStack* stack, UsbBusManager* busManager)
 status_t
 XHCI::Init()
 {
-	fDevice = fNode->QueryBusInterface<PciDevice>();
-	fDevice->GetPciInfo(&fPCIInfo);
+	fPciDevice = fNode->QueryBusInterface<PciDevice>();
+	fPciDevice->GetPciInfo(&fPCIInfo);
 
 	B_INITIALIZE_SPINLOCK(&fSpinlock);
 	mutex_init(&fFinishedLock, "XHCI finished transfers");
@@ -126,11 +126,11 @@ XHCI::Init()
 	TRACE("constructing new XHCI host controller driver\n");
 
 	// enable busmaster and memory mapped access
-	uint16 command = fDevice->ReadPciConfig(PCI_command, 2);
+	uint16 command = fPciDevice->ReadPciConfig(PCI_command, 2);
 	command &= ~(PCI_command_io | PCI_command_int_disable);
 	command |= PCI_command_master | PCI_command_memory;
 
-	fDevice->WritePciConfig(PCI_command, 2, command);
+	fPciDevice->WritePciConfig(PCI_command, 2, command);
 
 	// map the registers (low + high for 64-bit when requested)
 	phys_addr_t physicalAddress = fPCIInfo.u.h0.base_registers[0];
@@ -274,21 +274,21 @@ XHCI::Init()
 
 	// Find the right interrupt vector, using MSIs if available.
 	fIRQ = fPCIInfo.u.h0.interrupt_line;
-#if 0
-	if (fPci->get_msix_count(fDevice) >= 1) {
+#if 1
+	if (fPciDevice->GetMsixCount() >= 1) {
 		uint8 msiVector = 0;
-		if (fPci->configure_msix(fDevice, 1, &msiVector) == B_OK
-			&& fPci->enable_msix(fDevice) == B_OK) {
+		if (fPciDevice->ConfigureMsix(1, &msiVector) == B_OK
+			&& fPciDevice->EnableMsix() == B_OK) {
 			TRACE_ALWAYS("using MSI-X\n");
 			fIRQ = msiVector;
 			fUseMSI = true;
 		}
 	} else
 #endif
-	if (fDevice->GetMsiCount() >= 1) {
+	if (fPciDevice->GetMsiCount() >= 1) {
 		uint8 msiVector = 0;
-		if (fDevice->ConfigureMsi(1, &msiVector) == B_OK
-			&& fDevice->EnableMsi() == B_OK) {
+		if (fPciDevice->ConfigureMsi(1, &msiVector) == B_OK
+			&& fPciDevice->EnableMsi() == B_OK) {
 			TRACE_ALWAYS("using message signaled interrupts\n");
 			fIRQ = msiVector;
 			fUseMSI = true;
@@ -343,8 +343,8 @@ XHCI::~XHCI()
 	delete_area(fDcbaArea);
 
 	if (fUseMSI) {
-		fDevice->DisableMsi();
-		fDevice->UnconfigureMsi();
+		fPciDevice->DisableMsi();
+		fPciDevice->UnconfigureMsi();
 	}
 }
 
@@ -353,15 +353,15 @@ void
 XHCI::_SwitchIntelPorts()
 {
 	TRACE("Looking for EHCI owned ports\n");
-	uint32 ports = fDevice->ReadPciConfig(XHCI_INTEL_USB3PRM, 4);
+	uint32 ports = fPciDevice->ReadPciConfig(XHCI_INTEL_USB3PRM, 4);
 	TRACE("Superspeed Ports: 0x%" B_PRIx32 "\n", ports);
-	fDevice->WritePciConfig(XHCI_INTEL_USB3_PSSEN, 4, ports);
-	ports = fDevice->ReadPciConfig(XHCI_INTEL_USB3_PSSEN, 4);
+	fPciDevice->WritePciConfig(XHCI_INTEL_USB3_PSSEN, 4, ports);
+	ports = fPciDevice->ReadPciConfig(XHCI_INTEL_USB3_PSSEN, 4);
 	TRACE("Superspeed ports now under XHCI : 0x%" B_PRIx32 "\n", ports);
-	ports = fDevice->ReadPciConfig(XHCI_INTEL_USB2PRM, 4);
+	ports = fPciDevice->ReadPciConfig(XHCI_INTEL_USB2PRM, 4);
 	TRACE("USB 2.0 Ports : 0x%" B_PRIx32 "\n", ports);
-	fDevice->WritePciConfig(XHCI_INTEL_XUSB2PR, 4, ports);
-	ports = fDevice->ReadPciConfig(XHCI_INTEL_XUSB2PR, 4);
+	fPciDevice->WritePciConfig(XHCI_INTEL_XUSB2PR, 4, ports);
+	ports = fPciDevice->ReadPciConfig(XHCI_INTEL_XUSB2PR, 4);
 	TRACE("USB 2.0 ports now under XHCI: 0x%" B_PRIx32 "\n", ports);
 }
 
@@ -1352,54 +1352,49 @@ XHCI::AllocateDevice(UsbBusDevice* parent, int8 hubAddress, uint8 hubPort, usb_s
 	uint32 route = 0;
 	BuildRoute(parent, hubPort, rhPort, route);
 
-	uint32 dwslot0 = SLOT_0_NUM_ENTRIES(1) | SLOT_0_ROUTE(route);
-
-#if 0
-	// Get speed of port, only if device connected to root hub port
-	// else we have to rely on value reported by the Hub Explore thread
-	if (route == 0) {
-		GetPortSpeed(hubPort - 1, &speed);
-		TRACE_ALWAYS("speed updated %d\n", speed);
-	}
-#endif
+	xhci_slot0 dwslot0 {
+		.route = route,
+		.num_entries = 1
+	};
 
 	// add the speed
 	switch (speed) {
 	case USB_SPEED_LOWSPEED:
-		dwslot0 |= SLOT_0_SPEED(2);
+		dwslot0.speed = 2;
 		break;
 	case USB_SPEED_FULLSPEED:
-		dwslot0 |= SLOT_0_SPEED(1);
+		dwslot0.speed = 1;
 		break;
 	case USB_SPEED_HIGHSPEED:
-		dwslot0 |= SLOT_0_SPEED(3);
+		dwslot0.speed = 3;
 		break;
 	case USB_SPEED_SUPERSPEED:
-		dwslot0 |= SLOT_0_SPEED(4);
+		dwslot0.speed = 4;
 		break;
 	default:
 		TRACE_ERROR("unknown usb speed\n");
 		break;
 	}
 
-	_WriteContext(&device->input_ctx->slot.dwslot0, dwslot0);
+	_WriteContext(&device->input_ctx->slot.dwslot0, dwslot0.value);
 	// TODO enable power save
-	_WriteContext(&device->input_ctx->slot.dwslot1, SLOT_1_RH_PORT(rhPort));
-	uint32 dwslot2 = SLOT_2_IRQ_TARGET(0);
+	xhci_slot1 dwslot1 {.rh_port = rhPort};
+	_WriteContext(&device->input_ctx->slot.dwslot1, dwslot1.value);
+	xhci_slot2 dwslot2 {.irq_target = 0};
 
 	// If LS/FS device connected to non-root HS device
 	if (route != 0 && parent->Speed() == USB_SPEED_HIGHSPEED
 		&& (speed == USB_SPEED_LOWSPEED || speed == USB_SPEED_FULLSPEED)) {
 		struct xhci_device *parenthub = (struct xhci_device *)
 			parent->ControllerCookie();
-		dwslot2 |= SLOT_2_PORT_NUM(hubPort);
-		dwslot2 |= SLOT_2_TT_HUB_SLOT(parenthub->slot);
+		dwslot2.tt_port_num = hubPort;
+		dwslot2.tt_hub_slot = parenthub->slot;
 	}
 
-	_WriteContext(&device->input_ctx->slot.dwslot2, dwslot2);
+	_WriteContext(&device->input_ctx->slot.dwslot2, dwslot2.value);
 
-	_WriteContext(&device->input_ctx->slot.dwslot3, SLOT_3_SLOT_STATE(0)
-		| SLOT_3_DEVICE_ADDRESS(0));
+	xhci_slot3 dwslot3 {.device_address = 0, .slot_state = 0};
+	_WriteContext(&device->input_ctx->slot.dwslot3, dwslot3.value);
 
 	TRACE_ALWAYS("slot 0x%08" B_PRIx32 " 0x%08" B_PRIx32 " 0x%08" B_PRIx32 " 0x%08" B_PRIx32
 		"\n", _ReadContext(&device->input_ctx->slot.dwslot0),
@@ -1469,8 +1464,8 @@ XHCI::AllocateDevice(UsbBusDevice* parent, int8 hubAddress, uint8 hubPort, usb_s
 		return NULL;
 	}
 
-	device->address = SLOT_3_DEVICE_ADDRESS_GET(_ReadContext(
-		&device->device_ctx->slot.dwslot3));
+	device->address = xhci_slot3{.value =_ReadContext(
+		&device->device_ctx->slot.dwslot3)}.device_address;
 
 	TRACE("device: address 0x%x state 0x%08" B_PRIx32 "\n", device->address,
 		SLOT_3_SLOT_STATE_GET(_ReadContext(
@@ -1529,15 +1524,16 @@ XHCI::InitDevice(UsbBusDevice* usbDevice, const usb_device_descriptor& deviceDes
 	xhci_device* device = (xhci_device*)cookie;
 	usb_speed speed = usbDevice->Speed();
 
+	device->is_multi_tt = deviceDescriptor.device_class == 9
+		&& deviceDescriptor.device_protocol == 2 /* multi-TT */;
+
 	if (speed == USB_SPEED_FULLSPEED && deviceDescriptor.max_packet_size_0 != 8) {
 		TRACE("Full speed device with different max packet size for Endpoint 0\n");
-		uint32 dwendpoint1 = _ReadContext(
-			&device->input_ctx->endpoints[0].dwendpoint1);
-		dwendpoint1 &= ~ENDPOINT_1_MAXPACKETSIZE(0xffff);
-		dwendpoint1 |= ENDPOINT_1_MAXPACKETSIZE(
-			deviceDescriptor.max_packet_size_0);
+		xhci_endpoint1 dwendpoint1 {.value =_ReadContext(
+			&device->input_ctx->endpoints[0].dwendpoint1)};
+		dwendpoint1.max_packet_size = deviceDescriptor.max_packet_size_0;
 		_WriteContext(&device->input_ctx->endpoints[0].dwendpoint1,
-			dwendpoint1);
+			dwendpoint1.value);
 		_WriteContext(&device->input_ctx->input.dropFlags, 0);
 		_WriteContext(&device->input_ctx->input.addFlags, (1 << 1));
 		EvaluateContext(device->input_ctx_addr, device->slot);
@@ -1557,16 +1553,18 @@ XHCI::InitHub(UsbBusDevice* usbDevice, const usb_hub_descriptor& hubDescriptor)
 	xhci_device* device = (xhci_device*)cookie;
 	usb_speed speed = usbDevice->Speed();
 
-	uint32 dwslot0 = _ReadContext(&device->input_ctx->slot.dwslot0);
-	dwslot0 |= SLOT_0_HUB_BIT;
-	_WriteContext(&device->input_ctx->slot.dwslot0, dwslot0);
-	uint32 dwslot1 = _ReadContext(&device->input_ctx->slot.dwslot1);
-	dwslot1 |= SLOT_1_NUM_PORTS(hubDescriptor.num_ports);
-	_WriteContext(&device->input_ctx->slot.dwslot1, dwslot1);
+	xhci_slot0 dwslot0 {.value = _ReadContext(&device->input_ctx->slot.dwslot0)};
+	dwslot0.is_hub = true;
+	dwslot0.is_mtt = device->is_multi_tt;
+	_WriteContext(&device->input_ctx->slot.dwslot0, dwslot0.value);
+	xhci_slot1 dwslot1 {.value = _ReadContext(&device->input_ctx->slot.dwslot1)};
+	dwslot1.num_ports = hubDescriptor.num_ports;
+	_WriteContext(&device->input_ctx->slot.dwslot1, dwslot1.value);
 	if (speed == USB_SPEED_HIGHSPEED) {
-		uint32 dwslot2 = _ReadContext(&device->input_ctx->slot.dwslot2);
-		dwslot2 |= SLOT_2_TT_TIME(HUB_TTT_GET(hubDescriptor.characteristics));
-		_WriteContext(&device->input_ctx->slot.dwslot2, dwslot2);
+		xhci_slot2 dwslot2 {.value = _ReadContext(&device->input_ctx->slot.dwslot2)};
+		dwslot2.tt_time = HUB_TTT_GET(hubDescriptor.characteristics);
+		TRACE_ALWAYS("ttTime: %" B_PRIu32 "\n", dwslot2.tt_time);
+		_WriteContext(&device->input_ctx->slot.dwslot2, dwslot2.value);
 	}
 
 	// Wait some time before powering up the ports
@@ -1599,8 +1597,8 @@ uint8
 XHCI::_GetEndpointState(xhci_endpoint* endpoint)
 {
 	struct xhci_device_ctx* device_ctx = endpoint->device->device_ctx;
-	return ENDPOINT_0_STATE_GET(
-		_ReadContext(&device_ctx->endpoints[endpoint->id].dwendpoint0));
+	return xhci_endpoint0{.value
+		= _ReadContext(&device_ctx->endpoints[endpoint->id].dwendpoint0)}.state;
 }
 
 
@@ -1628,12 +1626,11 @@ XHCI::_InsertEndpointForPipe(UsbBusPipe *pipe)
 		return B_BAD_VALUE;
 
 	if (id > 0) {
-		uint32 devicedwslot0 = _ReadContext(&device->device_ctx->slot.dwslot0);
-		if (SLOT_0_NUM_ENTRIES_GET(devicedwslot0) == 1) {
-			uint32 inputdwslot0 = _ReadContext(&device->input_ctx->slot.dwslot0);
-			inputdwslot0 &= ~(SLOT_0_NUM_ENTRIES(0x1f));
-			inputdwslot0 |= SLOT_0_NUM_ENTRIES(XHCI_MAX_ENDPOINTS - 1);
-			_WriteContext(&device->input_ctx->slot.dwslot0, inputdwslot0);
+		xhci_slot0 devicedwslot0 {.value = _ReadContext(&device->device_ctx->slot.dwslot0)};
+		if (devicedwslot0.num_entries == 1) {
+			xhci_slot0 inputdwslot0 {.value = _ReadContext(&device->input_ctx->slot.dwslot0)};
+			inputdwslot0.num_entries = XHCI_MAX_ENDPOINTS - 1;
+			_WriteContext(&device->input_ctx->slot.dwslot0, inputdwslot0.value);
 			EvaluateContext(device->input_ctx_addr, device->slot);
 		}
 
@@ -1906,10 +1903,10 @@ XHCI::ConfigureEndpoint(xhci_endpoint* ep, uint8 slot, uint8 number, uint8 type,
 {
 	struct xhci_device* device = &fDevices[slot];
 
-	uint32 dwendpoint0 = 0;
-	uint32 dwendpoint1 = 0;
+	xhci_endpoint0 dwendpoint0 {};
+	xhci_endpoint1 dwendpoint1 {};
 	uint64 qwendpoint2 = 0;
-	uint32 dwendpoint4 = 0;
+	xhci_endpoint4 dwendpoint4 {};
 
 	// Compute and assign the endpoint type. (XHCI 1.2 § 6.2.3 Table 6-9 p452.)
 	uint8 xhciType = 4;
@@ -1920,7 +1917,7 @@ XHCI::ConfigureEndpoint(xhci_endpoint* ep, uint8 slot, uint8 number, uint8 type,
 	if (type == USB_PIPE_ISO)
 		xhciType = 1;
 	xhciType |= directionIn ? (1 << 2) : 0;
-	dwendpoint1 |= ENDPOINT_1_EPTYPE(xhciType);
+	dwendpoint1.ep_type = xhciType;
 
 	// Compute and assign interval. (XHCI 1.2 § 6.2.3.6 p456.)
 	uint16 calcInterval;
@@ -1956,12 +1953,12 @@ XHCI::ConfigureEndpoint(xhci_endpoint* ep, uint8 slot, uint8 number, uint8 type,
 			break;
 		}
 	}
-	dwendpoint0 |= ENDPOINT_0_INTERVAL(calcInterval);
+	dwendpoint0.interval = calcInterval;
 
 	// For non-isochronous endpoints, we want the controller to retry failed
 	// transfers, if possible. (XHCI 1.2 § 4.10.2.3 p197.)
 	if (type != USB_PIPE_ISO)
-		dwendpoint1 |= ENDPOINT_1_CERR(3);
+		dwendpoint1.c_err = 3;
 
 	// Assign maximum burst size. For USB3 devices this is passed in; for
 	// all other devices we compute it. (XHCI 1.2 § 4.8.2 p161.)
@@ -1971,11 +1968,11 @@ XHCI::ConfigureEndpoint(xhci_endpoint* ep, uint8 slot, uint8 number, uint8 type,
 	} else if (speed != USB_SPEED_SUPERSPEED) {
 		maxBurst = 0;
 	}
-	dwendpoint1 |= ENDPOINT_1_MAXBURST(maxBurst);
+	dwendpoint1.max_burst = maxBurst;
 
 	// Assign maximum packet size, set the ring address, and set the
 	// "Dequeue Cycle State" bit. (XHCI 1.2 § 6.2.3 Table 6-10 p453.)
-	dwendpoint1 |= ENDPOINT_1_MAXPACKETSIZE(maxPacketSize);
+	dwendpoint1.max_packet_size = maxPacketSize;
 	qwendpoint2 |= ENDPOINT_2_DCS_BIT | ep->trb_addr;
 
 	// The Max Burst Payload is the number of bytes moved by a
@@ -1990,15 +1987,15 @@ XHCI::ConfigureEndpoint(xhci_endpoint* ep, uint8 slot, uint8 number, uint8 type,
 	if (type == USB_PIPE_CONTROL) {
 		// Control pipes are a special case, as they rarely have
 		// outbound transfers of any substantial size.
-		dwendpoint4 |= ENDPOINT_4_AVGTRBLENGTH(8);
+		dwendpoint4.avg_trb_length = 8;
 	} else if (type == USB_PIPE_ISO) {
 		// Isochronous pipes are another special case: the TRB size will be
 		// one packet (which is normally smaller than the max packet size,
 		// but we don't know what it is here.)
-		dwendpoint4 |= ENDPOINT_4_AVGTRBLENGTH(maxPacketSize);
+		dwendpoint4.avg_trb_length = maxPacketSize;
 	} else {
 		// Under all other circumstances, we put max_burst_payload in a TRB.
-		dwendpoint4 |= ENDPOINT_4_AVGTRBLENGTH(ep->max_burst_payload);
+		dwendpoint4.avg_trb_length = ep->max_burst_payload;
 	}
 
 	// Assign maximum ESIT payload. (XHCI 1.2 § 4.14.2 p259.)
@@ -2008,19 +2005,19 @@ XHCI::ConfigureEndpoint(xhci_endpoint* ep, uint8 slot, uint8 number, uint8 type,
 		// We don't fetch this yet, so just fall back to the USB2 computation
 		// method if bytesPerInterval is 0.
 		if (speed == USB_SPEED_SUPERSPEED && bytesPerInterval != 0)
-			dwendpoint4 |= ENDPOINT_4_MAXESITPAYLOAD(bytesPerInterval);
+			dwendpoint4.max_esit_payload_lo = bytesPerInterval;
 		else if (speed >= USB_SPEED_HIGHSPEED)
-			dwendpoint4 |= ENDPOINT_4_MAXESITPAYLOAD((maxBurst + 1) * maxPacketSize);
+			dwendpoint4.max_esit_payload_lo = (maxBurst + 1) * maxPacketSize;
 	}
 
 	_WriteContext(&device->input_ctx->endpoints[number].dwendpoint0,
-		dwendpoint0);
+		dwendpoint0.value);
 	_WriteContext(&device->input_ctx->endpoints[number].dwendpoint1,
-		dwendpoint1);
+		dwendpoint1.value);
 	_WriteContext(&device->input_ctx->endpoints[number].qwendpoint2,
 		qwendpoint2);
 	_WriteContext(&device->input_ctx->endpoints[number].dwendpoint4,
-		dwendpoint4);
+		dwendpoint4.value);
 
 	TRACE("endpoint 0x%" B_PRIx32 " 0x%" B_PRIx32 " 0x%" B_PRIx64 " 0x%"
 		B_PRIx32 "\n",

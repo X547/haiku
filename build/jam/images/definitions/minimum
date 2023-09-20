@@ -11,10 +11,12 @@ SYSTEM_BIN = [ FFilterByBuildFeatures
 	ftpd
 	getarch groupadd groupdel groupmod
 	hd hey
-	<bin>i2c
+#	<bin>i2c
 	ifconfig iroster isvolume
 	kernel_debugger keymap keystore
-	launch_roster linkcatkeys listarea listattr listimage listdev listfont
+	launch_roster linkcatkeys listarea listattr listimage
+#	listdev
+	listfont
 	listport listres listsem listusb locale logger login lsindex
 	makebootable message mimeset mkfs mkindex
 	modifiers mount mountvolume
@@ -184,8 +186,7 @@ SYSTEM_ADD_ONS_DRIVERS_GRAPHICS = [ FFilterByBuildFeatures
 		vesa
 	}@ # x86,x86_64
 	riscv64 @{
-		# ati for qemu, radeon_hd for unmatched
-		ati
+		# radeon_hd for unmatched
 		radeon_hd
 	}@ # riscv64
 ] ;
@@ -225,15 +226,19 @@ SYSTEM_ADD_ONS_DRIVERS_SENSOR = [ FFilterByBuildFeatures
 
 
 SYSTEM_ADD_ONS_BUS_MANAGERS = [ FFilterByBuildFeatures
-	acpi@x86,x86_64,arm64 agp_gart@x86,x86_64 ata
-	i2c isa@x86,x86_64
+	acpi
+	agp_gart@x86,x86_64
+#	ata
+#	i2c
+#	isa@x86,x86_64
 	mmc
-	scsi
-	pci ps2@x86,x86_64
+#	scsi
+	pci
+	ps2@x86,x86_64
 	fdt@riscv64,arm,arm64
-	random
+#	random
 	usb
-	virtio
+#	virtio
 ] ;
 
 SYSTEM_ADD_ONS_FILE_SYSTEMS =

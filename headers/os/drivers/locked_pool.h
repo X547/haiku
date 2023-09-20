@@ -8,30 +8,30 @@
 
 /*!	Paging-safe allocation of locked memory.
 
-	Library for managing temporary, locked memory with the condition of 
+	Library for managing temporary, locked memory with the condition of
 	not calling any function during allocation that can lead to paging.
 	Such memory is needed by drivers that are used to access the page file
 	but still need locked memory to execute requests.
-	
+
 	Basically, a background thread manages a memory pool where blocks
-	are allocated from. If the pool is empty, allocation is delayed until 
-	either a blocks is freed or the pool is enlarged by the background 
+	are allocated from. If the pool is empty, allocation is delayed until
+	either a blocks is freed or the pool is enlarged by the background
 	thread.
-	
+
 	All memory blocks must have same size and can be pre-initialized when
 	added to memory pool (and cleaned-up when removed from pool). The
 	free list is stored within free memory blocks, so you have to specify
 	a block offset where the manager can store the list pointers without
 	interfering with pre-initialization.
-	
+
 	You can also specify an alignment, e.g. if the blocks are used for
 	DMA access, a minimum pool size (in blocks), a maximum pool size
-	(in blocks) and the size of memory chunks to be added if the entire 
+	(in blocks) and the size of memory chunks to be added if the entire
 	pool is allocated.
 */
 
 
-#include <device_manager.h>
+#include <module.h>
 
 
 typedef struct locked_pool *locked_pool_cookie;
@@ -42,7 +42,7 @@ typedef void (*locked_pool_remove_hook)(void *block, void *arg);
 typedef struct {
 	module_info minfo;
 
-	// allocate block	
+	// allocate block
 	void *(*alloc)(locked_pool_cookie pool);
 	// free block
 	void (*free)(locked_pool_cookie pool, void *block);
@@ -61,7 +61,7 @@ typedef struct {
 	// hook_arg		- value to be passed to hooks as arg
 	locked_pool_cookie (*create)(int block_size, int alignment, int next_ofs,
 		int chunk_size, int max_blocks, int min_free_blocks, const char *name,
-		uint32 lock_flags, locked_pool_add_hook add_hook, 
+		uint32 lock_flags, locked_pool_add_hook add_hook,
 		locked_pool_remove_hook remove_hook, void *hook_arg);
 	void (*destroy)(locked_pool_cookie pool);
 } locked_pool_interface;

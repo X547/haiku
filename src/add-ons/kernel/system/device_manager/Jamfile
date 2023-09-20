@@ -15,4 +15,5 @@ KernelAddon device_manager :
 	DevFsNodeWrapper.cpp
 	CompatDriverModuleList.cpp
 	UserlandInterface.cpp
+	UserlandInterface2.cpp
 ;
