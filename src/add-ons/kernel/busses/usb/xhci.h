@@ -211,6 +211,8 @@ public:
 			status_t			GetPortSpeed(uint8 index, usb_speed *speed);
 
 private:
+			void				DumpEndpointState(xhci_endpoint_ctx& endpoint);
+
 	inline	bool				Lock() { return fBusManager->Lock(); }
 	inline	void				Unlock() { return fBusManager->Unlock(); }
 

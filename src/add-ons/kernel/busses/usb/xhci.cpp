@@ -82,6 +82,69 @@ xhci_error_string(uint32 error)
 }
 
 
+void
+XHCI::DumpEndpointState(xhci_endpoint_ctx& endpoint)
+{
+	static const char* states[] = {
+		"disabled",
+		"running",
+		"halted",
+		"stopped",
+		"error",
+		"?"
+	};
+
+	static const char* epTypes[] = {
+		"notValid",
+		"isochOut",
+		"bulkOut",
+		"interruptOut",
+		"control",
+		"isochIn",
+		"bulkIn",
+		"interruptIn",
+		"?"
+	};
+
+	xhci_endpoint0 dwendpoint0 {.value = _ReadContext(&endpoint.dwendpoint0)};
+	xhci_endpoint1 dwendpoint1 {.value = _ReadContext(&endpoint.dwendpoint1)};
+	uint64 qwendpoint2 = _ReadContext(&endpoint.qwendpoint2);
+	xhci_endpoint4 dwendpoint4 {.value = _ReadContext(&endpoint.dwendpoint4)};
+
+	dprintf(
+		"state: %s, "
+		"mult: %" B_PRIu32 ", "
+		"max_p_streams: %" B_PRIu32 ", "
+		"lsa: %" B_PRIu32 ", "
+		"interval: %" B_PRIu32 " us, "
+		"c_err: %" B_PRIu32 ", "
+		"ep_type: %s, "
+		"hid: %" B_PRIu32 ", "
+		"max_burst: %" B_PRIu32 ", "
+		"max_packet_size: %" B_PRIu32 ", "
+		"dcs: %d, "
+		"tr_dequeue_ptr: %#" B_PRIx64 ", "
+		"avg_trb_length: %" B_PRIu32 ", "
+		"max_esit_payload: %" B_PRIu32 "\n",
+
+		states[std::min<uint32>(dwendpoint0.state, B_COUNT_OF(states))],
+		dwendpoint0.mult + 1,
+		dwendpoint0.max_p_streams,
+		dwendpoint0.lsa,
+		125 * (1 << dwendpoint0.interval),
+		dwendpoint1.c_err,
+		epTypes[std::min<uint32>(dwendpoint1.ep_type, B_COUNT_OF(epTypes))],
+		dwendpoint1.hid,
+		dwendpoint1.max_burst + 1,
+		dwendpoint1.max_packet_size,
+		(qwendpoint2 & ENDPOINT_2_DCS_BIT) != 0,
+		qwendpoint2 & ~(uint64)ENDPOINT_2_DCS_BIT,
+		dwendpoint4.avg_trb_length,
+		dwendpoint4.max_esit_payload_lo + (dwendpoint0.max_esit_payload_hi << 16)
+	);
+}
+
+
 void*
 XHCI::BusManager::QueryInterface(const char* name)
 {
@@ -759,11 +822,16 @@ XHCI::SubmitNormalRequest(UsbBusTransfer *transfer)
 			tdSize = 31;
 
 		td->trbs[i].address = td->buffer_addrs[i];
-		td->trbs[i].status = TRB_2_IRQ(0)
-			| TRB_2_BYTES(trbLength)
-			| TRB_2_TD_SIZE(tdSize);
-		td->trbs[i].flags = TRB_3_TYPE(TRB_TYPE_NORMAL)
-			| TRB_3_CYCLE_BIT | TRB_3_CHAIN_BIT;
+		td->trbs[i].status = xhci_trb_status{
+			.transfer_length = (uint32)trbLength,
+			.td_size = (uint32)tdSize,
+			.irq_target = 0
+		}.value;
+		td->trbs[i].flags = xhci_trb_flags{
+			.cycle = true,
+			.chain = true,
+			.trb_type = TRB_TYPE_NORMAL
+		}.value;
 
 		td->trb_used++;
 	}
@@ -1769,7 +1837,7 @@ XHCI::_LinkDescriptorForPipe(xhci_td *descriptor, xhci_endpoint *endpoint)
 	// Add a Link TRB to the end of the descriptor.
 	phys_addr_t addr = endpoint->trb_addr + eventdata * sizeof(xhci_trb);
 	descriptor->trbs[descriptor->trb_used].address = addr;
-	descriptor->trbs[descriptor->trb_used].status = TRB_2_IRQ(0);
+	descriptor->trbs[descriptor->trb_used].status = xhci_trb_status{.irq_target = 0}.value;
 	descriptor->trbs[descriptor->trb_used].flags = TRB_3_TYPE(TRB_TYPE_LINK)
 		| TRB_3_CHAIN_BIT | TRB_3_CYCLE_BIT;
 		// It is specified that (XHCI 1.2 § 4.12.3 Note 2 p251) if the TRB
@@ -1794,7 +1862,7 @@ XHCI::_LinkDescriptorForPipe(xhci_td *descriptor, xhci_endpoint *endpoint)
 	endpoint->trbs[current].address =
 		B_HOST_TO_LENDIAN_INT64(descriptor->trb_addr);
 	endpoint->trbs[current].status =
-		B_HOST_TO_LENDIAN_INT32(TRB_2_IRQ(0));
+		B_HOST_TO_LENDIAN_INT32(xhci_trb_status{.irq_target = 0}.value);
 	endpoint->trbs[current].flags =
 		B_HOST_TO_LENDIAN_INT32(TRB_3_TYPE(TRB_TYPE_LINK));
 
@@ -1814,7 +1882,7 @@ XHCI::_LinkDescriptorForPipe(xhci_td *descriptor, xhci_endpoint *endpoint)
 		B_HOST_TO_LENDIAN_INT64(descriptor->trb_addr
 			+ (descriptor->trb_used - 1) * sizeof(xhci_trb));
 	endpoint->trbs[eventdata].status =
-		B_HOST_TO_LENDIAN_INT32(TRB_2_IRQ(0));
+		B_HOST_TO_LENDIAN_INT32(xhci_trb_status{.irq_target = 0}.value);
 	endpoint->trbs[eventdata].flags =
 		B_HOST_TO_LENDIAN_INT32(TRB_3_TYPE(TRB_TYPE_EVENT_DATA)
 			| TRB_3_IOC_BIT | TRB_3_CYCLE_BIT);
@@ -1827,7 +1895,7 @@ XHCI::_LinkDescriptorForPipe(xhci_td *descriptor, xhci_endpoint *endpoint)
 		endpoint->trbs[next].address =
 			B_HOST_TO_LENDIAN_INT64(endpoint->trb_addr);
 		endpoint->trbs[next].status =
-			B_HOST_TO_LENDIAN_INT32(TRB_2_IRQ(0));
+			B_HOST_TO_LENDIAN_INT32(xhci_trb_status{.irq_target = 0}.value);
 		endpoint->trbs[next].flags =
 			B_HOST_TO_LENDIAN_INT32(TRB_3_TYPE(TRB_TYPE_LINK));
 
@@ -2006,7 +2074,7 @@ XHCI::ConfigureEndpoint(xhci_endpoint* ep, uint8 slot, uint8 number, uint8 type,
 		// method if bytesPerInterval is 0.
 		if (speed == USB_SPEED_SUPERSPEED && bytesPerInterval != 0)
 			dwendpoint4.max_esit_payload_lo = bytesPerInterval;
-		else if (speed >= USB_SPEED_HIGHSPEED)
+		else /*if (speed >= USB_SPEED_HIGHSPEED)*/
 			dwendpoint4.max_esit_payload_lo = (maxBurst + 1) * maxPacketSize;
 	}
 
@@ -2019,12 +2087,8 @@ XHCI::ConfigureEndpoint(xhci_endpoint* ep, uint8 slot, uint8 number, uint8 type,
 	_WriteContext(&device->input_ctx->endpoints[number].dwendpoint4,
 		dwendpoint4.value);
 
-	TRACE("endpoint 0x%" B_PRIx32 " 0x%" B_PRIx32 " 0x%" B_PRIx64 " 0x%"
-		B_PRIx32 "\n",
-		_ReadContext(&device->input_ctx->endpoints[number].dwendpoint0),
-		_ReadContext(&device->input_ctx->endpoints[number].dwendpoint1),
-		_ReadContext(&device->input_ctx->endpoints[number].qwendpoint2),
-		_ReadContext(&device->input_ctx->endpoints[number].dwendpoint4));
+	dprintf("endpoint[%u]: ", number);
+	DumpEndpointState(device->input_ctx->endpoints[number]);
 
 	return B_OK;
 }

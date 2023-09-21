@@ -411,8 +411,19 @@ STrap(iframe* frame)
 		case causeExecAccessFault:
 		case causeLoadAccessFault:
 		case causeStoreAccessFault: {
-			return SendSignal(B_SEGMENT_VIOLATION, SIGBUS, BUS_ADRERR,
-				Stval());
+			uint64 stval = Stval();
+			switch (frame->cause) {
+				case causeExecAccessFault:
+					dprintf("[!] STrap(causeExecAccessFault, %#" B_PRIx64 ")\n", stval);
+					break;
+				case causeLoadAccessFault:
+					dprintf("[!] STrap(causeLoadAccessFault, %#" B_PRIx64 ")\n", stval);
+					break;
+				case causeStoreAccessFault:
+					dprintf("[!] STrap(causeStoreAccessFault, %#" B_PRIx64 ")\n", stval);
+					break;
+			}
+			return SendSignal(B_SEGMENT_VIOLATION, SIGBUS, BUS_ADRERR, stval);
 		}
 		case causeExecPageFault:
 		case causeLoadPageFault:

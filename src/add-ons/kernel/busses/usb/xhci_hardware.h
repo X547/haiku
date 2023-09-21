@@ -312,6 +312,34 @@
 #define XHCI_MAX_TRANSFERS		8
 
 
+union xhci_trb_status {
+	struct {
+		uint32 transfer_length: 17; //  0
+		uint32 td_size:          5; // 17
+		uint32 irq_target:      10; // 22
+	};
+	uint32 value;
+};
+
+union xhci_trb_flags {
+	struct {
+		uint32 cycle:      1; //  0
+		uint32 ent:        1; //  1
+		uint32 isp:        1; //  2
+		uint32 ns:         1; //  3
+		uint32 chain:      1; //  4
+		uint32 ioc:        1; //  5
+		uint32 idt:        1; //  6
+		uint32 reserved1:  2; //  7
+		uint32 bei:        1; //  9
+		uint32 trb_type:   6; // 10
+		uint32 trt:        2; // 16
+		uint32 reserved2: 14; // 18
+	};
+	uint32 value;
+};
+
+
 struct xhci_trb {
 	uint64 address;
 	uint32 status;
