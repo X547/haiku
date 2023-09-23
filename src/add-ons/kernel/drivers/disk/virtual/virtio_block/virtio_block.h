@@ -38,7 +38,7 @@ public:
 
 	void Free() final;
 	status_t IO(io_request *request) final;
-	status_t Control(uint32 op, void *buffer, size_t length) final;
+	status_t Control(uint32 op, void *buffer, size_t length, bool isKernel) final;
 
 private:
 	VirtioBlockDriver& fDriver;

@@ -36,7 +36,7 @@ public:
 	status_t Close() final;
 	status_t Read(off_t pos, void* buffer, size_t* _length) final;
 	status_t Write(off_t pos, const void* buffer, size_t* _length) final;
-	status_t Control(uint32 op, void *buffer, size_t length) final;
+	status_t Control(uint32 op, void *buffer, size_t length, bool isKernel) final;
 
 public:
 	uint32 fCookie {};
@@ -107,7 +107,7 @@ HidInputDevFsNodeHandle::Write(off_t pos, const void* buffer, size_t* _length)
 
 
 status_t
-HidInputDevFsNodeHandle::Control(uint32 op, void *buffer, size_t length)
+HidInputDevFsNodeHandle::Control(uint32 op, void *buffer, size_t length, bool isKernel)
 {
 	return fHandler->Control(&fCookie, op, buffer, length);
 }

@@ -313,7 +313,7 @@ MmcDiskDevFsNodeHandle::IO(io_request *request)
 
 
 status_t
-MmcDiskDevFsNodeHandle::Control(uint32 op, void *buffer, size_t length)
+MmcDiskDevFsNodeHandle::Control(uint32 op, void *buffer, size_t length, bool isKernel)
 {
 	CALLED();
 

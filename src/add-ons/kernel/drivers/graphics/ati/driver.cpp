@@ -175,7 +175,7 @@ public:
 
 	void Free() final {delete this;}
 	status_t Close() final;
-	status_t Control(uint32 op, void *buffer, size_t length) final;
+	status_t Control(uint32 op, void *buffer, size_t length, bool isKernel) final;
 
 public:
 	uint32 fCookie {};
@@ -1045,7 +1045,7 @@ AtiDevFsNodeHandle::Close()
 
 
 status_t
-AtiDevFsNodeHandle::Control(uint32 msg, void* buffer, size_t bufferLength)
+AtiDevFsNodeHandle::Control(uint32 msg, void* buffer, size_t bufferLength, bool isKernel)
 {
 	AtiDriver& di = fDriver;
 

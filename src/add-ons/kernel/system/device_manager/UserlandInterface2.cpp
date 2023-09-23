@@ -31,7 +31,7 @@ private:
 
 		status_t Init();
 
-		status_t Control(uint32 op, void* buffer, size_t length) final;
+		status_t Control(uint32 op, void* buffer, size_t length, bool isKernel) final;
 
 	private:
 		dm_device_node_id AllocId(BReference<DeviceNodeImpl> node);
@@ -98,7 +98,7 @@ DeviceManagerDriver::DevFsNodeHandle::Init()
 
 
 status_t
-DeviceManagerDriver::DevFsNodeHandle::Control(uint32 op, void* buffer, size_t length)
+DeviceManagerDriver::DevFsNodeHandle::Control(uint32 op, void* buffer, size_t length, bool isKernel)
 {
 	switch (op) {
 		case DM_GET_VERSION: {

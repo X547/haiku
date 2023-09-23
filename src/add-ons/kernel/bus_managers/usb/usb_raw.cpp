@@ -89,7 +89,7 @@ UsbDevFsNode::Open(const char* path, int openMode, DevFsNodeHandle** outHandle)
 
 
 status_t
-UsbDevFsNode::Control(uint32 op, void* buffer, size_t length)
+UsbDevFsNode::Control(uint32 op, void* buffer, size_t length, bool isKernel)
 {
 	usb_raw_command command;
 	if (length < sizeof(command.version.status))

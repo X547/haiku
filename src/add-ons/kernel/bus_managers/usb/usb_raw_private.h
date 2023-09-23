@@ -11,7 +11,7 @@ public:
 
 	Capabilities GetCapabilities() const final {return {.control = true};}
 	status_t Open(const char* path, int openMode, DevFsNodeHandle** outHandle) final;
-	status_t Control(uint32 op, void* buffer, size_t length) final;
+	status_t Control(uint32 op, void* buffer, size_t length, bool isKernel) final;
 
 private:
 	const usb_configuration_info* GetConfiguration(uint32 configIndex, status_t* status) const;

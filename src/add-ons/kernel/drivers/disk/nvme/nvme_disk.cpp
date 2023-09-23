@@ -98,7 +98,7 @@ public:
 	status_t Read(off_t pos, void* buffer, size_t* length) final;
 	status_t Write(off_t pos, const void* buffer, size_t* length) final;
 	status_t IO(io_request *request) final;
-	status_t Control(uint32 op, void *buffer, size_t length) final;
+	status_t Control(uint32 op, void *buffer, size_t length, bool isKernel) final;
 
 private:
 	status_t GetGeometry(device_geometry* geometry);
@@ -912,7 +912,7 @@ NvmeDiskDevFsNodeHandle::Write(off_t pos, const void* buffer, size_t* length)
 
 
 status_t
-NvmeDiskDevFsNodeHandle::Control(uint32 op, void *buffer, size_t length)
+NvmeDiskDevFsNodeHandle::Control(uint32 op, void *buffer, size_t length, bool isKernel)
 {
 	CALLED();
 

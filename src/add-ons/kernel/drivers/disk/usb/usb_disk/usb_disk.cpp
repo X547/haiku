@@ -863,7 +863,7 @@ DeviceLun::IO(io_request *request)
 
 
 status_t
-DeviceLun::Control(uint32 op, void *buffer, size_t length)
+DeviceLun::Control(uint32 op, void *buffer, size_t length, bool isKernel)
 {
 	MutexLocker locker(&fDevice->fLock);
 	if (fDevice->fRemoved)

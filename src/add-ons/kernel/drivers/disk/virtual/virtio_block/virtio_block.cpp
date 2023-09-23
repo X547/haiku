@@ -336,7 +336,7 @@ VirtioBlockDevFsNodeHandle::IO(io_request *request)
 
 
 status_t
-VirtioBlockDevFsNodeHandle::Control(uint32 op, void *buffer, size_t length)
+VirtioBlockDevFsNodeHandle::Control(uint32 op, void *buffer, size_t length, bool isKernel)
 {
 	CALLED();
 

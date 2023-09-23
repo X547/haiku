@@ -7,6 +7,8 @@
 
 #include "DevFsNodeWrapper.h"
 
+#include "kernel.h"
+
 #include "IORequest.h"
 
 
@@ -171,7 +173,7 @@ DevFsNodeWrapper::Control(void* cookie, int32 op, void* buffer, size_t length)
 		return B_DEV_NOT_READY;
 
 	DevFsNodeHandle* handle = (DevFsNodeHandle*)cookie;
-	return handle->Control(op, buffer, length);
+	return handle->Control(op, buffer, length, IS_KERNEL_ADDRESS(buffer) /* !!! */);
 }
 
 

@@ -79,7 +79,7 @@ public:
 	virtual ~VirtioInputDevFsNodeHandle() = default;
 
 	void Free() final;
-	status_t Control(uint32 op, void* buffer, size_t length) final;
+	status_t Control(uint32 op, void* buffer, size_t length, bool isKernel) final;
 
 private:
 	VirtioInputDriver& fDriver;
@@ -312,7 +312,7 @@ void VirtioInputDevFsNodeHandle::Free()
 }
 
 
-status_t VirtioInputDevFsNodeHandle::Control(uint32 op, void* buffer, size_t length)
+status_t VirtioInputDevFsNodeHandle::Control(uint32 op, void* buffer, size_t length, bool isKernel)
 {
 	CALLED();
 	TRACE("control(op = %" B_PRIu32 ")\n", op);

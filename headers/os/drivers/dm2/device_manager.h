@@ -208,7 +208,7 @@ public:
 	virtual off_t Seek(off_t pos, int seekType) {return ENOSYS;}
 	virtual status_t IO(io_request* request) {return ENOSYS;}
 	virtual status_t Map(/* TODO */) {return ENOSYS;}
-	virtual status_t Control(uint32 op, void* buffer, size_t length/*, bool isKernel*/) {return ENOSYS;}
+	virtual status_t Control(uint32 op, void* buffer, size_t length, bool isKernel) {return ENOSYS;}
 	virtual status_t SetFlags(int flags) {return ENOSYS;}
 	virtual status_t Select(uint8 event, struct selectsync* sync) {return ENOSYS;}
 	virtual status_t Deselect(uint8 event, struct selectsync* sync) {return ENOSYS;}

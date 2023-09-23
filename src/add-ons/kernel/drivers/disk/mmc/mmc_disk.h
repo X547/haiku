@@ -36,7 +36,7 @@ public:
 
 	void Free() final {delete this;}
 	status_t IO(io_request *request) final;
-	status_t Control(uint32 op, void *buffer, size_t length) final;
+	status_t Control(uint32 op, void *buffer, size_t length, bool isKernel) final;
 
 private:
 	MmcDiskDriver& fDriver;

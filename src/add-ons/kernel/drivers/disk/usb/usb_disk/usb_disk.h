@@ -95,7 +95,7 @@ public:
 	// DevFsNodeHandle
 	status_t Close() final;
 	status_t IO(io_request *request) final;
-	status_t Control(uint32 op, void *buffer, size_t length) final;
+	status_t Control(uint32 op, void *buffer, size_t length, bool isKernel) final;
 
 	// IOCallback
 	status_t DoIO(IOOperation* operation) final;
