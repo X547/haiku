@@ -183,7 +183,7 @@ static void* unix_mmap_prim(void* addr, size_t size, size_t try_alignment, int p
     // fall back to regular mmap
   }
   #endif
-  #if (MI_INTPTR_SIZE >= 8) && !defined(MAP_ALIGNED)
+  #if (MI_INTPTR_SIZE >= 8) && !defined(MAP_ALIGNED) && !defined(__HAIKU__)
   // on 64-bit systems, use the virtual address area after 2TiB for 4MiB aligned allocations
   if (addr == NULL) {
     void* hint = _mi_os_get_aligned_hint(try_alignment, size);
