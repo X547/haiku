@@ -200,7 +200,6 @@ SYSTEM_ADD_ONS_SCREENSAVERS += [ FFilterByBuildFeatures
 SYSTEM_ADD_ONS_DRIVERS_AUDIO +=
 	auich auvia
 	echo3g emuxki es1370
-	hda
 	ice1712
 	sis7018
 ;
@@ -243,7 +242,7 @@ SYSTEM_ADD_ONS_DRIVERS_NET += [ FFilterByBuildFeatures
 ] ;
 
 SYSTEM_ADD_ONS_DRIVERS_POWER += [ FFilterByBuildFeatures
-	acpi_battery@x86,x86_64
+#	acpi_battery@x86,x86_64
 ] ;
 
 SYSTEM_ADD_ONS_FILE_SYSTEMS +=
