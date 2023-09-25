@@ -1,10 +1,15 @@
+#include <algorithm>
 #include <new>
 
+#include <errno.h>
+
+#include <dm2/uapi/device_manager.h>
+
+#include <ScopeExit.h>
 #include <util/AutoLock.h>
 #include <util/Vector.h>
 
 #include "DeviceManager.h"
-#include "UserlandInterface2.h"
 #include "UserlandInterface2Private.h"
 
 
@@ -33,15 +38,13 @@ private:
 
 		status_t Control(uint32 op, void* buffer, size_t length, bool isKernel) final;
 
-	private:
-		dm_device_node_id AllocId(BReference<DeviceNodeImpl> node);
-		void FreeId(dm_device_node_id nodeId);
+		int CreateFd(BReference<DeviceNodeImpl> node);
 
 	private:
 		DeviceManagerDriver& fBase;
 		mutex fLock = MUTEX_INITIALIZER("DeviceManager handle");
 
-		Vector<BReference<DeviceNodeImpl>> fNodeIds;
+		BReference<DeviceNodeImpl> fNode;
 	};
 
 
@@ -74,7 +77,7 @@ DeviceManagerDriver::Probe(DeviceNode* node, DeviceDriver** outDriver)
 status_t
 DeviceManagerDriver::Init()
 {
-	CHECK_RET(fNode->RegisterDevFsNode("system/device_manager", &fDevFsNode));
+	CHECK_RET(fNode->RegisterDevFsNode(DM_DEVICE_NAME, &fDevFsNode));
 
 	return B_OK;
 }
@@ -97,43 +100,126 @@ DeviceManagerDriver::DevFsNodeHandle::Init()
 }
 
 
+int
+DeviceManagerDriver::DevFsNodeHandle::CreateFd(BReference<DeviceNodeImpl> node)
+{
+	int fd = open("/dev/" DM_DEVICE_NAME, O_RDWR);
+	if (fd < 0)
+		return errno;
+
+	DevFsNodeHandle* newHandle {};
+	ioctl(fd, DM_GET_COOKIE, &newHandle, sizeof(newHandle));
+
+	MutexLocker lock(&newHandle->fLock);
+	newHandle->fNode = node;
+
+	return fd;
+}
+
+
 status_t
 DeviceManagerDriver::DevFsNodeHandle::Control(uint32 op, void* buffer, size_t length, bool isKernel)
 {
-	switch (op) {
-		case DM_GET_VERSION: {
-			return B_OK;
-		};
+	if (isKernel && op == DM_GET_COOKIE) {
+		*(DevFsNodeHandle**)buffer = this;
+		return B_OK;
 	}
-	return B_DEV_INVALID_IOCTL;
-}
 
+	dm_command command;
 
-dm_device_node_id
-DeviceManagerDriver::DevFsNodeHandle::AllocId(BReference<DeviceNodeImpl> node)
-{
-	MutexLocker lock(&fLock);
+	size_t copyLength = std::min(sizeof(command), length);
 
-	int32 index = fNodeIds.Find(NULL);
-	if (index < 0)
-		index = fNodeIds.Count();
+	CHECK_RET(user_memcpy(&command, buffer, copyLength));
 
-	CHECK_RET(fNodeIds.Insert(node, index));
-	return index;
-}
+	auto DoControl = [this](uint32 op, dm_command& command, size_t length) -> status_t {
+		switch (op) {
+			case DM_GET_VERSION:
+				return DM_PROTOCOL_VERSION;
 
+			case DM_GET_NODE_ID:
+				if (!fNode.IsSet())
+					return ENOENT;
 
-void DeviceManagerDriver::DevFsNodeHandle::FreeId(dm_device_node_id nodeId)
-{
-	MutexLocker lock(&fLock);
+				return fNode->Id();
 
-	if (nodeId < 0 || nodeId >= fNodeIds.Count())
-		return;
+			case DM_GET_ROOT_NODE:
+				return CreateFd(BReference(DeviceManager::Instance().GetRootNode(), true));
 
-	fNodeIds[nodeId] = NULL;
+			case DM_GET_CHILD_NODE: {
+				if (!fNode.IsSet())
+					return ENOENT;
 
-	while (fNodeIds.Count() > 0 && fNodeIds[fNodeIds.Count() - 1].IsSet())
-		fNodeIds.PopBack();
+				DeviceNode* childNode = NULL;
+				CHECK_RET(fNode->GetNextChildNode(NULL, &childNode));
+
+				return CreateFd(BReference(static_cast<DeviceNodeImpl*>(childNode), true));
+			}
+			case DM_GET_PARENT_NODE: {
+				if (!fNode.IsSet())
+					return ENOENT;
+
+				DeviceNode* parentNode = fNode->GetParent();
+				if (parentNode == NULL)
+					return ENOENT;
+
+				return CreateFd(BReference(static_cast<DeviceNodeImpl*>(parentNode), true));
+			}
+			case DM_GET_NEXT_NODE: {
+				if (!fNode.IsSet())
+					return ENOENT;
+
+				DeviceNode* childNode = fNode.Get();
+				CHECK_RET(fNode->GetNextChildNode(NULL, &childNode));
+
+				return CreateFd(BReference(static_cast<DeviceNodeImpl*>(childNode), true));
+			}
+			case DM_GET_ATTR: {
+				if (length < sizeof(command.getAttr)) {
+					return B_BAD_VALUE;
+				}
+
+				if (!fNode.IsSet())
+					return ENOENT;
+
+				const device_attr* attr = NULL;
+				for (int32 i = 0; i < command.getAttr.index; i++) {
+					CHECK_RET(fNode->GetNextAttr(&attr));
+				}
+
+				memcpy(&command.getAttr.attr, attr, sizeof(*attr));
+
+				switch (attr->type) {
+					case B_STRING_TYPE: {
+						command.getAttr.attr.value.string = (char*)command.getAttr.dataBuffer;
+						size_t size = strlen(attr->value.string) + 1;
+						// !!! userland may provide kernel address
+						CHECK_RET(user_memcpy(command.getAttr.dataBuffer, attr->value.string, std::min(size, command.getAttr.dataBufferSize)));
+						command.getAttr.dataBufferSize = size;
+						break;
+					}
+					case B_RAW_TYPE: {
+						command.getAttr.attr.value.raw.data = command.getAttr.dataBuffer;
+						size_t size = attr->value.raw.length;
+						// !!! userland may provide kernel address
+						CHECK_RET(user_memcpy(command.getAttr.dataBuffer, attr->value.raw.data, std::min(size, command.getAttr.dataBufferSize)));
+						command.getAttr.dataBufferSize = size;
+						break;
+					}
+					default:
+						command.getAttr.dataBufferSize = 0;
+				}
+
+				return B_OK;
+			}
+		}
+		return B_DEV_INVALID_IOCTL;
+	};
+
+	status_t res = DoControl(op, command, length);
+
+	CHECK_RET(user_memcpy(buffer, &command, copyLength));
+
+	return res;
 }
 
 

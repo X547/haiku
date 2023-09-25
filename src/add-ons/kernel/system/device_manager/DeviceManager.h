@@ -118,7 +118,7 @@ public:
 	static DeviceManager& Instance() {return sInstance;}
 
 	status_t Init();
-	DeviceNode* GetRootNode() const;
+	DeviceNodeImpl* GetRootNode() const;
 	DeviceNodeImpl* GetRootNodeNoRef() const {return fRoot;}
 	void SetRootNode(DeviceNodeImpl* node);
 

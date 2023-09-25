@@ -717,7 +717,7 @@ DeviceManager::Init()
 }
 
 
-DeviceNode*
+DeviceNodeImpl*
 DeviceManager::GetRootNode() const
 {
 	if (fRoot != NULL)
@@ -927,7 +927,7 @@ static device_manager_info sDeviceManagerModule = {
 		.name = B_DEVICE_MANAGER_MODULE_NAME,
 		.std_ops = device_manager_std_ops,
 	},
-	.get_root_node = []() {return DeviceManager::Instance().GetRootNode();},
+	.get_root_node = []() -> DeviceNode* {return DeviceManager::Instance().GetRootNode();},
 	.probe_fence = []() {return DeviceManager::Instance().ProbeFence();},
 	.dump_tree = []() {DeviceManager::Instance().DumpTree();},
 	.run_test = [](const char* testName) {DeviceManager::Instance().RunTest(testName);},

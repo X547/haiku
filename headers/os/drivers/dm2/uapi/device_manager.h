@@ -2,8 +2,12 @@
 
 #include <Drivers.h>
 
+#include <dm2/device_manager.h>
 
-#define B_DM_PROTOCOL_VERSION 1
+
+#define DM_DEVICE_NAME "system/device_manager"
+
+#define DM_PROTOCOL_VERSION 1
 
 
 typedef int32 dm_device_node_id;
@@ -12,7 +16,9 @@ typedef int32 dm_device_node_id;
 enum {
 	DM_GET_VERSION = B_DEVICE_OP_CODES_END + 1,
 
-	DM_CLOSE_NODE,
+	DM_GET_COOKIE, // kernel private
+
+	DM_GET_NODE_ID,
 	DM_GET_ROOT_NODE,
 	DM_GET_CHILD_NODE,
 	DM_GET_PARENT_NODE,
@@ -24,17 +30,20 @@ enum {
 	DM_RESTART_DRIVER,
 	DM_REPROBE_DRIVER,
 
-	DM_GET_FIRST_ATTR,
-	DM_GET_NEXT_ATTR,
+	DM_GET_ATTR,
 };
 
 
 union dm_command {
 	struct {
-		status_t status;
-	} version;
+		char* name;
+		size_t nameLen;
+	} getDriverModuleName;
 
 	struct {
-		dm_device_node_id nodeId;
-	} node;
+		int32 index;
+		void* dataBuffer;
+		size_t dataBufferSize;
+		device_attr attr;
+	} getAttr;
 };
