@@ -1,0 +1,32 @@
+SubDir HAIKU_TOP src system libroot posix malloc_mimalloc ;
+
+UsePrivateHeaders libroot shared ;
+UseHeaders [ FDirName $(HAIKU_TOP) headers compatibility bsd ] : true ;
+
+local architectureObject ;
+for architectureObject in [ MultiArchSubDirSetup ] {
+	on $(architectureObject) {
+		local architecture = $(TARGET_PACKAGING_ARCH) ;
+
+		UsePrivateSystemHeaders ;
+
+		MergeObject <$(architecture)>posix_malloc.o :
+			alloc-aligned.c
+			alloc-posix.c
+			alloc.c
+			arena.c
+			bitmap.c
+			heap.c
+			init.c
+			options.c
+			os.c
+			page.c
+			prim.c
+			random.c
+			segment-map.c
+			segment.c
+			stats.c
+			wrapper.cpp
+			;
+	}
+}
