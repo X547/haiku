@@ -43,7 +43,7 @@ private:
 class PciDeviceImpl: public PciDevice, public BusDriver {
 public:
 				PciDeviceImpl(PciBusImpl* driver, PCIDev* device):
-					fDriver(driver), fDevice(device) {}
+					fDriver(driver), fDevice(device), fConfigDevFsNode(*this), fBarDevFsNode{*this, *this, *this, *this, *this, *this} {}
 	virtual		~PciDeviceImpl() = default;
 
 	// BusDriver
@@ -85,6 +85,34 @@ private:
 	PciBusImpl* fDriver;
 	PCIDev* fDevice;
 	DeviceNode* fNode {};
+
+	class ConfigDevFsNode: public DevFsNode, public DevFsNodeHandle {
+	public:
+		ConfigDevFsNode(PciDeviceImpl& base): fBase(base) {}
+		virtual ~ConfigDevFsNode() = default;
+
+		Capabilities GetCapabilities() const final {return {.read = true, .write = true};}
+		status_t Open(const char* path, int openMode, DevFsNodeHandle** outHandle) final;
+		status_t Read(off_t pos, void* buffer, size_t* length) final;
+		status_t Write(off_t pos, const void* buffer, size_t* length) final;
+
+	private:
+		PciDeviceImpl& fBase;
+	} fConfigDevFsNode;
+
+	class BarDevFsNode: public DevFsNode, public DevFsNodeHandle {
+	public:
+		BarDevFsNode(PciDeviceImpl& base): fBase(base) {}
+		virtual ~BarDevFsNode() = default;
+
+		Capabilities GetCapabilities() const final {return {.read = true, .write = true};}
+		status_t Open(const char* path, int openMode, DevFsNodeHandle** outHandle) final;
+		status_t Read(off_t pos, void* buffer, size_t* length) final;
+		status_t Write(off_t pos, const void* buffer, size_t* length) final;
+
+	private:
+		PciDeviceImpl& fBase;
+	} fBarDevFsNode[6];
 };
 
 
@@ -161,6 +189,43 @@ status_t
 PciDeviceImpl::InitDriver(DeviceNode* node)
 {
 	fNode = node;
+
+	char path[256];
+	sprintf(path, "bus/pci/%" B_PRIu8 "/%" B_PRIu8 "/%" B_PRIu8 "/%" B_PRIu8 "/config",
+		fDevice->domain, fDevice->bus, fDevice->device, fDevice->function);
+
+	CHECK_RET(fNode->RegisterDevFsNode(path, &fConfigDevFsNode));
+
+	switch (fDevice->info.header_type & PCI_header_type_mask) {
+	case PCI_header_type_generic:
+		for (int32 i = 0; i < 6; i++) {
+			if (fDevice->info.u.h0.base_register_sizes[i] > 0) {
+				sprintf(path, "bus/pci/%" B_PRIu8 "/%" B_PRIu8 "/%" B_PRIu8 "/%" B_PRIu8 "/bar/%" B_PRId32 "",
+					fDevice->domain, fDevice->bus, fDevice->device, fDevice->function, i);
+
+				CHECK_RET(fNode->RegisterDevFsNode(path, &fBarDevFsNode[i]));
+			}
+			if (i % 2 == 0 && (fDevice->info.u.h0.base_register_flags[i] & PCI_address_type) == PCI_address_type_64)
+				i++;
+		}
+		break;
+	case PCI_header_type_PCI_to_PCI_bridge:
+	case PCI_header_type_cardbus:
+		for (int32 i = 0; i < 2; i++) {
+			if (fDevice->info.u.h1.base_register_sizes[i] > 0) {
+				sprintf(path, "bus/pci/%" B_PRIu8 "/%" B_PRIu8 "/%" B_PRIu8 "/%" B_PRIu8 "/bar/%" B_PRId32 "",
+					fDevice->domain, fDevice->bus, fDevice->device, fDevice->function, i);
+
+				CHECK_RET(fNode->RegisterDevFsNode(path, &fBarDevFsNode[i]));
+			}
+			if (i % 2 == 0 && (fDevice->info.u.h1.base_register_flags[i] & PCI_address_type) == PCI_address_type_64)
+				i++;
+		}
+		break;
+	default:
+		break;
+	}
+
 	return B_OK;
 }
 
@@ -328,6 +393,76 @@ status_t
 PciDeviceImpl::EnableMsix()
 {
 	return gPCI->EnableMSIX(fDevice);
+}
+
+
+// #pragma mark - PciDeviceImpl::ConfigDevFsNode
+
+status_t
+PciDeviceImpl::ConfigDevFsNode::Open(const char* path, int openMode, DevFsNodeHandle** outHandle)
+{
+	*outHandle = this;
+	return B_OK;
+}
+
+
+status_t
+PciDeviceImpl::ConfigDevFsNode::Read(off_t pos, void* buffer, size_t* length)
+{
+	if (pos >= 0x10000)
+		return B_BAD_VALUE;
+
+	if (*length != 1 && *length != 2 && *length != 4)
+		return B_BAD_VALUE;
+
+	uint32 value = fBase.ReadPciConfig(pos, *length);
+	CHECK_RET(user_memcpy(buffer, &value, *length));
+
+	return B_OK;
+}
+
+
+status_t
+PciDeviceImpl::ConfigDevFsNode::Write(off_t pos, const void* buffer, size_t* length)
+{
+	if (pos >= 0x10000)
+		return B_BAD_VALUE;
+
+	if (*length != 1 && *length != 2 && *length != 4)
+		return B_BAD_VALUE;
+
+	uint32 value = 0;
+	CHECK_RET(user_memcpy(&value, buffer, *length));
+
+	fBase.WritePciConfig(pos, *length, value);
+
+	return B_OK;
+}
+
+
+// #pragma mark - PciDeviceImpl::BarDevFsNode
+
+status_t
+PciDeviceImpl::BarDevFsNode::Open(const char* path, int openMode, DevFsNodeHandle** outHandle)
+{
+	*outHandle = this;
+	return B_OK;
+}
+
+
+status_t
+PciDeviceImpl::BarDevFsNode::Read(off_t pos, void* buffer, size_t* length)
+{
+	// TODO: implement
+	return ENOSYS;
+}
+
+
+status_t
+PciDeviceImpl::BarDevFsNode::Write(off_t pos, const void* buffer, size_t* length)
+{
+	// TODO: implement
+	return ENOSYS;
 }
 
 
