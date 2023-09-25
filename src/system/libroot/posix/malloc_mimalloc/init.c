@@ -11,6 +11,10 @@ terms of the MIT license. A copy of the license can be found in the file
 #include <string.h>  // memcpy, memset
 #include <stdlib.h>  // atexit
 
+#if defined(__HAIKU__)
+#include <SupportDefs.h>
+#endif
+
 
 // Empty page used to initialize the small free pages array
 const mi_page_t _mi_page_empty = {
@@ -178,7 +182,7 @@ static void mi_heap_main_init(void) {
   if (_mi_heap_main.cookie == 0) {
     _mi_heap_main.thread_id = _mi_thread_id();
     _mi_heap_main.cookie = 1;
-    #if defined(_WIN32) && !defined(MI_SHARED_LIB)
+    #if defined(_WIN32) && !defined(MI_SHARED_LIB) || defined(__HAIKU__)
       _mi_random_init_weak(&_mi_heap_main.random);    // prevent allocation failure during bcrypt dll initialization with static linking
     #else
       _mi_random_init(&_mi_heap_main.random);
@@ -247,7 +251,7 @@ static mi_thread_data_t* mi_thread_data_zalloc(void) {
       is_zero = memid.initially_zero;
     }
   }
-  
+
   if (td != NULL && !is_zero) {
     _mi_memzero_aligned(td, sizeof(*td));
   }
@@ -302,7 +306,11 @@ static bool _mi_heap_init(void) {
     _mi_memcpy_aligned(tld, &tld_empty, sizeof(*tld));
     _mi_memcpy_aligned(heap, &_mi_heap_empty, sizeof(*heap));
     heap->thread_id = _mi_thread_id();
+#ifdef __HAIKU__
+    _mi_random_init_weak(&heap->random);
+#else
     _mi_random_init(&heap->random);
+#endif
     heap->cookie  = _mi_heap_random_next(heap) | 1;
     heap->keys[0] = _mi_heap_random_next(heap);
     heap->keys[1] = _mi_heap_random_next(heap);
@@ -426,23 +434,23 @@ void mi_thread_done(void) mi_attr_noexcept {
   _mi_thread_done(NULL);
 }
 
-void _mi_thread_done(mi_heap_t* heap) 
+void _mi_thread_done(mi_heap_t* heap)
 {
   // calling with NULL implies using the default heap
-  if (heap == NULL) { 
-    heap = mi_prim_get_default_heap(); 
+  if (heap == NULL) {
+    heap = mi_prim_get_default_heap();
     if (heap == NULL) return;
   }
 
   // prevent re-entrancy through heap_done/heap_set_default_direct (issue #699)
   if (!mi_heap_is_initialized(heap)) {
-    return; 
+    return;
   }
 
   // adjust stats
   mi_atomic_decrement_relaxed(&thread_count);
   _mi_stat_decrease(&_mi_stats_main.threads, 1);
-  
+
   // check thread-id as on Windows shutdown with FLS the main (exit) thread may call this on thread-local heaps...
   if (heap->thread_id != _mi_thread_id()) return;
 
@@ -464,7 +472,7 @@ void _mi_heap_set_default_direct(mi_heap_t* heap)  {
 
   // ensure the default heap is passed to `_mi_thread_done`
   // setting to a non-NULL value also ensures `mi_thread_done` is called.
-  _mi_prim_thread_associate_default_heap(heap);    
+  _mi_prim_thread_associate_default_heap(heap);
 }
 
 
@@ -624,7 +632,7 @@ static void mi_cdecl mi_process_done(void) {
 
   // release any thread specific resources and ensure _mi_thread_done is called on all but the main thread
   _mi_prim_thread_done_auto_done();
-  
+
   #ifndef MI_SKIP_COLLECT_ON_EXIT
     #if (MI_DEBUG || !defined(MI_SHARED_LIB))
     // free all memory if possible on process exit. This is not needed for a stand-alone process
@@ -689,6 +697,29 @@ static void mi_cdecl mi_process_done(void) {
   #pragma data_seg(".CRT$XIU")
   mi_decl_externc _mi_crt_callback_t _mi_msvc_initu[] = { &_mi_process_init };
   #pragma data_seg()
+
+#elif defined(__HAIKU__)
+
+status_t __init_heap(void)
+{
+	mi_process_load();
+	return B_OK;
+}
+
+void __heap_terminate_after(void)
+{
+	mi_process_done();
+}
+
+void __heap_thread_init(void)
+{
+	mi_thread_init();
+}
+
+void __heap_thread_exit(void)
+{
+	mi_thread_done();
+}
 
 #elif defined(__cplusplus)
   // C++: use static initialization to detect process start

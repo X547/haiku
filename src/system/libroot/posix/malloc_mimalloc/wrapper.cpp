@@ -13,19 +13,6 @@
 
 // TODO: Is it needed to have some code in this handlers?
 
-extern "C" status_t
-__init_heap(void)
-{
-	return B_OK;
-}
-
-
-extern "C" void
-__heap_terminate_after()
-{
-}
-
-
 extern "C" void
 __heap_before_fork(void)
 {
@@ -46,18 +33,6 @@ __heap_after_fork_child(void)
 
 extern "C" void
 __heap_after_fork_parent(void)
-{
-}
-
-
-extern "C" void
-__heap_thread_init(void)
-{
-}
-
-
-extern "C" void
-__heap_thread_exit(void)
 {
 }
 
