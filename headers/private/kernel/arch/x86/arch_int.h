@@ -67,9 +67,21 @@ arch_int_are_interrupts_enabled_inline(void)
 
 #ifdef __cplusplus
 
+typedef struct interrupt_controller_s {
+	const char *name;
+	void	(*enable_io_interrupt)(int32 num);
+	void	(*disable_io_interrupt)(int32 num);
+	void	(*configure_io_interrupt)(int32 num, uint32 config);
+	bool	(*is_spurious_interrupt)(int32 num);
+	bool	(*is_level_triggered_interrupt)(int32 num);
+	bool	(*end_of_interrupt)(int32 num);
+	void	(*assign_interrupt_to_cpu)(int32 num, int32 cpu);
+} interrupt_controller;
+
 
 void x86_set_irq_source(int irq, irq_source source);
 
+void arch_int_set_interrupt_controller(const interrupt_controller &controller);
 
 #endif // __cplusplus
 

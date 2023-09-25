@@ -1095,7 +1095,9 @@ load_microcode_intel(int currentCPU, cpu_ent* cpu)
 		update = find_microcode_intel((addr_t)sUcodeData, sUcodeDataSize,
 			revision);
 	}
-	if (update != NULL) {
+	if (update == NULL) {
+		dprintf("CPU %d: no update found\n", currentCPU);
+	} else if (update->update_revision != revision) {
 		addr_t data = (addr_t)update + sizeof(struct intel_microcode_header);
 		wbinvd();
 		x86_write_msr(IA32_MSR_UCODE_WRITE, data);
@@ -1105,11 +1107,9 @@ load_microcode_intel(int currentCPU, cpu_ent* cpu)
 		} else {
 			if (sLoadedUcodeUpdate == NULL)
 				sLoadedUcodeUpdate = update;
-			dprintf("CPU %d: updated from revision %" B_PRIu32 " to %" B_PRIu32
+			dprintf("CPU %d: updated from revision 0x%" B_PRIx32 " to 0x%" B_PRIx32
 				"\n", currentCPU, revision, cpu->arch.patch_level);
 		}
-	} else {
-		dprintf("CPU %d: no update found\n", currentCPU);
 	}
 	if (currentCPU != 0)
 		release_spinlock(&sUcodeUpdateLock);
@@ -1451,7 +1451,7 @@ detect_cpu(int currentCPU, bool full = true)
 	dump_feature_string(currentCPU, cpu);
 #endif
 #if DUMP_CPU_PATCHLEVEL_TYPE
-	dprintf("CPU %d: patch_level %" B_PRIx32 "%s%s\n", currentCPU,
+	dprintf("CPU %d: patch_level 0x%" B_PRIx32 "%s%s\n", currentCPU,
 		cpu->arch.patch_level,
 		cpu->arch.hybrid_type != 0 ? ", hybrid type ": "",
 		get_hybrid_cpu_type_string(cpu->arch.hybrid_type));
@@ -1693,9 +1693,11 @@ arch_cpu_init_percpu(kernel_args* args, int cpu)
 		x86_write_cr4(x86_read_cr4() | IA32_CR4_MCE);
 
 #ifdef __x86_64__
-	// if RDTSCP is available write cpu number in TSC_AUX
-	if (x86_check_feature(IA32_FEATURE_AMD_EXT_RDTSCP, FEATURE_EXT_AMD))
+	// if RDTSCP or RDPID are available write cpu number in TSC_AUX
+	if (x86_check_feature(IA32_FEATURE_AMD_EXT_RDTSCP, FEATURE_EXT_AMD)
+		|| x86_check_feature(IA32_FEATURE_RDPID, FEATURE_7_ECX)) {
 		x86_write_msr(IA32_MSR_TSC_AUX, cpu);
+	}
 
 	// make LFENCE a dispatch serializing instruction on AMD 64bit
 	cpu_ent* cpuEnt = get_cpu_struct();
@@ -1887,6 +1889,18 @@ arch_cpu_init_post_modules(kernel_args* args)
 		threadExitPosition, threadExitLen, B_SYMBOL_TYPE_TEXT);
 
 	return B_OK;
+}
+
+
+void
+arch_cpu_flush_dcache(void *address, size_t len)
+{
+}
+
+
+void
+arch_cpu_invalidate_dcache(void *address, size_t len)
+{
 }
 
 

@@ -374,8 +374,5 @@ apic_per_cpu_init(kernel_args *args, int32 cpu)
 	config = apic_spurious_intr_vector();
 	apic_end_of_interrupt();
 
-	reserve_io_interrupt_vectors_ex(1, 0xfb - ARCH_INTERRUPT_BASE,
-		INTERRUPT_TYPE_LOCAL_IRQ, &ioapicController);
-
 	return B_OK;
 }

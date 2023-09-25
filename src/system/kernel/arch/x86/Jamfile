@@ -82,7 +82,6 @@ local archGenericSources =
 	arch_debug_console.cpp
 	arch_elf.cpp
 	arch_int.cpp
-	generic_int.cpp
 	arch_platform.cpp
 	arch_real_time_clock.cpp
 	arch_smp.cpp

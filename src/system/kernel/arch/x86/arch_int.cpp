@@ -30,8 +30,6 @@
 
 #include <stdio.h>
 
-#include "interrupt_controller.h"
-
 // interrupt controllers
 #include <arch/x86/ioapic.h>
 #include <arch/x86/pic.h>
@@ -71,7 +69,7 @@ static const char *kInterruptNames[] = {
 };
 static const int kInterruptNameCount = 20;
 
-static InterruptController* sCurrentPIC = NULL;
+static const interrupt_controller* sCurrentPIC = NULL;
 
 
 static const char*
@@ -221,20 +219,26 @@ x86_hardware_interrupt(struct iframe* frame)
 	bool levelTriggered = false;
 	Thread* thread = thread_get_current_thread();
 
-	if (sCurrentPIC->IsSpuriousInterrupt(vector)) {
+	if (sCurrentPIC->is_spurious_interrupt(vector)) {
 		TRACE(("got spurious interrupt at vector %ld\n", vector));
 		return;
 	}
 
-	levelTriggered = sCurrentPIC->IsLevelTriggeredInterrupt(vector);
+	levelTriggered = sCurrentPIC->is_level_triggered_interrupt(vector);
 
-	if (!levelTriggered)
-		sCurrentPIC->EndOfInterrupt(vector);
+	if (!levelTriggered) {
+		// if it's not handled by the current pic then it's an apic generated
+		// interrupt like local interrupts, msi or ipi.
+		if (!sCurrentPIC->end_of_interrupt(vector))
+			apic_end_of_interrupt();
+	}
 
 	int_io_interrupt_handler(vector, levelTriggered);
 
-	if (levelTriggered)
-		sCurrentPIC->EndOfInterrupt(vector);
+	if (levelTriggered) {
+		if (!sCurrentPIC->end_of_interrupt(vector))
+			apic_end_of_interrupt();
+	}
 
 	cpu_status state = disable_interrupts();
 	if (thread->cpu->invoke_scheduler) {
@@ -365,6 +369,33 @@ x86_set_irq_source(int irq, irq_source source)
 // #pragma mark -
 
 
+void
+arch_int_enable_io_interrupt(int irq)
+{
+	sCurrentPIC->enable_io_interrupt(irq);
+}
+
+
+void
+arch_int_disable_io_interrupt(int irq)
+{
+	sCurrentPIC->disable_io_interrupt(irq);
+}
+
+
+void
+arch_int_configure_io_interrupt(int irq, uint32 config)
+{
+	sCurrentPIC->configure_io_interrupt(irq, config);
+}
+
+
+void
+arch_end_of_interrupt(int irq)
+{
+}
+
+
 #undef arch_int_enable_interrupts
 #undef arch_int_disable_interrupts
 #undef arch_int_restore_interrupts
@@ -396,6 +427,26 @@ bool
 arch_int_are_interrupts_enabled(void)
 {
 	return arch_int_are_interrupts_enabled_inline();
+}
+
+
+int32
+arch_int_assign_to_cpu(int32 irq, int32 cpu)
+{
+	switch (sVectorSources[irq]) {
+		case IRQ_SOURCE_IOAPIC:
+			if (sCurrentPIC->assign_interrupt_to_cpu != NULL)
+				sCurrentPIC->assign_interrupt_to_cpu(irq, cpu);
+			break;
+
+		case IRQ_SOURCE_MSI:
+			msi_assign_interrupt_to_cpu(irq, cpu);
+			break;
+
+		default:
+			break;
+	}
+	return cpu;
 }
 
 
@@ -435,7 +486,7 @@ arch_int_init_post_device_manager(kernel_args* args)
 
 
 void
-arch_int_set_interrupt_controller(InterruptController& controller)
+arch_int_set_interrupt_controller(const interrupt_controller& controller)
 {
 	sCurrentPIC = &controller;
 }

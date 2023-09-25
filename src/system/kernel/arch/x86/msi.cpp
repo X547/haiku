@@ -6,13 +6,10 @@
 #include <arch/x86/apic.h>
 #include <arch/x86/msi.h>
 #include <arch/x86/arch_smp.h>
-#include <arch/generic/generic_int.h>
 
 #include <debug.h>
 #include <int.h>
 #include <lock.h>
-
-#include <new>
 
 
 struct MSIConfiguration {
@@ -26,15 +23,6 @@ static bool sMSISupported = false;
 static uint32 sBootCPUAPICId = 0;
 
 
-class ApicMsiDriver: public MsiDriver {
-public:
-	status_t AllocateVectors(uint8 count, uint8& startVector, uint64& address, uint16& data) final;
-	void FreeVectors(uint8 count, uint8 startVector) final;
-};
-
-static ApicMsiDriver sApicMsiDriver;
-
-
 void
 msi_init(kernel_args* args)
 {
@@ -44,14 +32,21 @@ msi_init(kernel_args* args)
 	}
 
 	dprintf("msi support enabled\n");
-	new(&sApicMsiDriver) ApicMsiDriver;
-	msi_set_driver(&sApicMsiDriver);
+	sMSISupported = true;
 	sBootCPUAPICId = args->arch_args.cpu_apic_id[0];
 }
 
 
+bool
+msi_supported()
+{
+	return sMSISupported;
+}
+
+
 status_t
-ApicMsiDriver::AllocateVectors(uint8 count, uint8& startVector, uint64& address, uint16& data)
+msi_allocate_vectors(uint8 count, uint8 *startVector, uint64 *address,
+	uint16 *data)
 {
 	if (!sMSISupported)
 		return B_UNSUPPORTED;
@@ -67,24 +62,24 @@ ApicMsiDriver::AllocateVectors(uint8 count, uint8& startVector, uint64& address,
 		return B_NO_MEMORY;
 	}
 
-	sMSIConfigurations[vector].fAddress = &address;
-	sMSIConfigurations[vector].fData = &data;
+	sMSIConfigurations[vector].fAddress = address;
+	sMSIConfigurations[vector].fData = data;
 	x86_set_irq_source(vector, IRQ_SOURCE_MSI);
 
-	startVector = (uint8)vector;
-	address = MSI_ADDRESS_BASE | (sBootCPUAPICId << MSI_DESTINATION_ID_SHIFT)
+	*startVector = (uint8)vector;
+	*address = MSI_ADDRESS_BASE | (sBootCPUAPICId << MSI_DESTINATION_ID_SHIFT)
 		| MSI_NO_REDIRECTION | MSI_DESTINATION_MODE_PHYSICAL;
-	data = MSI_TRIGGER_MODE_EDGE | MSI_DELIVERY_MODE_FIXED
+	*data = MSI_TRIGGER_MODE_EDGE | MSI_DELIVERY_MODE_FIXED
 		| ((uint16)vector + ARCH_INTERRUPT_BASE);
 
 	dprintf("msi_allocate_vectors: allocated %u vectors starting from %u\n",
-		count, startVector);
+		count, *startVector);
 	return B_OK;
 }
 
 
 void
-ApicMsiDriver::FreeVectors(uint8 count, uint8 startVector)
+msi_free_vectors(uint8 count, uint8 startVector)
 {
 	if (!sMSISupported) {
 		panic("trying to free msi vectors but msi not supported\n");

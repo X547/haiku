@@ -21,12 +21,9 @@
 #include <arch/x86/arch_smp.h>
 #include <arch/x86/pic.h>
 
-#include "interrupt_controller.h"
-
 // to gain access to the ACPICA types
 #include "acpi.h"
 
-#include <new>
 
 //#define TRACE_IOAPIC
 #ifdef TRACE_IOAPIC
@@ -114,23 +111,6 @@ struct ioapic {
 static int32 sIOAPICPhys = 0;
 static ioapic* sIOAPICs = NULL;
 static int32 sSourceOverrides[ISA_INTERRUPT_COUNT];
-
-
-class IoApicInterruptController: public InterruptController {
-public:
-	const char* Name() final {return "82093AA IOAPIC";}
-
-	void EnableIoInterrupt(int num) final;
-	void DisableIoInterrupt(int num) final;
-	void ConfigureIoInterrupt(int num, uint32 config) final;
-	int32 AssignToCpu(int32 num, int32 cpu) final;
-
-	bool IsSpuriousInterrupt(int num) final;
-	bool IsLevelTriggeredInterrupt(int num) final;
-	void EndOfInterrupt(int num) final;
-};
-
-static IoApicInterruptController ioapicController;
 
 
 // #pragma mark - I/O APIC
@@ -236,16 +216,16 @@ ioapic_configure_pin(struct ioapic& ioapic, uint8 pin, uint8 vector,
 }
 
 
-bool
-IoApicInterruptController::IsSpuriousInterrupt(int32 gsi)
+static bool
+ioapic_is_spurious_interrupt(int32 gsi)
 {
 	// the spurious interrupt vector is initialized to the max value in smp
 	return gsi == 0xff - ARCH_INTERRUPT_BASE;
 }
 
 
-bool
-IoApicInterruptController::IsLevelTriggeredInterrupt(int32 gsi)
+static bool
+ioapic_is_level_triggered_interrupt(int32 gsi)
 {
 	struct ioapic* ioapic = find_ioapic(gsi);
 	if (ioapic == NULL)
@@ -256,22 +236,23 @@ IoApicInterruptController::IsLevelTriggeredInterrupt(int32 gsi)
 }
 
 
-void
-IoApicInterruptController::EndOfInterrupt(int32 num)
+static bool
+ioapic_end_of_interrupt(int32 num)
 {
 	apic_end_of_interrupt();
+	return true;
 }
 
 
-int32
-IoApicInterruptController::AssignToCpu(int32 gsi, int32 cpu)
+static void
+ioapic_assign_interrupt_to_cpu(int32 gsi, int32 cpu)
 {
 	if (gsi < ISA_INTERRUPT_COUNT && sSourceOverrides[gsi] != 0)
 		gsi = sSourceOverrides[gsi];
 
 	struct ioapic* ioapic = find_ioapic(gsi);
 	if (ioapic == NULL)
-		return 0;
+		return;
 
 	uint32 apicid = x86_get_cpu_apic_id(cpu);
 
@@ -285,13 +266,11 @@ IoApicInterruptController::AssignToCpu(int32 gsi, int32 cpu)
 			<< IO_APIC_DESTINATION_FIELD_SHIFT);
 	entry |= uint64(apicid) << IO_APIC_DESTINATION_FIELD_SHIFT;
 	ioapic_write_64(*ioapic, IO_APIC_REDIRECTION_TABLE + pin * 2, entry, false);
-
-	return cpu;
 }
 
 
-void
-IoApicInterruptController::EnableIoInterrupt(int32 gsi)
+static void
+ioapic_enable_io_interrupt(int32 gsi)
 {
 	// If enabling an overriden source is attempted, enable the override entry
 	// instead. An interrupt handler was installed at the override GSI to relay
@@ -315,8 +294,8 @@ IoApicInterruptController::EnableIoInterrupt(int32 gsi)
 }
 
 
-void
-IoApicInterruptController::DisableIoInterrupt(int32 gsi)
+static void
+ioapic_disable_io_interrupt(int32 gsi)
 {
 	struct ioapic* ioapic = find_ioapic(gsi);
 	if (ioapic == NULL)
@@ -332,8 +311,8 @@ IoApicInterruptController::DisableIoInterrupt(int32 gsi)
 }
 
 
-void
-IoApicInterruptController::ConfigureIoInterrupt(int32 gsi, uint32 config)
+static void
+ioapic_configure_io_interrupt(int32 gsi, uint32 config)
 {
 	struct ioapic* ioapic = find_ioapic(gsi);
 	if (ioapic == NULL)
@@ -437,7 +416,7 @@ static int32
 ioapic_source_override_handler(void* data)
 {
 	int32 vector = (addr_t)data;
-	bool levelTriggered = ioapicController.IsLevelTriggeredInterrupt(vector);
+	bool levelTriggered = ioapic_is_level_triggered_interrupt(vector);
 	return int_io_interrupt_handler(vector, levelTriggered);
 }
 
@@ -590,7 +569,7 @@ acpi_configure_source_overrides(acpi_table_madt* madt)
 
 				// configure non-standard polarity/trigger modes
 				uint32 config = acpi_madt_convert_inti_flags(info->IntiFlags);
-				ioapicController.ConfigureIoInterrupt(info->GlobalIrq, config);
+				ioapic_configure_io_interrupt(info->GlobalIrq, config);
 				break;
 			}
 
@@ -703,7 +682,16 @@ ioapic_preinit(kernel_args* args)
 void
 ioapic_init()
 {
-	new(&ioapicController) IoApicInterruptController;
+	static const interrupt_controller ioapicController = {
+		"82093AA IOAPIC",
+		&ioapic_enable_io_interrupt,
+		&ioapic_disable_io_interrupt,
+		&ioapic_configure_io_interrupt,
+		&ioapic_is_spurious_interrupt,
+		&ioapic_is_level_triggered_interrupt,
+		&ioapic_end_of_interrupt,
+		&ioapic_assign_interrupt_to_cpu,
+	};
 
 	if (!apic_available())
 		return;
@@ -800,7 +788,7 @@ ioapic_init()
 	// configure IO-APIC interrupts from PCI routing table
 	for (int i = 0; i < table.Count(); i++) {
 		irq_routing_entry& entry = table.ElementAt(i);
-		ioapicController.ConfigureIoInterrupt(entry.irq,
+		ioapic_configure_io_interrupt(entry.irq,
 			entry.polarity | entry.trigger_mode);
 	}
 
@@ -819,14 +807,14 @@ ioapic_init()
 	// enable previsouly enabled legacy interrupts
 	for (uint8 i = 0; i < 16; i++) {
 		if ((legacyInterrupts & (1 << i)) != 0)
-			ioapicController.EnableIoInterrupt(i);
+			ioapic_enable_io_interrupt(i);
 	}
 
 	// mark the interrupt vectors reserved so they aren't used for other stuff
 	current = sIOAPICs;
 	while (current != NULL) {
-		reserve_io_interrupt_vectors_ex(current->max_redirection_entry + 1,
-			current->global_interrupt_base, INTERRUPT_TYPE_IRQ, &ioapicController);
+		reserve_io_interrupt_vectors(current->max_redirection_entry + 1,
+			current->global_interrupt_base, INTERRUPT_TYPE_IRQ);
 
 		for (int32 i = 0; i < current->max_redirection_entry + 1; i++) {
 			x86_set_irq_source(current->global_interrupt_base + i,
