@@ -37,7 +37,7 @@ public:
 	Capabilities GetCapabilities() const final;
 	status_t Open(const char* path, int openMode, DevFsNodeHandle **outHandle) final;
 	status_t Close() final;
-	status_t Control(uint32 op, void *buffer, size_t length) final;
+	status_t Control(uint32 op, void *buffer, size_t length, bool isKernel) final;
 
 private:
 	hda_controller* fController;
@@ -141,7 +141,7 @@ HdaDevFsNode::Close()
 
 
 status_t
-HdaDevFsNode::Control(uint32 op, void* arg, size_t length)
+HdaDevFsNode::Control(uint32 op, void* arg, size_t length, bool isKernel)
 {
 	if (fController->active_codec != NULL)
 		return multi_audio_control(fController->active_codec, op, arg, length);
