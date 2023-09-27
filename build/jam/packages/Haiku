@@ -119,17 +119,17 @@ AddNewDriversToPackage display :
 	display_adapter@x86
 	;
 AddNewDriversToPackage clock :
-	fixed_clock
+	fixed_clock@riscv64,arm,arm64
 	jh7110_clock@riscv64
 	;
 AddNewDriversToPackage reset :
 	jh7110_reset@riscv64
 	;
 AddNewDriversToPackage power :
-	power_syscon
+	power_syscon@riscv64,arm,arm64
 	;
 AddNewDriversToPackage rtc :
-	goldfish
+	goldfish@riscv64,arm,arm64
 	;
 AddNewDriversToPackage misc	:
 	<driver>syscon
@@ -293,11 +293,11 @@ AddBootModuleSymlinksToPackage
 	# virtio_pci
 	# virtio_scsi
 	device_manager
-	fixed_clock
-	jh7110_clock
-	jh7110_reset
-	<driver>syscon
-	power_syscon
+	fixed_clock@riscv64,arm,arm64
+	jh7110_clock@riscv64
+	jh7110_reset@riscv64
+	<driver>syscon@riscv64,arm,arm64
+	power_syscon@riscv64,arm,arm64
 	ati # !!!
 	hda # !!!
 	i2c_hid # !!!
