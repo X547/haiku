@@ -369,7 +369,12 @@ int _mi_prim_commit(void* start, size_t size, bool* is_zero) {
 int _mi_prim_decommit(void* start, size_t size, bool* needs_recommit) {
   int err = 0;
   // decommit: use MADV_DONTNEED as it decreases rss immediately (unlike MADV_FREE)
+#if defined(__HAIKU__)
+  // Haiku do not implement MADV_DONTNEED
+  err = unix_madvise(start, size, MADV_FREE);
+#else
   err = unix_madvise(start, size, MADV_DONTNEED);
+#endif
   #if !MI_DEBUG && !MI_SECURE
     *needs_recommit = false;
   #else
