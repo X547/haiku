@@ -35,21 +35,28 @@ AddFilesToPackage add-ons kernel busses i2c :
 AddFilesToPackage add-ons kernel busses hid :
 	i2c_hid
 	usb_hid
-;
+	;
 AddFilesToPackage add-ons kernel busses mmc :
 	# sdhci_pci
 	designware_mmc
-;
+	;
 AddFilesToPackage add-ons kernel busses pci :
 #	<pci>designware@riscv64
 	<pci>ecam
 	<pci>plda@riscv64
 #	<pci>x86@x86,x86_64
 	;
+AddFilesToPackage add-ons kernel busses ps2 :
+	altera_ps2@riscv64
+	;
 #AddFilesToPackage add-ons kernel busses random : ccp_rng@x86,x86_64 virtio_rng ;
 #AddFilesToPackage add-ons kernel busses scsi : ahci virtio_scsi ;
-AddFilesToPackage add-ons kernel busses usb : # <usb>uhci <usb>ohci <usb>ehci
-	<usb>xhci ;
+AddFilesToPackage add-ons kernel busses usb :
+#	<usb>uhci
+#	<usb>ohci
+#	<usb>ehci
+	<usb>xhci
+	;
 AddFilesToPackage add-ons kernel busses virtio :
 	virtio_mmio@riscv64,arm,arm64
 	# virtio_pci
