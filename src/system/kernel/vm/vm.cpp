@@ -22,6 +22,7 @@
 #include <KernelExport.h>
 
 #include <AutoDeleterDrivers.h>
+#include <ScopeExit.h>
 
 #include <symbol_versioning.h>
 
@@ -2221,21 +2222,10 @@ _vm_map_file(team_id team, const char* name, void** _address,
 				? VM_PRIORITY_SYSTEM : VM_PRIORITY_USER);
 	}
 
-	struct PageUnreserver {
-		PageUnreserver(vm_page_reservation* reservation)
-			:
-			fReservation(reservation)
-		{
-		}
-
-		~PageUnreserver()
-		{
-			if (fReservation != NULL)
-				vm_page_unreserve_pages(fReservation);
-		}
-
-		vm_page_reservation* fReservation;
-	} pageUnreserver(reservedPreMapPages > 0 ? &reservation : NULL);
+	ScopeExit pageUnreserver([reservation = reservedPreMapPages > 0 ? &reservation : NULL] {
+		if (reservation != NULL)
+			vm_page_unreserve_pages(reservation);
+	});
 
 	// Lock the address space and, if the specified address range shall be
 	// unmapped, ensure it is not wired.
@@ -2775,22 +2765,10 @@ vm_copy_area(team_id team, const char* name, void** _address,
 	} while (restart);
 
 	// unreserve pages later
-	struct PagesUnreserver {
-		PagesUnreserver(vm_page_reservation* reservation)
-			:
-			fReservation(reservation)
-		{
-		}
-
-		~PagesUnreserver()
-		{
-			if (fReservation != NULL)
-				vm_page_unreserve_pages(fReservation);
-		}
-
-	private:
-		vm_page_reservation*	fReservation;
-	} pagesUnreserver(wiredPages > 0 ? &wiredPagesReservation : NULL);
+	ScopeExit pagesUnreserver([reservation = wiredPages > 0 ? &wiredPagesReservation : NULL] {
+		if (reservation != NULL)
+			vm_page_unreserve_pages(reservation);
+	});
 
 	bool writableCopy
 		= (source->protection & (B_KERNEL_WRITE_AREA | B_WRITE_AREA)) != 0;
