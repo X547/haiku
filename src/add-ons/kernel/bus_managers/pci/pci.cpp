@@ -791,9 +791,6 @@ PCI::_GetNthInfo(PCIBus *bus, long *currentIndex, long wantIndex,
 		dev = dev->next;
 	}
 
-	if (bus->next)
-		return _GetNthInfo(bus->next, currentIndex, wantIndex, outInfo);
-
 	return B_ERROR;
 }
 
@@ -1033,9 +1030,6 @@ PCI::_ConfigureBridges(PCIBus *bus)
 		if (dev->child)
 			_ConfigureBridges(dev->child);
 	}
-
-	if (bus->next)
-		_ConfigureBridges(bus->next);
 }
 
 
@@ -1109,9 +1103,6 @@ PCI::ClearDeviceStatus(PCIBus *bus, bool dumpStatus)
 		if (dev->child)
 			ClearDeviceStatus(dev->child, dumpStatus);
 	}
-
-	if (bus->next)
-		ClearDeviceStatus(bus->next, dumpStatus);
 }
 
 
@@ -1142,8 +1133,6 @@ PCI::_DiscoverBus(PCIBus *bus)
 			_DiscoverDevice(bus, dev, function);
 	}
 
-	if (bus->next)
-		_DiscoverBus(bus->next);
 	recursed--;
 }
 
@@ -1183,7 +1172,6 @@ PCI::_CreateBus(PCIDev *parent, uint8 domain, uint8 bus)
 	if (newBus == NULL)
 		return NULL;
 
-	newBus->next = NULL;
 	newBus->parent = parent;
 	newBus->child = NULL;
 	newBus->domain = domain;
@@ -1566,9 +1554,6 @@ PCI::_RefreshDeviceInfo(PCIBus *bus)
 		if (dev->child)
 			_RefreshDeviceInfo(dev->child);
 	}
-
-	if (bus->next)
-		_RefreshDeviceInfo(bus->next);
 }
 
 
@@ -1845,10 +1830,6 @@ PCI::_FindDevice(PCIBus *current, uint8 domain, uint8 bus, uint8 device,
 			}
 		}
 	}
-
-	// search other busses
-	if (current->next != NULL)
-		return _FindDevice(current->next, domain, bus, device, function);
 
 	return NULL;
 }

@@ -25,7 +25,6 @@
 struct PCIDev;
 
 struct PCIBus {
-	PCIBus *			next;
 	PCIDev *			parent;
 	PCIDev *			child;
 	uint8				domain;
