@@ -32,6 +32,25 @@
 PCI *gPCI;
 
 
+#if 0
+static uint32
+pci_get_bar_kind(uint32 val)
+{
+	if (val % 2 == 1)
+		return kPciRangeIoPort;
+	if (val / 2 % 4 == 0)
+		return kPciRangeMmio;
+/*
+	if (val / 2 % 4 == 1)
+		return kRegMmio1MB;
+*/
+	if (val / 2 % 4 == 2)
+		return kPciRangeMmio + kPciRangeMmio64Bit;
+	return kPciRangeInvalid;
+}
+#endif
+
+
 // #pragma mark bus manager exports
 
 
@@ -641,18 +660,18 @@ PCI::ResolveVirtualBus(uint8 virtualBus, uint8 *domain, uint8 *bus)
 
 
 status_t
-PCI::AddController(PciController *controller, DeviceNode *root_node)
+PCI::AddController(PciController *controller, DeviceNode *rootNode, domain_data **domainData)
 {
 	if (fDomainCount == MAX_PCI_DOMAINS)
 		return B_ERROR;
 
-	int32 domain = fDomainCount;
+	uint8 domain = fDomainCount;
 	domain_data& data = fDomainData[domain];
 
 	data.controller = controller;
-	data.root_node = root_node;
+	data.root_node = rootNode;
 
-	data.bus = new(std::nothrow) PCIBus{.domain = fDomainCount};
+	data.bus = new(std::nothrow) PCIBus{.domain = domain};
 	if (data.bus == NULL)
 		return B_NO_MEMORY;
 
@@ -668,7 +687,8 @@ PCI::AddController(PciController *controller, DeviceNode *root_node)
 
 	pci_print_info();
 
-	return domain;
+	*domainData = &data;
+	return B_OK;
 }
 
 
@@ -721,8 +741,10 @@ PCI::InitDomainData(domain_data &data)
 	memset(data.ranges, 0, sizeof(data.ranges));
 	pci_resource_range range;
 	for (uint32 j = 0; ctrl->GetRange(j, &range) >= B_OK; j++) {
-		if (range.type < kPciRangeEnd && range.size > 0)
+		if (range.type < kPciRangeEnd && range.size > 0) {
 			data.ranges[range.type] = range;
+			data.bus->resources.Register(range);
+		}
 	}
 
 #if !(defined(__i386__) || defined(__x86_64__))
@@ -1031,6 +1053,43 @@ PCI::_ConfigureBridges(PCIBus *bus)
 			_ConfigureBridges(dev->child);
 	}
 }
+
+
+#if 0
+void
+PCI::_DetectAllocatedResources(PCIBus *bus)
+{
+	for (PCIDev *dev = bus->child; dev != NULL; dev = dev->next) {
+		switch (dev->info.header_type & PCI_header_type_mask) {
+			case PCI_header_type_generic:
+			{
+				bus->resources.AllocAt(kPciRangeMmio, dev->info.u.u0.rom_base_pci, dev->info.u.u0.rom_size);
+
+				for (int32 i = 0; i < 6;) {
+					uint32 kind = pci_get_bar_kind(dev->info.u.u0.base_register_flags[i]);
+					phys_addr_t adr = dev->info.u.u0.base_registers_pci[i];
+					uint64 size = dev->info.u.u0.base_register_sizes[i];
+					if (kind >= kPciRangeMmio && kind < kPciRangeMmioEnd
+							&& ((kind - kPciRangeMmio) & kPciRangeMmio64Bit) != 0) {
+						adr += (uint64)dev->info.u.u0.base_registers_pci[i + 1] << 32;
+						size += (uint64)dev->info.u.u0.base_register_sizes[i + 1] << 32;
+						i += 2;
+					} else {
+						i++;
+					}
+					bus->resources.AllocAt(kind, adr, size);
+				}
+				break;
+			}
+
+			case PCI_header_type_PCI_to_PCI_bridge:
+			{
+				break;
+			}
+		}
+	}
+}
+#endif
 
 
 void

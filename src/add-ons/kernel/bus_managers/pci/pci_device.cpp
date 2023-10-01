@@ -34,6 +34,7 @@ public:
 
 private:
 	status_t Init();
+	status_t Traverse(PCIBus* bus);
 
 private:
 	DeviceNode* fNode;
@@ -43,7 +44,8 @@ private:
 class PciDeviceImpl: public PciDevice, public BusDriver {
 public:
 				PciDeviceImpl(PciBusImpl* driver, PCIDev* device):
-					fDriver(driver), fDevice(device), fConfigDevFsNode(*this), fBarDevFsNode{*this, *this, *this, *this, *this, *this} {}
+					fDriver(driver), fDevice(device), fConfigDevFsNode(*this),
+					fBarDevFsNode{*this, *this, *this, *this, *this, *this} {}
 	virtual		~PciDeviceImpl() = default;
 
 	// BusDriver
@@ -136,27 +138,24 @@ PciBusImpl::Init()
 {
 	PciController* ctrl = fNode->QueryBusInterface<PciController>();
 
-	int32 ctrlDomain = gPCI->AddController(ctrl, fNode);
-	CHECK_RET(ctrlDomain);
+	domain_data* domainData {};
+	CHECK_RET(gPCI->AddController(ctrl, fNode, &domainData));
 
-	pci_info info;
-	for (int32 i = 0; gPCI->GetNthInfo(i, &info) == B_OK; i++) {
-		uint8 domain;
-		uint8 bus;
-		if (gPCI->ResolveVirtualBus(info.bus, &domain, &bus) != B_OK) {
-			dprintf("ResolveVirtualBus(%u) failed\n", info.bus);
-			continue;
-		}
+	CHECK_RET(Traverse(domainData->bus));
 
-		if (ctrlDomain != domain)
-			continue;
+	return B_OK;
+}
 
-		PCIDev* dev = gPCI->FindDevice(domain, bus, info.device, info.function);
+
+status_t
+PciBusImpl::Traverse(PCIBus* bus)
+{
+	for (PCIDev* dev = bus->child; dev != NULL; dev = dev->next) {
+		const pci_info& info = dev->info;
 
 		ObjectDeleter<PciDeviceImpl> pciDev(new(std::nothrow) PciDeviceImpl(this, dev));
-		if (!pciDev.IsSet()) {
+		if (!pciDev.IsSet())
 			return B_NO_MEMORY;
-		}
 
 		device_attr attrs[] = {
 			{B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "PCI Device"}},
@@ -168,8 +167,8 @@ PciBusImpl::Init()
 			{B_PCI_DEVICE_SUB_TYPE,  B_UINT16_TYPE, {.ui16 = info.class_sub}},
 			{B_PCI_DEVICE_INTERFACE, B_UINT16_TYPE, {.ui16 = info.class_api}},
 
-			{B_PCI_DEVICE_DOMAIN,   B_UINT32_TYPE, {.ui32 = domain}},
-			{B_PCI_DEVICE_BUS,      B_UINT8_TYPE,  {.ui8  = bus}},
+			{B_PCI_DEVICE_DOMAIN,   B_UINT32_TYPE, {.ui32 = dev->domain}},
+			{B_PCI_DEVICE_BUS,      B_UINT8_TYPE,  {.ui8  = dev->bus}},
 			{B_PCI_DEVICE_DEVICE,   B_UINT8_TYPE,  {.ui8  = info.device}},
 			{B_PCI_DEVICE_FUNCTION, B_UINT8_TYPE,  {.ui8  = info.function}},
 
@@ -177,6 +176,10 @@ PciBusImpl::Init()
 		};
 
 		CHECK_RET(fNode->RegisterNode(fNode, static_cast<BusDriver*>(pciDev.Detach()), &attrs[0], NULL));
+
+		if (dev->child != NULL) {
+			CHECK_RET(Traverse(dev->child));
+		}
 	}
 
 	return B_OK;

@@ -13,6 +13,7 @@
 #include <VectorMap.h>
 
 #include "pci_msi.h"
+#include "pci_resources.h"
 
 
 #define TRACE_PCI
@@ -29,6 +30,8 @@ struct PCIBus {
 	PCIDev *			child;
 	uint8				domain;
 	uint8				bus;
+
+	PCIResourceAllocator resources;
 };
 
 struct PCIDev {
@@ -72,7 +75,8 @@ public:
 			void			InitDomainData(domain_data &data);
 			void			InitBus(PCIBus *bus);
 
-			status_t		AddController(PciController *controller, DeviceNode *root_node);
+			status_t		AddController(PciController *controller, DeviceNode *rootNode,
+								domain_data **domainData);
 
 			status_t		LookupRange(uint32 type, phys_addr_t pciAddr,
 								uint8 &domain, pci_resource_range &range, uint8 **mappedAdr = NULL);
