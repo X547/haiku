@@ -5,6 +5,7 @@ UsePrivateHeaders [ FDirName kernel util ] ;
 KernelMergeObject kernel_util.o :
 	AVLTreeBase.cpp
 	Bitmap.cpp
+	ExternalAllocator.cpp
 	hostname.cpp
 	inet_addr.c
 	inet_ntop.c
