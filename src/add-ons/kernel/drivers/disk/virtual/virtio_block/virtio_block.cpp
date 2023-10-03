@@ -45,7 +45,7 @@ static const uint8 kDriveIcon[] = {
 
 
 const char *
-get_feature_name(uint32 feature)
+get_feature_name(uint64 feature)
 {
 	switch (feature) {
 		case VIRTIO_BLK_F_BARRIER:

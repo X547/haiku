@@ -16,7 +16,7 @@
 
 
 static const char *
-virtio_get_feature_name(uint32 feature)
+virtio_get_feature_name(uint64 feature)
 {
 	switch (feature) {
 		case VIRTIO_FEATURE_NOTIFY_ON_EMPTY:
@@ -35,8 +35,8 @@ virtio_get_feature_name(uint32 feature)
 
 
 static void
-virtio_dump_features(const char* title, uint32 features,
-	const char* (*get_feature_name)(uint32))
+virtio_dump_features(const char* title, uint64 features,
+	const char* (*get_feature_name)(uint64))
 {
 	char features_string[512] = "";
 	for (uint32 i = 0; i < 32; i++) {
@@ -149,7 +149,7 @@ VirtioMmioDevice::Init(phys_addr_t regs, size_t regsLen, int32 irq, int32 queueC
 // #pragma mark - Public driver interface
 
 status_t
-VirtioMmioDevice::NegotiateFeatures(uint32 supported, uint32* negotiated, const char* (*get_feature_name)(uint32))
+VirtioMmioDevice::NegotiateFeatures(uint64 supported, uint64* negotiated, const char* (*get_feature_name)(uint64))
 {
 	TRACE("virtio_device_negotiate_features(%p)\n", this);
 
@@ -177,7 +177,7 @@ VirtioMmioDevice::NegotiateFeatures(uint32 supported, uint32* negotiated, const 
 
 
 status_t
-VirtioMmioDevice::ClearFeature(uint32 feature)
+VirtioMmioDevice::ClearFeature(uint64 feature)
 {
 	panic("not implemented");
 	return B_ERROR;

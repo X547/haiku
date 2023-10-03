@@ -66,8 +66,8 @@ class VirtioDevice {
 public:
 	static inline const char ifaceName[] = "bus_managers/virtio/device";
 
-	virtual status_t NegotiateFeatures(uint32 supported, uint32* negotiated, const char* (*get_feature_name)(uint32)) = 0;
-	virtual status_t ClearFeature(uint32 feature) = 0;
+	virtual status_t NegotiateFeatures(uint64 supported, uint64* negotiated, const char* (*get_feature_name)(uint64)) = 0;
+	virtual status_t ClearFeature(uint64 feature) = 0;
 
 	virtual status_t ReadDeviceConfig(uint8 offset, void* buffer, size_t bufferSize) = 0;
 	virtual status_t WriteDeviceConfig(uint8 offset, const void* buffer, size_t bufferSize) = 0;

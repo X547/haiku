@@ -78,7 +78,7 @@ private:
 
 	struct virtio_blk_config fConfig {};
 
-	uint32 fFeatures {};
+	uint64 fFeatures {};
 	uint64 fCapacity {};
 	uint32 fBlockSize {};
 	uint32 fPhysicalBlockSize {};

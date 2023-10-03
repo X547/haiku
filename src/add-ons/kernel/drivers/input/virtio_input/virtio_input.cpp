@@ -121,7 +121,7 @@ private:
 	VirtioDevice* fVirtioDevice {};
 	VirtioQueue* fVirtioQueue {};
 
-	uint32 fFeatures {};
+	uint64 fFeatures {};
 
 	PacketQueue fPacketQueue;
 };
