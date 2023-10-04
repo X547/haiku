@@ -216,3 +216,28 @@ ECAMPCIController::GetRange(uint32 index, pci_resource_range* range)
 	*range = fResourceRanges[index];
 	return B_OK;
 }
+
+
+MSIInterface*
+ECAMPCIController::GetMsiDriver()
+{
+	if (!msi_supported())
+		return NULL;
+
+	return &fMsiIface;
+}
+
+
+status_t
+ECAMPCIController::MSIInterfaceImpl::AllocateVectors(uint8 count, uint8& startVector,
+	uint64& address, uint16& data)
+{
+	return msi_allocate_vectors(count, &startVector, &address, &data);
+}
+
+
+void
+ECAMPCIController::MSIInterfaceImpl::FreeVectors(uint8 count, uint8 startVector)
+{
+	msi_free_vectors(count, startVector);
+}

@@ -14,6 +14,8 @@
 #include <AutoDeleterOS.h>
 #include <lock.h>
 
+#include <arch/generic/msi.h>
+
 
 #define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
@@ -94,25 +96,25 @@ public:
 	// PciController
 	status_t ReadPciConfig(
 				uint8 bus, uint8 device, uint8 function,
-				uint16 offset, uint8 size, uint32* value);
+				uint16 offset, uint8 size, uint32* value) final;
 
 	status_t WritePciConfig(
 				uint8 bus, uint8 device, uint8 function,
-				uint16 offset, uint8 size, uint32 value);
+				uint16 offset, uint8 size, uint32 value) final;
 
-	status_t GetMaxBusDevices(int32* count);
+	status_t GetMaxBusDevices(int32* count) final;
 
 	status_t ReadPciIrq(
 				uint8 bus, uint8 device, uint8 function,
-				uint8 pin, uint8* irq);
+				uint8 pin, uint8* irq) final;
 
 	status_t WritePciIrq(
 				uint8 bus, uint8 device, uint8 function,
-				uint8 pin, uint8 irq);
+				uint8 pin, uint8 irq) final;
 
-	status_t GetRange(uint32 index, pci_resource_range* range);
+	status_t GetRange(uint32 index, pci_resource_range* range) final;
 
-	virtual status_t Finalize() = 0;
+	MSIInterface* GetMsiDriver() final;
 
 private:
 	status_t Init();
@@ -141,6 +143,12 @@ protected:
 	private:
 		ECAMPCIController& fBase;
 	} fBusManager;
+
+	class MSIInterfaceImpl: public MSIInterface {
+	public:
+		status_t AllocateVectors(uint8 count, uint8& startVector, uint64& address, uint16& data) final;
+		void FreeVectors(uint8 count, uint8 startVector) final;
+	} fMsiIface;
 };
 
 
