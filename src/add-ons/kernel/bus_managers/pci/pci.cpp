@@ -1981,7 +1981,10 @@ PCI::SetPowerstate(uint8 domain, uint8 bus, uint8 _device, uint8 function,
 uint8
 PCI::GetMSICount(PCIDev *device)
 {
-	if (!msi_supported())
+	domain_data *domain = _GetDomainData(device->domain);
+	MSIInterface *driver = domain->controller->GetMsiDriver();
+
+	if (driver == NULL)
 		return 0;
 
 	msi_info *info = &device->msi;
@@ -1995,7 +1998,10 @@ PCI::GetMSICount(PCIDev *device)
 status_t
 PCI::ConfigureMSI(PCIDev *device, uint8 count, uint8 *startVector)
 {
-	if (!msi_supported())
+	domain_data *domain = _GetDomainData(device->domain);
+	MSIInterface *driver = domain->controller->GetMsiDriver();
+
+	if (driver == NULL)
 		return B_UNSUPPORTED;
 
 	if (count == 0 || startVector == NULL)
@@ -2012,9 +2018,6 @@ PCI::ConfigureMSI(PCIDev *device, uint8 count, uint8 *startVector)
 
 	if (info->configured_count != 0)
 		return B_BUSY;
-
-	domain_data *domain = _GetDomainData(device->domain);
-	MSIInterface *driver = domain->controller->GetMsiDriver();
 
 	status_t result = driver->AllocateVectors(count, info->start_vector,
 		info->address_value, info->data_value);
@@ -2045,7 +2048,10 @@ PCI::ConfigureMSI(PCIDev *device, uint8 count, uint8 *startVector)
 status_t
 PCI::UnconfigureMSI(PCIDev *device)
 {
-	if (!msi_supported())
+	domain_data *domain = _GetDomainData(device->domain);
+	MSIInterface *driver = domain->controller->GetMsiDriver();
+
+	if (driver == NULL)
 		return B_UNSUPPORTED;
 
 	// try MSI-X
@@ -2059,9 +2065,6 @@ PCI::UnconfigureMSI(PCIDev *device)
 
 	if (info->configured_count == 0)
 		return B_NO_INIT;
-
-	domain_data *domain = _GetDomainData(device->domain);
-	MSIInterface *driver = domain->controller->GetMsiDriver();
 
 	driver->FreeVectors(info->configured_count, info->start_vector);
 
@@ -2079,7 +2082,10 @@ PCI::UnconfigureMSI(PCIDev *device)
 status_t
 PCI::EnableMSI(PCIDev *device)
 {
-	if (!msi_supported())
+	domain_data *domain = _GetDomainData(device->domain);
+	MSIInterface *driver = domain->controller->GetMsiDriver();
+
+	if (driver == NULL)
 		return B_UNSUPPORTED;
 
 	msi_info *info =  &device->msi;
@@ -2110,7 +2116,10 @@ PCI::EnableMSI(PCIDev *device)
 status_t
 PCI::DisableMSI(PCIDev *device)
 {
-	if (!msi_supported())
+	domain_data *domain = _GetDomainData(device->domain);
+	MSIInterface *driver = domain->controller->GetMsiDriver();
+
+	if (driver == NULL)
 		return B_UNSUPPORTED;
 
 	// try MSI-X
@@ -2140,7 +2149,10 @@ PCI::DisableMSI(PCIDev *device)
 uint8
 PCI::GetMSIXCount(PCIDev *device)
 {
-	if (!msi_supported())
+	domain_data *domain = _GetDomainData(device->domain);
+	MSIInterface *driver = domain->controller->GetMsiDriver();
+
+	if (driver == NULL)
 		return 0;
 
 	msix_info *info = &device->msix;
@@ -2154,7 +2166,10 @@ PCI::GetMSIXCount(PCIDev *device)
 status_t
 PCI::ConfigureMSIX(PCIDev *device, uint8 count, uint8 *startVector)
 {
-	if (!msi_supported())
+	domain_data *domain = _GetDomainData(device->domain);
+	MSIInterface *driver = domain->controller->GetMsiDriver();
+
+	if (driver == NULL)
 		return B_UNSUPPORTED;
 
 	if (count == 0 || startVector == NULL)
@@ -2211,9 +2226,6 @@ PCI::ConfigureMSIX(PCIDev *device, uint8 count, uint8 *startVector)
 		info->pba_area_id = -1;
 	info->pba_address = address + info->pba_offset;
 
-	domain_data *domain = _GetDomainData(device->domain);
-	MSIInterface *driver = domain->controller->GetMsiDriver();
-
 	status_t result = driver->AllocateVectors(count, info->start_vector,
 		info->address_value, info->data_value);
 	if (result != B_OK) {
@@ -2248,7 +2260,10 @@ PCI::ConfigureMSIX(PCIDev *device, uint8 count, uint8 *startVector)
 status_t
 PCI::EnableMSIX(PCIDev *device)
 {
-	if (!msi_supported())
+	domain_data *domain = _GetDomainData(device->domain);
+	MSIInterface *driver = domain->controller->GetMsiDriver();
+
+	if (driver == NULL)
 		return B_UNSUPPORTED;
 
 	msix_info *info = &device->msix;
@@ -2302,7 +2317,10 @@ PCI::_HtMSIMap(PCIDev *device, uint64 address)
 void
 PCI::_ReadMSIInfo(PCIDev *device)
 {
-	if (!msi_supported())
+	domain_data *domain = _GetDomainData(device->domain);
+	MSIInterface *driver = domain->controller->GetMsiDriver();
+
+	if (driver == NULL)
 		return;
 
 	msi_info *info = &device->msi;
@@ -2328,7 +2346,10 @@ PCI::_ReadMSIInfo(PCIDev *device)
 void
 PCI::_ReadMSIXInfo(PCIDev *device)
 {
-	if (!msi_supported())
+	domain_data *domain = _GetDomainData(device->domain);
+	MSIInterface *driver = domain->controller->GetMsiDriver();
+
+	if (driver == NULL)
 		return;
 
 	msix_info *info = &device->msix;
@@ -2367,7 +2388,10 @@ PCI::_ReadMSIXInfo(PCIDev *device)
 void
 PCI::_ReadHtMappingInfo(PCIDev *device)
 {
-	if (!msi_supported())
+	domain_data *domain = _GetDomainData(device->domain);
+	MSIInterface *driver = domain->controller->GetMsiDriver();
+
+	if (driver == NULL)
 		return;
 
 	ht_mapping_info *info = &device->ht_mapping;
