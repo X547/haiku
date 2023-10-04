@@ -26,6 +26,16 @@ extern "C" {
 #define ACPI_DRIVER_MODULE_NAME "bus_managers/acpi/driver/v1"
 
 
+inline void
+free_string(char* str)
+{
+	free(str);
+}
+
+
+typedef CObjectDeleter<char, void, free_string> CStringDeleter;
+
+
 class AcpiBusDriver: public DeviceDriver {
 public:
 	AcpiBusDriver(DeviceNode* node): fNode(node) {}
@@ -82,10 +92,12 @@ public:
 							acpi_walk_resources_callback callback, void* context) final;
 
 private:
+	friend class AcpiBusDriver;
+
 	DeviceNode* fNode {};
 	acpi_handle fHandle {};
 	uint32 fType {};
-	char* fPath {};
+	CStringDeleter fPath;
 };
 
 
@@ -203,6 +215,15 @@ AcpiBusDriver::EnumerateChildDevices(DeviceNode* node, const char* root)
 				if (!busDriver.IsSet())
 					return B_NO_MEMORY;
 
+				if (AcpiGetHandle(NULL, (ACPI_STRING)result, &busDriver->fHandle) != AE_OK)
+					return B_ENTRY_NOT_FOUND;
+
+				busDriver->fPath.SetTo(strdup(result));
+				if (!busDriver->fPath.IsSet())
+					return B_NO_MEMORY;
+
+				busDriver->fType = type;
+
 				CHECK_RET(node->RegisterNode(fNode, busDriver.Detach(), attrs, &deviceNode));
 				DeviceNodePutter deviceNodePutter(deviceNode);
 
@@ -287,14 +308,14 @@ AcpiDeviceImpl::GetObjectType()
 status_t
 AcpiDeviceImpl::GetObject(const char *path, acpi_object_type **returnValue)
 {
-	if (fPath == NULL)
+	if (!fPath.IsSet())
 		return B_BAD_VALUE;
 	if (path) {
 		char objname[255];
-		snprintf(objname, sizeof(objname), "%s.%s", fPath, path);
+		snprintf(objname, sizeof(objname), "%s.%s", fPath.Get(), path);
 		return get_object(objname, returnValue);
 	}
-	return get_object(fPath, returnValue);
+	return get_object(fPath.Get(), returnValue);
 }
 
 
