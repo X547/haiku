@@ -408,20 +408,20 @@ unix_process_ancillary_data(net_protocol *self,
 ssize_t
 unix_send_data_no_buffer(net_protocol *_protocol, const iovec *vecs,
 	size_t vecCount, ancillary_data_container *ancillaryData,
-	const struct sockaddr *address, socklen_t addressLength)
+	const struct sockaddr *address, socklen_t addressLength, int flags)
 {
 	return ((UnixEndpoint*)_protocol)->Send(vecs, vecCount, ancillaryData,
-		address, addressLength);
+		address, addressLength, flags);
 }
 
 
 ssize_t
 unix_read_data_no_buffer(net_protocol *_protocol, const iovec *vecs,
 	size_t vecCount, ancillary_data_container **_ancillaryData,
-	struct sockaddr *_address, socklen_t *_addressLength)
+	struct sockaddr *_address, socklen_t *_addressLength, int flags)
 {
 	return ((UnixEndpoint*)_protocol)->Receive(vecs, vecCount, _ancillaryData,
-		_address, _addressLength);
+		_address, _addressLength, flags);
 }
 
 

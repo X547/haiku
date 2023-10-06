@@ -51,11 +51,11 @@ public:
 			ssize_t				Send(const iovec* vecs, size_t vecCount,
 									ancillary_data_container* ancillaryData,
 									const struct sockaddr* address,
-									socklen_t addressLength) override;
+									socklen_t addressLength, int flags) override;
 			ssize_t				Receive(const iovec* vecs, size_t vecCount,
 									ancillary_data_container** _ancillaryData,
 									struct sockaddr* _address,
-									socklen_t* _addressLength) override;
+									socklen_t* _addressLength, int flags) override;
 
 			ssize_t				Sendable() override;
 			ssize_t				Receivable() override;

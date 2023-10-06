@@ -323,7 +323,7 @@ UnixStreamEndpoint::Connect(const struct sockaddr* _address)
 	fState = unix_stream_endpoint_state::Connected;
 	fWasConnected = true;
 
-	gSocketModule->set_connected(newSocket);
+	gSocketModule->set_connected(Socket());
 
 	release_sem(listeningEndpoint->fAcceptSemaphore);
 
@@ -374,16 +374,19 @@ UnixStreamEndpoint::Accept(net_socket** _acceptedSocket)
 ssize_t
 UnixStreamEndpoint::Send(const iovec* vecs, size_t vecCount,
 	ancillary_data_container* ancillaryData,
-	const struct sockaddr* address, socklen_t addressLength)
+	const struct sockaddr* address, socklen_t addressLength, int flags)
 {
 	TRACE("[%" B_PRId32 "] %p->UnixStreamEndpoint::Send(%p, %ld, %p)\n",
 		find_thread(NULL), this, vecs, vecCount, ancillaryData);
 
-	bigtime_t timeout = absolute_timeout(socket->send.timeout);
-	if (gStackModule->is_restarted_syscall())
-		timeout = gStackModule->restore_syscall_restart_timeout();
-	else
-		gStackModule->store_syscall_restart_timeout(timeout);
+	bigtime_t timeout = 0;
+	if ((flags & MSG_DONTWAIT) == 0) {
+		timeout = absolute_timeout(socket->send.timeout);
+		if (gStackModule->is_restarted_syscall())
+			timeout = gStackModule->restore_syscall_restart_timeout();
+		else
+			gStackModule->store_syscall_restart_timeout(timeout);
+	}
 
 	UnixStreamEndpointLocker locker(this);
 
@@ -465,16 +468,19 @@ UnixStreamEndpoint::Send(const iovec* vecs, size_t vecCount,
 ssize_t
 UnixStreamEndpoint::Receive(const iovec* vecs, size_t vecCount,
 	ancillary_data_container** _ancillaryData, struct sockaddr* _address,
-	socklen_t* _addressLength)
+	socklen_t* _addressLength, int flags)
 {
 	TRACE("[%" B_PRId32 "] %p->UnixStreamEndpoint::Receive(%p, %ld)\n",
 		find_thread(NULL), this, vecs, vecCount);
 
-	bigtime_t timeout = absolute_timeout(socket->receive.timeout);
-	if (gStackModule->is_restarted_syscall())
-		timeout = gStackModule->restore_syscall_restart_timeout();
-	else
-		gStackModule->store_syscall_restart_timeout(timeout);
+	bigtime_t timeout = 0;
+	if ((flags & MSG_DONTWAIT) == 0) {
+		timeout = absolute_timeout(socket->receive.timeout);
+		if (gStackModule->is_restarted_syscall())
+			timeout = gStackModule->restore_syscall_restart_timeout();
+		else
+			gStackModule->store_syscall_restart_timeout(timeout);
+	}
 
 	UnixStreamEndpointLocker locker(this);
 
@@ -709,6 +715,8 @@ UnixStreamEndpoint::_Spawn(UnixStreamEndpoint* connectingEndpoint,
 	fCredentials = listeningEndpoint->fCredentials;
 
 	fState = unix_stream_endpoint_state::Connected;
+
+	gSocketModule->set_connected(Socket());
 }
 
 

@@ -7,6 +7,7 @@
 #include "DirectoryIterator.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 #include "Inode.h"
 
@@ -41,18 +42,19 @@ DirectoryIterator::InitCheck()
 
 
 status_t
-DirectoryIterator::Lookup(const char* name, size_t length, ino_t* _id)
+DirectoryIterator::Lookup(const char* name, ino_t* _id)
 {
 	if (strcmp(name, ".") == 0) {
 		*_id = fInode->ID();
 		return B_OK;
 	}
 
-	char getname[B_FILE_NAME_LENGTH];
+	char getname[B_FILE_NAME_LENGTH + 1];
 
 	status_t status;
 	while(true) {
-		status = GetNext(getname, &length, _id);
+		size_t len = sizeof (getname) - 1;
+		status = GetNext(getname, &len, _id);
 		if (status != B_OK)
 			return status;
 		if (strcmp(getname, name) == 0)
@@ -68,19 +70,13 @@ DirectoryIterator::GetNext(char* name, size_t* _nameLength, ino_t* _id)
 	dir direct;
 	size_t size = sizeof(dir);
 	status_t status = fInode->ReadAt(fOffset, (uint8_t*)&direct, &size);
+	if (size < 8 || direct.reclen < 8)
+		return B_ENTRY_NOT_FOUND;
 	if (status == B_OK) {
-		int remainder = direct.namlen % 4;
-		if(remainder != 0) {
-			remainder = 4 - remainder;
-			remainder = direct.namlen + remainder;
-		} else {
-			remainder = direct.namlen + 4;
-		}
-
-		fOffset = fOffset + 8 + remainder;
+		fOffset += direct.reclen;
 
 		if (direct.next_ino > 0) {
-			if ((direct.namlen + 1) > *_nameLength)
+			if ((size_t) (direct.namlen + 1) > *_nameLength)
 				return B_BUFFER_OVERFLOW;
 			strlcpy(name, direct.name, direct.namlen + 1);
 			*_id = direct.next_ino;
@@ -94,3 +90,10 @@ DirectoryIterator::GetNext(char* name, size_t* _nameLength, ino_t* _id)
 	return B_ERROR;
 }
 
+
+status_t
+DirectoryIterator::Rewind()
+{
+	fOffset = 0;
+	return B_OK;
+}

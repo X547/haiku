@@ -392,9 +392,7 @@ BNavMenu::ClearMenuBuildingState()
 	// item list is non-owning, need to delete the items because
 	// they didn't get added to the menu
 	if (fItemList != NULL) {
-		int32 count = fItemList->CountItems();
-		for (int32 index = count - 1; index >= 0; index--)
-			delete RemoveItem(index);
+		RemoveItems(0, fItemList->CountItems(), true);
 
 		delete fItemList;
 		fItemList = NULL;
@@ -429,14 +427,14 @@ BNavMenu::StartBuildingItemList()
 	if (startModel.InitCheck() != B_OK || !startModel.IsContainer())
 		return false;
 
-	if (startModel.IsQuery())
+	if (startModel.IsQuery()) {
 		fContainer = new QueryEntryListCollection(&startModel);
-	else if (startModel.IsVirtualDirectory())
+	} else if (startModel.IsVirtualDirectory()) {
 		fContainer = new VirtualDirectoryEntryList(&startModel);
-	else if (startModel.IsDesktop()) {
+	} else if (startModel.IsDesktop()) {
 		fIteratingDesktop = true;
-		fContainer = DesktopPoseView::InitDesktopDirentIterator(
-			0, 	startModel.EntryRef());
+		fContainer = DesktopPoseView::InitDesktopDirentIterator(0,
+			startModel.EntryRef());
 		AddRootItemsIfNeeded();
 		AddTrashItem();
 	} else if (startModel.IsTrash()) {
@@ -901,4 +899,83 @@ BNavMenu::SetTrackingHookDeep(BMenu* menu, bool (*func)(BMenu*, void*),
 		if (submenu != NULL)
 			SetTrackingHookDeep(submenu, func, state);
 	}
+}
+
+
+//	#pragma mark - BPopUpNavMenu
+
+
+BPopUpNavMenu::BPopUpNavMenu(const char* title)
+	:
+	BNavMenu(title, B_REFS_RECEIVED, BMessenger(), NULL, NULL),
+	fTrackThread(-1)
+{
+}
+
+
+BPopUpNavMenu::~BPopUpNavMenu()
+{
+	_WaitForTrackThread();
+}
+
+
+void
+BPopUpNavMenu::_WaitForTrackThread()
+{
+	if (fTrackThread >= 0) {
+		status_t status;
+		while (wait_for_thread(fTrackThread, &status) == B_INTERRUPTED)
+			;
+	}
+}
+
+
+void
+BPopUpNavMenu::ClearMenu()
+{
+	RemoveItems(0, CountItems(), true);
+
+	fMenuBuilt = false;
+}
+
+
+void
+BPopUpNavMenu::Go(BPoint where)
+{
+	_WaitForTrackThread();
+
+	fWhere = where;
+
+	fTrackThread = spawn_thread(_TrackThread, "popup", B_DISPLAY_PRIORITY, this);
+}
+
+
+bool
+BPopUpNavMenu::IsShowing() const
+{
+	return Window() != NULL && !Window()->IsHidden();
+}
+
+
+BPoint
+BPopUpNavMenu::ScreenLocation()
+{
+	return fWhere;
+}
+
+
+int32
+BPopUpNavMenu::_TrackThread(void* _menu)
+{
+	BPopUpNavMenu* menu = static_cast<BPopUpNavMenu*>(_menu);
+
+	menu->Show();
+
+	BMenuItem* result = menu->Track();
+	if (result != NULL)
+		static_cast<BInvoker*>(result)->Invoke();
+
+	menu->Hide();
+
+	return 0;
 }

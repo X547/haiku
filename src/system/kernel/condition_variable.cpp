@@ -1,6 +1,6 @@
 /*
  * Copyright 2007-2011, Ingo Weinhold, ingo_weinhold@gmx.de.
- * Copyright 2019, Haiku, Inc. All rights reserved.
+ * Copyright 2019-2023, Haiku, Inc. All rights reserved.
  * Distributed under the terms of the MIT License.
  */
 
@@ -198,6 +198,11 @@ ConditionVariableEntry::Wait(uint32 flags, bigtime_t timeout)
 		error = thread_block();
 
 	_RemoveFromVariable();
+
+	// We need to always return the actual wait status, if we received one.
+	if (fWaitStatus <= 0)
+		return fWaitStatus;
+
 	return error;
 }
 
@@ -338,56 +343,58 @@ ConditionVariable::Wait(spinlock* lock, uint32 flags, bigtime_t timeout)
 }
 
 
-/*static*/ void
+/*static*/ int32
 ConditionVariable::NotifyOne(const void* object, status_t result)
 {
-	_Notify(object, false, result);
+	return _Notify(object, false, result);
 }
 
 
-/*static*/ void
+/*static*/ int32
 ConditionVariable::NotifyAll(const void* object, status_t result)
 {
-	_Notify(object, true, result);
+	return _Notify(object, true, result);
 }
 
 
-/*static*/ void
+/*static*/ int32
 ConditionVariable::_Notify(const void* object, bool all, status_t result)
 {
 	InterruptsLocker ints;
 	ReadSpinLocker hashLocker(sConditionVariableHashLock);
 	ConditionVariable* variable = sConditionVariableHash.Lookup(object);
 	if (variable == NULL)
-		return;
+		return 0;
 	SpinLocker variableLocker(variable->fLock);
 	hashLocker.Unlock();
 
-	variable->_NotifyLocked(all, result);
+	return variable->_NotifyLocked(all, result);
 }
 
 
-void
+int32
 ConditionVariable::_Notify(bool all, status_t result)
 {
 	InterruptsSpinLocker _(fLock);
-
 	if (!fEntries.IsEmpty()) {
 		if (result > B_OK) {
 			panic("tried to notify with invalid result %" B_PRId32 "\n", result);
 			result = B_ERROR;
 		}
 
-		_NotifyLocked(all, result);
+		return _NotifyLocked(all, result);
 	}
+	return 0;
 }
 
 
 /*! Called with interrupts disabled and the condition variable's spinlock held.
  */
-void
+int32
 ConditionVariable::_NotifyLocked(bool all, status_t result)
 {
+	int32 notified = 0;
+
 	// Dequeue and wake up the blocked threads.
 	while (ConditionVariableEntry* entry = fEntries.RemoveHead()) {
 		Thread* thread = atomic_pointer_get_and_set(&entry->fThread, (Thread*)NULL);
@@ -429,11 +436,15 @@ ConditionVariable::_NotifyLocked(bool all, status_t result)
 			// and spin while waiting for us to do so.
 			if (lastWaitStatus == STATUS_WAITING)
 				thread_unblock_locked(thread, result);
+
+			notified++;
 		}
 
 		if (!all)
 			break;
 	}
+
+	return notified;
 }
 
 

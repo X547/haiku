@@ -82,8 +82,13 @@ UnixDatagramEndpoint::Close()
 
 	UnixDatagramEndpointLocker endpointLocker(this);
 
-	if (IsBound())
-		RETURN_ERROR(UnixEndpoint::_Unbind());
+	fShutdownRead = fShutdownWrite = true;
+
+	if (IsBound()) {
+		status_t status = UnixEndpoint::_Unbind();
+		if (status != B_OK)
+			RETURN_ERROR(status);
+	}
 
 	_UnsetReceiveFifo();
 
@@ -99,9 +104,10 @@ UnixDatagramEndpoint::Free()
 
 	UnixDatagramEndpointLocker endpointLocker(this);
 
-	_UnsetReceiveFifo();
+	ASSERT(fReceiveFifo == NULL);
+	ASSERT(fTargetEndpoint == NULL);
 
-	RETURN_ERROR(_Disconnect());
+	return B_OK;
 }
 
 
@@ -185,6 +191,7 @@ UnixDatagramEndpoint::Connect(const struct sockaddr* _address)
 
 	// Required by the socket layer.
 	PeerAddress().SetTo(&fTargetEndpoint->socket->address);
+	gSocketModule->set_connected(Socket());
 
 	RETURN_ERROR(B_OK);
 }
@@ -203,17 +210,19 @@ UnixDatagramEndpoint::Accept(net_socket** _acceptedSocket)
 ssize_t
 UnixDatagramEndpoint::Send(const iovec* vecs, size_t vecCount,
 	ancillary_data_container* ancillaryData, const struct sockaddr* address,
-	socklen_t addressLength)
+	socklen_t addressLength, int flags)
 {
 	TRACE("[%" B_PRId32 "] %p->UnixDatagramEndpoint::Send()\n",
 		find_thread(NULL), this);
 
-	bigtime_t timeout = absolute_timeout(socket->send.timeout);
-	if (gStackModule->is_restarted_syscall())
-		timeout = gStackModule->restore_syscall_restart_timeout();
-	else
-		gStackModule->store_syscall_restart_timeout(timeout);
-
+	bigtime_t timeout = 0;
+	if ((flags & MSG_DONTWAIT) == 0) {
+		timeout = absolute_timeout(socket->send.timeout);
+		if (gStackModule->is_restarted_syscall())
+			timeout = gStackModule->restore_syscall_restart_timeout();
+		else
+			gStackModule->store_syscall_restart_timeout(timeout);
+	}
 	UnixDatagramEndpointLocker endpointLocker(this);
 
 	if (fShutdownWrite)
@@ -281,14 +290,16 @@ UnixDatagramEndpoint::Send(const iovec* vecs, size_t vecCount,
 	fifoLocker.Unlock();
 	targetLocker.Lock();
 
-	if (notifyRead)
+	// We must recheck fShutdownRead after reacquiring the lock, as it may have changed.
+	if (notifyRead && !targetEndpoint->fShutdownRead)
 		gSocketModule->notify(targetEndpoint->socket, B_SELECT_READ, readable);
 
 	targetLocker.Unlock();
 
 	if (notifyWrite) {
 		endpointLocker.Lock();
-		gSocketModule->notify(socket, B_SELECT_WRITE, writable);
+		if (!fShutdownWrite)
+			gSocketModule->notify(socket, B_SELECT_WRITE, writable);
 	}
 
 	switch (result) {
@@ -309,16 +320,19 @@ UnixDatagramEndpoint::Send(const iovec* vecs, size_t vecCount,
 ssize_t
 UnixDatagramEndpoint::Receive(const iovec* vecs, size_t vecCount,
 	ancillary_data_container** _ancillaryData, struct sockaddr* _address,
-	socklen_t* _addressLength)
+	socklen_t* _addressLength, int flags)
 {
 	TRACE("[%" B_PRId32 "] %p->UnixDatagramEndpoint::Receive()\n",
 		find_thread(NULL), this);
 
-	bigtime_t timeout = absolute_timeout(socket->receive.timeout);
-	if (gStackModule->is_restarted_syscall())
-		timeout = gStackModule->restore_syscall_restart_timeout();
-	else
-		gStackModule->store_syscall_restart_timeout(timeout);
+	bigtime_t timeout = 0;
+	if ((flags & MSG_DONTWAIT) == 0) {
+		timeout = absolute_timeout(socket->receive.timeout);
+		if (gStackModule->is_restarted_syscall())
+			timeout = gStackModule->restore_syscall_restart_timeout();
+		else
+			gStackModule->store_syscall_restart_timeout(timeout);
+	}
 
 	UnixDatagramEndpointLocker endpointLocker(this);
 

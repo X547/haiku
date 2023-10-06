@@ -147,7 +147,7 @@ print_demangled_call(const char* image, const char* symbol, addr_t args,
 			kprintf("<%s> %.*s<\33[32m%#" B_PRIx32 "\33[0m>%s", image,
 				namespaceLength, name, argValue, lastName);
 		} else
-			kprintf("<%s> %.*s<???>%s", image, namespaceLength, name, lastName);
+			kprintf("<%s> %.*s<\?\?\?>%s", image, namespaceLength, name, lastName);
 
 		if (addDebugVariables)
 			set_debug_variable("_this", argValue);
@@ -263,7 +263,7 @@ print_demangled_call(const char* image, const char* symbol, addr_t args,
 				kprintf(" \33[31m\"<NULL>\"\33[0m");
 			else if (debug_strlcpy(B_CURRENT_TEAM, buffer, (char*)(addr_t)value,
 					kBufferSize) < B_OK) {
-				kprintf(" \33[31m\"<???>\"\33[0m");
+				kprintf(" \33[31m\"<\?\?\?>\"\33[0m");
 			} else
 				kprintf(" \33[36m\"%s\"\33[0m", buffer);
 		}
@@ -464,15 +464,6 @@ void
 arch_debug_stack_trace(void)
 {
 	stack_trace(0, NULL);
-}
-
-
-void *
-arch_debug_get_caller(void)
-{
-	/* Return the thread id as the kernel (for example the lock code) actually
-	   gets a somewhat valid indication of the caller back. */
-	return (void*) thread_get_current_thread_id();
 }
 
 

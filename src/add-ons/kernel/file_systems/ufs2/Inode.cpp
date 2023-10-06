@@ -26,23 +26,25 @@ Inode::Inode(Volume* volume, ino_t id)
 {
 	rw_lock_init(&fLock, "ufs2 inode");
 
-	fInitStatus = B_OK;//UpdateNodeFromDisk();
+	int fd = fVolume->Device();
+	ufs2_super_block* superblock = (ufs2_super_block* )&fVolume->SuperBlock();
+	int64_t fs_block = ino_to_fsba(superblock, id);
+	int64_t offset_in_block = ino_to_fsbo(superblock, id);
+	int64_t offset = fs_block * superblock->fs_fsize + offset_in_block * sizeof(fNode);
+
+	if (read_pos(fd, offset, (void*)&fNode, sizeof(fNode)) != sizeof(fNode)) {
+		ERROR("Inode::Inode(): IO Error\n");
+		fInitStatus = B_IO_ERROR;
+		return;
+	}
+	fInitStatus = B_OK;
+
 	if (fInitStatus == B_OK) {
 		if (!IsDirectory() && !IsSymLink()) {
 			fCache = file_cache_create(fVolume->ID(), ID(), Size());
 			fMap = file_map_create(fVolume->ID(), ID(), Size());
 		}
 	}
-	int fd = fVolume->Device();
-	ufs2_super_block* superblock = (ufs2_super_block* )&fVolume->SuperBlock();
-	int64_t fs_block = ino_to_fsba(superblock, id);
-	int64_t offset_in_block = ino_to_fsbo(superblock, id);
-	int64_t offset = fs_block * MINBSIZE + offset_in_block * sizeof(fNode);
-
-	if (read_pos(fd, offset, (void*)&fNode, sizeof(fNode)) != sizeof(fNode))
-		ERROR("Inode::Inode(): IO Error\n");
-
-
 }
 
 
@@ -102,16 +104,23 @@ Inode::ReadAt(off_t file_offset, uint8* buffer, size_t* _length)
 	off_t endBlockNumber = (file_offset + *_length) / blockSize;
 	off_t blockOffset = file_offset % blockSize;
 	ssize_t length = 0;
+	if (size <= file_offset || size < 0 || file_offset < 0) {
+		*_length = 0;
+		return B_OK;
+	}
+	if ((int64_t) *_length > size - file_offset)
+		*_length = size - file_offset;
 	if (startBlockNumber != endBlockNumber) {
 		ssize_t remainingLength = blockSize - blockOffset;
 		for (; startBlockNumber <= endBlockNumber; startBlockNumber++) {
 			//code for reading multiple blocks
 			pos = FindBlock(startBlockNumber, blockOffset);
-			length += read_pos(fd, pos, buffer, remainingLength);
+			if (remainingLength > (int64_t) *_length - length)
+				remainingLength = *_length - length;
+			length += read_pos(fd, pos, buffer + length, remainingLength);
 			blockOffset = 0;
 			remainingLength = *_length - length;
-			if (remainingLength > blockSize)
-				remainingLength = blockSize;
+			remainingLength = blockSize;
 		}
 		*_length = length;
 		return B_OK;
@@ -222,4 +231,16 @@ Inode::ReadLink(char* buffer, size_t *_bufferSize)
 {
 	strlcpy(buffer, fNode.symlinkpath, *_bufferSize);
 	return B_OK;
+}
+
+
+status_t
+Inode::CheckPermissions(int accessMode) const
+{
+	// you never have write access to a read-only volume
+	if ((accessMode & W_OK) != 0/* && fVolume->IsReadOnly()*/)
+		return B_READ_ONLY_DEVICE;
+
+	return check_access_permissions(accessMode, Mode(), (gid_t)GroupID(),
+		(uid_t)UserID());
 }

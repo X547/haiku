@@ -134,7 +134,9 @@ tv_standard_to_string(uint32 mode)
 static void
 resolution_to_string(screen_mode& mode, BString &string)
 {
-	string << mode.width << " x " << mode.height;
+	string.SetToFormat(B_TRANSLATE_COMMENT("%" B_PRId32" × %" B_PRId32,
+			"The '×' is the Unicode multiplication sign U+00D7"),
+			mode.width, mode.height);
 }
 
 
@@ -307,13 +309,53 @@ ScreenWindow::ScreenWindow(ScreenSettings* settings)
 		B_USE_DEFAULT_SPACING, B_USE_DEFAULT_SPACING, B_USE_DEFAULT_SPACING);
 	controlsBox->AddChild(outerControlsView);
 
-	fResolutionMenu = new BPopUpMenu("resolution", true, true);
+	menu_layout layout = B_ITEMS_IN_COLUMN;
 
+	// There are modes in the list with the same resolution but different bpp or refresh rates.
+	// We don't want to take these into account when computing the menu layout, so we need to
+	// count how many entries we will really have in the menu.
+	int fullModeCount = fScreenMode.CountModes();
+	int modeCount = 0;
+	int index = 0;
 	uint16 maxWidth = 0;
 	uint16 maxHeight = 0;
 	uint16 previousWidth = 0;
 	uint16 previousHeight = 0;
-	for (int32 i = 0; i < fScreenMode.CountModes(); i++) {
+	for (int32 i = 0; i < fullModeCount; i++) {
+		screen_mode mode = fScreenMode.ModeAt(i);
+
+		if (mode.width == previousWidth && mode.height == previousHeight)
+			continue;
+		modeCount++;
+		previousWidth = mode.width;
+		previousHeight = mode.height;
+		if (maxWidth < mode.width)
+			maxWidth = mode.width;
+		if (maxHeight < mode.height)
+			maxHeight = mode.height;
+	}
+
+	if (modeCount > 16)
+		layout = B_ITEMS_IN_MATRIX;
+
+	fResolutionMenu = new BPopUpMenu("resolution", true, true, layout);
+
+	// Compute the size we should allocate to each item in the menu
+	BRect itemRect;
+	if (layout == B_ITEMS_IN_MATRIX) {
+		BFont menuFont;
+		font_height fontHeight;
+
+		fResolutionMenu->GetFont(&menuFont);
+		menuFont.GetHeight(&fontHeight);
+		itemRect.left = itemRect.top = 0;
+		itemRect.bottom = fontHeight.ascent + fontHeight.descent + 4;
+		itemRect.right = menuFont.StringWidth("99999x99999") + 16;
+		rows = modeCount / 3 + 1;
+	}
+
+	index = 0;
+	for (int32 i = 0; i < fullModeCount; i++) {
 		screen_mode mode = fScreenMode.ModeAt(i);
 
 		if (mode.width == previousWidth && mode.height == previousHeight)
@@ -321,19 +363,26 @@ ScreenWindow::ScreenWindow(ScreenSettings* settings)
 
 		previousWidth = mode.width;
 		previousHeight = mode.height;
-		if (maxWidth < mode.width)
-			maxWidth = mode.width;
-		if (maxHeight < mode.height)
-			maxHeight = mode.height;
 
 		BMessage* message = new BMessage(POP_RESOLUTION_MSG);
 		message->AddInt32("width", mode.width);
 		message->AddInt32("height", mode.height);
 
 		BString name;
-		name << mode.width << " x " << mode.height;
+		name.SetToFormat(B_TRANSLATE_COMMENT("%" B_PRId32" × %" B_PRId32,
+			"The '×' is the Unicode multiplication sign U+00D7"),
+			mode.width, mode.height);
 
-		fResolutionMenu->AddItem(new BMenuItem(name.String(), message));
+		if (layout == B_ITEMS_IN_COLUMN)
+			fResolutionMenu->AddItem(new BMenuItem(name.String(), message));
+		else {
+			int y = index % rows;
+			int x = index / rows;
+			itemRect.OffsetTo(x * itemRect.Width(), y * itemRect.Height());
+			fResolutionMenu->AddItem(new BMenuItem(name.String(), message), itemRect);
+		}
+
+		index++;
 	}
 
 	fMonitorView->SetMaxResolution(maxWidth, maxHeight);
@@ -622,7 +671,9 @@ ScreenWindow::_CheckResolutionMenu()
 			continue;
 
 		BString name;
-		name << mode.width << " x " << mode.height;
+		name.SetToFormat(B_TRANSLATE_COMMENT("%" B_PRId32" × %" B_PRId32,
+			"The '×' is the Unicode multiplication sign U+00D7"),
+			mode.width, mode.height);
 
 		BMenuItem *item = fResolutionMenu->FindItem(name.String());
 		if (item != NULL)

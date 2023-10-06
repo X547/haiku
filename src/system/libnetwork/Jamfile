@@ -3,9 +3,6 @@ SubDir HAIKU_TOP src system libnetwork ;
 UsePrivateHeaders libroot net shared ;
 UseHeaders [ FDirName $(HAIKU_TOP) headers compatibility bsd ] : true ;
 
-local services = [ FGristFiles services ] ;
-SEARCH on $(services) = [ FDirName $(SUBDIR) netresolv defaults ] ;
-
 local architectureObject ;
 for architectureObject in [ MultiArchSubDirSetup ] {
 	on $(architectureObject) {
@@ -17,7 +14,6 @@ for architectureObject in [ MultiArchSubDirSetup ] {
 		SharedLibrary $(libnetwork) :
 			init.cpp
 			interfaces.cpp
-			gethostbyname.c
 			getifaddrs.cpp
 			socket.cpp
 			r5_compatibility.cpp
@@ -27,8 +23,6 @@ for architectureObject in [ MultiArchSubDirSetup ] {
 			[ MultiArchDefaultGristFiles libutil.a libbsd.so ]
 			[ TargetLibsupc++ ]
 			;
-
-		AddFileDataAttribute $(libnetwork) : services : string : $(services) ;
 	}
 }
 

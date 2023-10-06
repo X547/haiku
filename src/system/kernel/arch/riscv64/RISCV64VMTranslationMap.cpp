@@ -825,14 +825,16 @@ RISCV64VMTranslationMap::ClearAccessedAndModified(VMArea* area, addr_t address,
 				return false;
 
 			if (oldPte.isAccessed) {
-				oldPte.val = ((std::atomic<uint64>*)pte)->fetch_and(~Pte {.isAccessed = true, .isDirty = true}.val);
+				oldPte.val = ((std::atomic<uint64>*)pte)->fetch_and(
+					~Pte {.isAccessed = true, .isDirty = true}.val);
 				break;
 			}
 			if (pte->compare_exchange_strong(oldPte, {}))
 				break;
 		}
 	} else {
-		oldPte.val = ((std::atomic<uint64>*)pte)->fetch_and(~Pte {.isAccessed = true, .isDirty = true}.val);
+		oldPte.val = ((std::atomic<uint64>*)pte)->fetch_and(
+			~Pte {.isAccessed = true, .isDirty = true}.val);
 	}
 
 	pinner.Unlock();

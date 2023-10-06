@@ -32,7 +32,7 @@ struct folder_params
 	BPath path;
 	bool includeSubFolders;
 };
- 
+
 
 static bool
 FilterByFolder(const entry_ref *ref, void *arg)
@@ -40,7 +40,7 @@ FilterByFolder(const entry_ref *ref, void *arg)
 	folder_params* params = static_cast<folder_params*>(arg);
 	BPath& wantedPath = params->path;
 	bool includeSub = params->includeSubFolders;
-	
+
 	BPath path(ref);
 	if (includeSub) {
 		if (!strncmp(path.Path(), wantedPath.Path(),
@@ -63,10 +63,10 @@ bool o_subfolders = false;
 void
 usage(void)
 {
-	printf("usage: %s [ -e ] [ -a || -v <path-to-volume> ] expression\n"
+	printf("usage: %s [ -e ] [ -p <path-to-search> ] [ -s ] [ -a || -v <path-to-volume> ] expression\n"
 		"  -e\t\tdon't escape meta-characters\n"
-		"  -p <path>\tsearch only in the given path\n"
-		"  -s\t\tinclude subfolders (valid only if -p is used)\n"
+		"  -p <path>\tsearch only in the given path. Defaults to the current directory.\n"
+		"  -s\t\tinclude subfolders\n"
 		"  -a\t\tperform the query on all volumes\n"
 		"  -v <file>\tperform the query on just one volume; <file> can be any\n"
 		"\t\tfile on that volume. Defaults to the current volume.\n"
@@ -84,13 +84,13 @@ perform_query(BVolume &volume, const char *predicate, const char *filterpath)
 	// Set up the volume and predicate for the query.
 	query.SetVolume(&volume);
 	query.SetPredicate(predicate);
+	folder_params options;
 	if (filterpath != NULL) {
-		folder_params options;
 		options.path = filterpath;
 		options.includeSubFolders = o_subfolders;
 		query.AddFilter(FilterByFolder, &options);
 	}
-	
+
 	status_t status = query.Fetch();
 	if (status == B_BAD_VALUE) {
 		// the "name=" part may be omitted in our arguments
@@ -125,19 +125,19 @@ main(int32 argc, const char **argv)
 {
 	// Make sure we have the minimum number of arguments.
 	if (argc < 2)
-		usage();	
+		usage();
 
 	// Which volume do we make the query on?
 	// Default to the current volume.
 	char volumePath[B_FILE_NAME_LENGTH];
 	char directoryPath[B_PATH_NAME_LENGTH];
-	
+
 	strcpy(volumePath, ".");
 	strcpy(directoryPath, ".");
-	
+
 	// Parse command-line arguments.
 	int opt;
-	while ((opt = getopt(argc, (char **)argv, "eavsd:")) != -1) {
+	while ((opt = getopt(argc, (char **)argv, "easv:p:")) != -1) {
 		switch(opt) {
 		case 'a':
 			o_all_volumes = true;
@@ -146,19 +146,19 @@ main(int32 argc, const char **argv)
 		case 'e':
 			o_escaping = false;
 			break;
-		
+
 		case 'v':
 			strncpy(volumePath, optarg, B_FILE_NAME_LENGTH);
 			break;
-		
+
 		case 'p':
 			strncpy(directoryPath, optarg, B_PATH_NAME_LENGTH);
 			break;
-					
+
 		case 's':
 			o_subfolders = true;
 			break;
-			
+
 		default:
 			usage();
 			break;
@@ -175,7 +175,7 @@ main(int32 argc, const char **argv)
 			printf("query: %s is not a valid file\n", volumePath);
 			exit(1);
 		}
-		
+
 		status_t status = entry.GetVolume(&volume);
 		if (status != B_OK) {
 			fprintf(stderr, "%s: could not get volume: %s\n", __progname, strerror(status));
@@ -186,7 +186,7 @@ main(int32 argc, const char **argv)
 			printf("query: volume containing %s is not query-enabled\n", volumePath);
 		else
 			perform_query(volume, argv[optind], directoryPath);
-	} else {	
+	} else {
 		// Okay, we want to query all the disks -- so iterate over
 		// them, one by one, running the query.
 		BVolumeRoster volumeRoster;

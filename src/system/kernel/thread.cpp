@@ -2235,9 +2235,10 @@ thread_exit(void)
 	while (info != NULL) {
 		select_sync* sync = info->sync;
 
+		select_info* next = info->next;
 		notify_select_events(info, B_EVENT_INVALID);
-		info = info->next;
 		put_select_sync(sync);
+		info = next;
 	}
 
 	// notify listeners
@@ -2612,7 +2613,7 @@ select_thread(int32 id, struct select_info* info, bool kernel)
 		thread->select_infos = info;
 
 		// we need a sync reference
-		atomic_add(&info->sync->ref_count, 1);
+		acquire_select_sync(info->sync);
 	}
 
 	return B_OK;
@@ -3906,4 +3907,12 @@ _user_setrlimit(int resource, const struct rlimit *userResourceLimit)
 		return B_BAD_ADDRESS;
 
 	return common_setrlimit(resource, &resourceLimit);
+}
+
+
+int
+_user_get_cpu()
+{
+	Thread* thread = thread_get_current_thread();
+	return thread->cpu->cpu_num;
 }

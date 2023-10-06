@@ -374,10 +374,10 @@ remove_fd(struct io_context* context, int fd)
 		disconnected = (descriptor->open_mode & O_DISCONNECTED);
 	}
 
-	mutex_unlock(&context->io_mutex);
-
 	if (selectInfos != NULL)
 		deselect_select_infos(descriptor, selectInfos, true);
+
+	mutex_unlock(&context->io_mutex);
 
 	return disconnected ? NULL : descriptor;
 }
@@ -446,13 +446,12 @@ dup2_fd(int oldfd, int newfd, bool kernel)
 	// Check for identity, note that it cannot be made above
 	// because we always want to return an error on invalid
 	// handles
-	select_info* selectInfos = NULL;
 	if (oldfd != newfd) {
 		// Now do the work
 		TFD(Dup2FD(context, oldfd, newfd));
 
 		evicted = context->fds[newfd];
-		selectInfos = context->select_infos[newfd];
+		select_info* selectInfos = context->select_infos[newfd];
 		context->select_infos[newfd] = NULL;
 		atomic_add(&context->fds[oldfd]->ref_count, 1);
 		atomic_add(&context->fds[oldfd]->open_count, 1);
@@ -460,6 +459,8 @@ dup2_fd(int oldfd, int newfd, bool kernel)
 
 		if (evicted == NULL)
 			context->num_used_fds++;
+
+		deselect_select_infos(evicted, selectInfos, true);
 	}
 
 	fd_set_close_on_exec(context, newfd, false);
@@ -468,7 +469,6 @@ dup2_fd(int oldfd, int newfd, bool kernel)
 
 	// Say bye bye to the evicted fd
 	if (evicted) {
-		deselect_select_infos(evicted, selectInfos, true);
 		close_fd(context, evicted);
 		put_fd(evicted);
 	}
@@ -556,8 +556,9 @@ deselect_select_infos(file_descriptor* descriptor, select_info* infos,
 			}
 		}
 
+		select_info* next = info->next;
 		notify_select_events(info, B_EVENT_INVALID);
-		info = info->next;
+		info = next;
 
 		if (putSyncObjects)
 			put_select_sync(sync);
@@ -633,7 +634,7 @@ select_fd(int32 fd, struct select_info* info, bool kernel)
 
 	// As long as the info is in the list, we keep a reference to the sync
 	// object.
-	atomic_add(&info->sync->ref_count, 1);
+	acquire_select_sync(info->sync);
 
 	// Finally release our open reference. It is safe just to decrement,
 	// since as long as the descriptor is associated with the slot,

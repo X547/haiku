@@ -3,6 +3,10 @@
  * All rights reserved. Distributed under the terms of the MIT License.
  */
 
+#include <string.h>
+
+#include <file_systems/fs_ops_support.h>
+
 #include "DirectoryIterator.h"
 #include "Inode.h"
 #include "system_dependencies.h"
@@ -23,26 +27,6 @@ struct identify_cookie
 	ufs2_super_block super_block;
 	int cookie;
 };
-
-
-#if 0
-//!	ufs2_io() callback hook
-static status_t
-iterative_io_get_vecs_hook(void *cookie, io_request *request, off_t offset,
-						size_t size, struct file_io_vec *vecs, size_t *_count)
-{
-	return B_NOT_SUPPORTED;
-}
-
-
-//!	ufs2_io() callback hook
-static status_t
-iterative_io_finished_hook(void *cookie, io_request *request, status_t status,
-	bool partialTransfer, size_t bytesTransferred)
-{
-	return B_NOT_SUPPORTED;
-}
-#endif
 
 
 //	#pragma mark - Scanning
@@ -115,7 +99,12 @@ ufs2_mount(fs_volume *_volume, const char *device, uint32 flags,
 static status_t
 ufs2_unmount(fs_volume *_volume)
 {
-	return B_NOT_SUPPORTED;
+	Volume* volume = (Volume *)_volume->private_volume;
+
+	status_t status = volume->Unmount();
+	delete volume;
+
+	return status;
 }
 
 
@@ -130,8 +119,10 @@ ufs2_read_fs_info(fs_volume *_volume, struct fs_info *info)
 	info->io_size = 65536;
 	info->block_size = volume->SuperBlock().fs_sbsize;
 	info->total_blocks = volume->SuperBlock().fs_size;
+	info->free_blocks = volume->SuperBlock().fs_cstotal.cs_nbfree;
 
 	strlcpy(info->volume_name, volume->Name(), sizeof(info->volume_name));
+	strlcpy(info->fsh_name, "UFS2", sizeof(info->fsh_name));
 
 	return B_OK;
 }
@@ -175,7 +166,7 @@ ufs2_put_vnode(fs_volume *_volume, fs_vnode *_node, bool reenter)
 static bool
 ufs2_can_page(fs_volume *_volume, fs_vnode *_node, void *_cookie)
 {
-	return B_NOT_SUPPORTED;
+	return false;
 }
 
 
@@ -212,9 +203,12 @@ ufs2_lookup(fs_volume *_volume, fs_vnode *_directory, const char *name,
 	Volume* volume = (Volume*)_volume->private_volume;
 	Inode* directory = (Inode*)_directory->private_node;
 
-	status_t status = DirectoryIterator(directory).Lookup(name, strlen(name),
-		(ino_t*)_vnodeID);
+	// check access permissions
+	status_t status = directory->CheckPermissions(X_OK);
+	if (status < B_OK)
+		return status;
 
+	status = DirectoryIterator(directory).Lookup(name, _vnodeID);
 	if (status != B_OK)
 		return status;
 
@@ -237,9 +231,7 @@ ufs2_read_stat(fs_volume *_volume, fs_vnode *_node, struct stat *stat)
 	Inode* inode = (Inode*)_node->private_node;
 	stat->st_dev = inode->GetVolume()->ID();
 	stat->st_ino = inode->ID();
-//	TODO handle hardlinks which will have nlink > 1. Maybe linkCount in inode
-//	structure may help?
-	stat->st_nlink = 1;
+	stat->st_nlink = inode->LinkCount();
 	stat->st_blksize = 65536;
 
 	stat->st_uid = inode->UserID();
@@ -253,7 +245,7 @@ ufs2_read_stat(fs_volume *_volume, fs_vnode *_node, struct stat *stat)
 	inode->GetCreationTime(stat->st_crtim);
 
 	stat->st_size = inode->Size();
-	stat->st_blocks = (inode->Size() + 511) / 512;
+	stat->st_blocks = inode->NumBlocks();
 
 	return B_OK;
 }
@@ -265,8 +257,16 @@ ufs2_open(fs_volume * _volume, fs_vnode *_node, int openMode,
 {
 	//Volume* volume = (Volume*)_volume->private_volume;
 	Inode* inode = (Inode*)_node->private_node;
-	if (inode->IsDirectory())
+
+	// opening a directory read-only is allowed, although you can't read
+	// any data from it.
+	if (inode->IsDirectory() && (openMode & O_RWMASK) != 0)
 		return B_IS_A_DIRECTORY;
+
+	status_t status =  inode->CheckPermissions(open_mode_to_access(openMode)
+		| (openMode & O_TRUNC ? W_OK : 0));
+	if (status != B_OK)
+		return status;
 
 	file_cookie* cookie = new(std::nothrow) file_cookie;
 	if (cookie == NULL)
@@ -301,20 +301,24 @@ ufs2_read(fs_volume *_volume, fs_vnode *_node, void *_cookie, off_t pos,
 static status_t
 ufs2_close(fs_volume *_volume, fs_vnode *_node, void *_cookie)
 {
-	return B_NOT_SUPPORTED;
+	return B_OK;
 }
 
 
 static status_t
 ufs2_free_cookie(fs_volume *_volume, fs_vnode *_node, void *_cookie)
 {
-	return B_NOT_SUPPORTED;
+	file_cookie* cookie = (file_cookie*)_cookie;
+
+	delete cookie;
+	return B_OK;
 }
 
 static status_t
 ufs2_access(fs_volume *_volume, fs_vnode *_node, int accessMode)
 {
-	return B_OK;
+	Inode* inode = (Inode*)_node->private_node;
+	return inode->CheckPermissions(accessMode);
 }
 
 
@@ -356,6 +360,10 @@ static status_t
 ufs2_open_dir(fs_volume * /*_volume*/, fs_vnode *_node, void **_cookie)
 {
 	Inode* inode = (Inode*)_node->private_node;
+
+	status_t status = inode->CheckPermissions(R_OK);
+	if (status < B_OK)
+		return status;
 
 	if (!inode->IsDirectory())
 		return B_NOT_A_DIRECTORY;
@@ -412,7 +420,8 @@ ufs2_read_dir(fs_volume *_volume, fs_vnode *_node, void *_cookie,
 static status_t
 ufs2_rewind_dir(fs_volume * /*_volume*/, fs_vnode * /*node*/, void *_cookie)
 {
-	return B_NOT_SUPPORTED;
+	DirectoryIterator *iterator = (DirectoryIterator *)_cookie;
+	return iterator->Rewind();
 }
 
 
@@ -420,14 +429,15 @@ static status_t
 ufs2_close_dir(fs_volume * /*_volume*/, fs_vnode * /*node*/,
 			  void * /*_cookie*/)
 {
-	return B_NOT_SUPPORTED;
+	return B_OK;
 }
 
 
 static status_t
 ufs2_free_dir_cookie(fs_volume *_volume, fs_vnode *_node, void *_cookie)
 {
-	return B_NOT_SUPPORTED;
+	delete (DirectoryIterator*)_cookie;
+	return B_OK;
 }
 
 
@@ -543,29 +553,6 @@ ufs2_rename_attr(fs_volume *_volume, fs_vnode *fromVnode,
 static status_t
 ufs2_remove_attr(fs_volume *_volume, fs_vnode *vnode,
 				const char *name)
-{
-	return B_NOT_SUPPORTED;
-}
-
-
-static uint32
-ufs2_get_supported_operations(partition_data *partition, uint32 mask)
-{
-	return B_NOT_SUPPORTED;
-}
-
-
-static status_t
-ufs2_initialize(int fd, partition_id partitionID, const char *name,
-			const char *parameterString, off_t partitionSize, disk_job_id job)
-{
-	return B_NOT_SUPPORTED;
-}
-
-
-static status_t
-ufs2_uninitialize(int fd, partition_id partitionID, off_t partitionSize,
-				 uint32 blockSize, disk_job_id job)
 {
 	return B_NOT_SUPPORTED;
 }
@@ -689,7 +676,7 @@ static file_system_module_info sufs2FileSystem = {
 	"Unix Filesystem 2", // pretty_name
 
 	// DDM flags
-	0| B_DISK_SYSTEM_SUPPORTS_INITIALIZING |B_DISK_SYSTEM_SUPPORTS_CONTENT_NAME
+	B_DISK_SYSTEM_SUPPORTS_CONTENT_NAME
 	//	| B_DISK_SYSTEM_SUPPORTS_WRITING
 	,
 
@@ -700,28 +687,7 @@ static file_system_module_info sufs2FileSystem = {
 	NULL, // free_partition_content_cookie()
 
 	&ufs2_mount,
-
-	/* capability querying operations */
-	&ufs2_get_supported_operations,
-
-	NULL, // validate_resize
-	NULL, // validate_move
-	NULL, // validate_set_content_name
-	NULL, // validate_set_content_parameters
-	NULL, // validate_initialize,
-
-	/* shadow partition modification */
-	NULL, // shadow_changed
-
-	/* writing */
-	NULL, // defragment
-	NULL, // repair
-	NULL, // resize
-	NULL, // move
-	NULL, // set_content_name
-	NULL, // set_content_parameters
-	ufs2_initialize,
-	ufs2_uninitialize};
+};
 
 module_info *modules[] = {
 	(module_info *)&sufs2FileSystem,

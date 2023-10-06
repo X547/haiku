@@ -12,7 +12,7 @@
 
 #ifdef __cplusplus
 
-class Handle : public ConsoleNode {
+class Handle : public Node {
 	public:
 		Handle(int handle);
 		Handle();
@@ -27,19 +27,6 @@ class Handle : public ConsoleNode {
 
 	protected:
 		int16		fHandle;
-};
-
-/* character devices */
-class CharHandle : public Handle {
-	public:
-		CharHandle(int handle);
-		CharHandle();
-		virtual ~CharHandle();
-
-		virtual ssize_t ReadAt(void *cookie, off_t pos, void *buffer, size_t bufferSize);
-		virtual ssize_t WriteAt(void *cookie, off_t pos, const void *buffer, size_t bufferSize);
-
-	protected:
 };
 
 /* block devices */

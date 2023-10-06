@@ -336,12 +336,10 @@ bigtime_t NodeRef::recordingDelay() const {
 bigtime_t NodeRef::calculateRecordingModeDelay() {
 	PRINT((
 		"NodeRef::calculateRecordingModeDelay()\n"));
-	status_t err;
-				
 	bigtime_t maxBufferDur = 0LL;
 	
 	vector<Connection> outputConnections;
-	err = getOutputConnections(outputConnections);
+	getOutputConnections(outputConnections);
 	for(
 		vector<Connection>::iterator it = outputConnections.begin();
 		it != outputConnections.end(); ++it) {
@@ -352,8 +350,7 @@ bigtime_t NodeRef::calculateRecordingModeDelay() {
 	}
 
 	bigtime_t latency = 0LL;
-	err = m_manager->roster->GetLatencyFor(
-		node(), &latency);
+	m_manager->roster->GetLatencyFor(node(), &latency);
 
 	PRINT((
 		"  %" B_PRIdBIGTIME "\n", latency));
@@ -817,7 +814,7 @@ status_t NodeRef::findOutput(
 // endpoint matching (given name and/or format as 'hints')
 
 template <class T>
-class match_endpoint_name_format : public unary_function<T, bool> {
+class match_endpoint_name_format {
 public:
 	const char* name;
 	const media_format* format;
@@ -838,7 +835,7 @@ public:
 };
 
 template <class T>
-class match_endpoint_name_type : public unary_function<T, bool> {
+class match_endpoint_name_type {
 public:
 	const char* name;
 	media_type type;
@@ -859,7 +856,7 @@ public:
 };
 
 template <class T>
-class match_endpoint_type : public unary_function<T, bool> {
+class match_endpoint_type {
 public:
 	media_type type;
 
@@ -1056,11 +1053,15 @@ status_t NodeRef::getConnectedInputs(
 			continue;
 		}
 		
-		if (count)
+		if (count) {
 			// copy found inputs matching the given type into vector
-			remove_copy_if(inputBuffer, inputBuffer + count,
-				back_inserter(ioInputs),
-				not1(match_endpoint_type<media_input>(filterType)));
+			back_insert_iterator<std::vector<media_input> > inserter = back_inserter(ioInputs);
+			for (int i = 0; i < count; i++) {
+				if (match_endpoint_type<media_input>(filterType)(inputBuffer[i])) {
+					*inserter++ = inputBuffer[i];
+				}
+			}
+		}
 			
 		break;
 	}
@@ -1143,11 +1144,15 @@ status_t NodeRef::getConnectedOutputs(
 			continue;
 		}
 		
-		if (count)
+		if (count) {
 			// copy found outputs matching the given type into vector
-			remove_copy_if(outputBuffer, outputBuffer + count,
-				back_inserter(ioOutputs),
-				not1(match_endpoint_type<media_output>(filterType)));
+			back_insert_iterator<std::vector<media_output> > inserter = back_inserter(ioOutputs);
+			for (int i = 0; i < count; i++) {
+				if (match_endpoint_type<media_output>(filterType)(outputBuffer[i])) {
+					*inserter++ = outputBuffer[i];
+				}
+			}
+		}
 			
 		break;
 	}
@@ -1533,7 +1538,7 @@ NodeRef::NodeRef(
 // -------------------------------------------------------- //
 
 template <class T>
-class fixEndpointFn : public unary_function<T&, void> {
+class fixEndpointFn {
 	const media_node&		node;
 public:
 	fixEndpointFn(const media_node& _n) : node(_n) {}

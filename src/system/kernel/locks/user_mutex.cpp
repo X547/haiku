@@ -402,10 +402,11 @@ user_mutex_unblock(UserMutexEntry* entry, int32* mutex, uint32 flags, bool isWir
 
 	if ((flags & B_USER_MUTEX_UNBLOCK_ALL) != 0
 			|| (oldValue & B_USER_MUTEX_DISABLED) != 0) {
-		// unblock and dequeue all the waiting threads
+		// unblock all waiting threads
 		entry->condition.NotifyAll(B_OK);
 	} else {
-		entry->condition.NotifyOne(B_OK);
+		if (!entry->condition.NotifyOne(B_OK))
+			user_atomic_and(mutex, ~(int32)B_USER_MUTEX_LOCKED, isWired);
 	}
 
 	if (entry->condition.EntriesCount() == 0)
@@ -435,7 +436,8 @@ user_mutex_sem_acquire_locked(UserMutexEntry* entry, int32* sem,
 static void
 user_mutex_sem_release(UserMutexEntry* entry, int32* sem, bool isWired)
 {
-	if (entry == NULL) {
+	WriteLocker entryLocker(entry->lock);
+	if (entry->condition.NotifyOne(B_OK) == 0) {
 		// no waiters - mark as uncontended and release
 		int32 oldValue = user_atomic_get(sem, isWired);
 		while (true) {
@@ -447,8 +449,6 @@ user_mutex_sem_release(UserMutexEntry* entry, int32* sem, bool isWired)
 		}
 	}
 
-	WriteLocker entryLocker(entry->lock);
-	entry->condition.NotifyOne(B_OK);
 	if (entry->condition.EntriesCount() == 0) {
 		// mark the semaphore uncontended
 		user_atomic_test_and_set(sem, 0, -1, isWired);
@@ -660,58 +660,43 @@ _user_mutex_sem_acquire(int32* sem, const char* name, uint32 flags,
 
 	syscall_restart_handle_timeout_pre(flags, timeout);
 
-	struct user_mutex_context* context;
+	UserMutexContextFetcher contextFetcher(sem, flags);
+	if (contextFetcher.InitCheck() != B_OK)
+		return contextFetcher.InitCheck();
+	struct user_mutex_context* context = contextFetcher.Context();
 
-	// TODO: use the per-team context when possible
-	context = &sSharedUserMutexContext;
-
-	// wire the page and get the physical address
-	VMPageWiringInfo wiringInfo;
-	status_t error = vm_wire_page(B_CURRENT_TEAM, (addr_t)sem, true,
-		&wiringInfo);
-	if (error != B_OK)
-		return error;
-
-	UserMutexEntry* entry = get_user_mutex_entry(context, wiringInfo.physicalAddress);
+	UserMutexEntry* entry = get_user_mutex_entry(context, contextFetcher.Address());
 	if (entry == NULL)
 		return B_NO_MEMORY;
+	status_t error;
 	{
 		ReadLocker entryLocker(entry->lock);
 		error = user_mutex_sem_acquire_locked(entry, sem,
-			flags | B_CAN_INTERRUPT, timeout, entryLocker, true);
+			flags | B_CAN_INTERRUPT, timeout, entryLocker, contextFetcher.IsWired());
 	}
 	put_user_mutex_entry(context, entry);
 
-	vm_unwire_page(&wiringInfo);
 	return syscall_restart_handle_timeout_post(error, timeout);
 }
 
 
 status_t
-_user_mutex_sem_release(int32* sem)
+_user_mutex_sem_release(int32* sem, uint32 flags)
 {
 	if (sem == NULL || !IS_USER_ADDRESS(sem) || (addr_t)sem % 4 != 0)
 		return B_BAD_ADDRESS;
 
-	struct user_mutex_context* context;
-
-	// TODO: use the per-team context when possible
-	context = &sSharedUserMutexContext;
-
-	// wire the page and get the physical address
-	VMPageWiringInfo wiringInfo;
-	status_t error = vm_wire_page(B_CURRENT_TEAM, (addr_t)sem, true,
-		&wiringInfo);
-	if (error != B_OK)
-		return error;
+	UserMutexContextFetcher contextFetcher(sem, flags);
+	if (contextFetcher.InitCheck() != B_OK)
+		return contextFetcher.InitCheck();
+	struct user_mutex_context* context = contextFetcher.Context();
 
 	UserMutexEntry* entry = get_user_mutex_entry(context,
-		wiringInfo.physicalAddress, true);
+		contextFetcher.Address());
 	{
-		user_mutex_sem_release(entry, sem, true);
+		user_mutex_sem_release(entry, sem, contextFetcher.IsWired());
 	}
 	put_user_mutex_entry(context, entry);
 
-	vm_unwire_page(&wiringInfo);
 	return B_OK;
 }

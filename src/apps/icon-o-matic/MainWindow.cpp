@@ -59,6 +59,8 @@
 #include "MessengerSaver.h"
 #include "NativeSaver.h"
 #include "PathListView.h"
+#include "PerspectiveBox.h"
+#include "PerspectiveTransformer.h"
 #include "RDefExporter.h"
 #include "ScrollView.h"
 #include "SimpleFileSaver.h"
@@ -105,6 +107,7 @@ enum {
 	MSG_PATH_SELECTED				= 'vpsl',
 	MSG_STYLE_SELECTED				= 'stsl',
 	MSG_SHAPE_SELECTED				= 'spsl',
+	MSG_TRANSFORMER_SELECTED		= 'trsl',
 
 	MSG_SHAPE_RESET_TRANSFORMATION	= 'rtsh',
 	MSG_STYLE_RESET_TRANSFORMATION	= 'rtst',
@@ -252,48 +255,49 @@ MainWindow::MessageReceived(BMessage* message)
 		}
 
 		case B_PASTE:
-		case B_MIME_DATA:
 		{
-			BMessage* clip = message;
-			status_t err;
-
 			if (discard)
 				break;
 
-			if (message->what == B_PASTE) {
-				if (!be_clipboard->Lock())
-					break;
-				clip = be_clipboard->Data();
-			}
+			if (!be_clipboard->Lock())
+				break;
 
-			if (!clip || !clip->HasData("text/plain", B_MIME_TYPE)) {
-				if (message->what == B_PASTE)
-					be_clipboard->Unlock();
+			BMessage* clip = be_clipboard->Data();
+
+			if (!clip) {
+				be_clipboard->Unlock();
 				break;
 			}
 
-			Icon* icon = new (std::nothrow) Icon(*fDocument->Icon());
-			if (icon != NULL) {
-				StyledTextImporter importer;
-				err = importer.Import(icon, clip);
-				if (err >= B_OK) {
-					AutoWriteLocker locker(fDocument);
+			if (clip->HasData("text/plain", B_MIME_TYPE)) {
+				AddStyledText(clip);
+			} else if (clip->HasData(
+					"application/x-vnd.icon_o_matic-listview-message", B_MIME_TYPE)) {
+				ssize_t length;
+				const char* data = NULL;
+				if (clip->FindData("application/x-vnd.icon_o_matic-listview-message",
+						B_MIME_TYPE, (const void**)&data, &length) != B_OK)
+					break;
 
-					SetIcon(NULL);
+				BMessage archive;
+				archive.Unflatten(data);
 
-					// incorporate the loaded icon into the document
-					// (either replace it or append to it)
-					fDocument->MakeEmpty(false);
-						// if append, the document savers are preserved
-					fDocument->SetIcon(icon);
-					SetIcon(icon);
-				}
+				if (archive.what == PathListView::kSelectionArchiveCode)
+					fPathListView->HandlePaste(&archive);
+				if (archive.what == ShapeListView::kSelectionArchiveCode)
+					fShapeListView->HandlePaste(&archive);
+				if (archive.what == StyleListView::kSelectionArchiveCode)
+					fStyleListView->HandlePaste(&archive);
+				if (archive.what == TransformerListView::kSelectionArchiveCode)
+					fTransformerListView->HandlePaste(&archive);
 			}
 
-			if (message->what == B_PASTE)
-				be_clipboard->Unlock();
+			be_clipboard->Unlock();
 			break;
 		}
+		case B_MIME_DATA:
+			AddStyledText(message);
+			break;
 
 		case MSG_OPEN:
 		{
@@ -562,6 +566,20 @@ case MSG_SHAPE_SELECTED: {
 		fState->AddManipulator(transformBox);
 	}
 	break;
+}
+case MSG_TRANSFORMER_SELECTED: {
+	Transformer* transformer;
+	if (message->FindPointer("transformer", (void**)&transformer) < B_OK)
+		transformer = NULL;
+
+	fState->DeleteManipulators();
+	PerspectiveTransformer* perspectiveTransformer =
+		dynamic_cast<PerspectiveTransformer*>(transformer);
+	if (perspectiveTransformer != NULL) {
+		PerspectiveBox* transformBox = new (nothrow) PerspectiveBox(
+			fCanvasView, perspectiveTransformer);
+		fState->AddManipulator(transformBox);
+	}
 }
 		case MSG_RENAME_OBJECT:
 			fPropertyListView->FocusNameProperty();
@@ -880,6 +898,29 @@ MainWindow::AddReferenceImage(const entry_ref& ref)
 
 
 void
+MainWindow::AddStyledText(BMessage* message)
+{
+	Icon* icon = new (std::nothrow) Icon(*fDocument->Icon());
+	if (icon != NULL) {
+		StyledTextImporter importer;
+		status_t err = importer.Import(icon, message);
+		if (err >= B_OK) {
+			AutoWriteLocker locker(fDocument);
+
+			SetIcon(NULL);
+
+			// incorporate the loaded icon into the document
+			// (either replace it or append to it)
+			fDocument->MakeEmpty(false);
+				// if append, the document savers are preserved
+			fDocument->SetIcon(icon);
+			SetIcon(icon);
+		}
+	}
+}
+
+
+void
 MainWindow::SetIcon(Icon* icon)
 {
 	if (fIcon == icon)
@@ -1077,8 +1118,8 @@ MainWindow::_CreateGUI()
 
 	leftTopView->AddChild(iconPreviews);
 
-	
-	BGroupView* leftSideView = new BGroupView(B_VERTICAL, 0);
+
+	BSplitView* leftSideView = new BSplitView(B_VERTICAL, 0);
 	layout->AddView(leftSideView, 0, 1);
 	leftSideView->SetExplicitMaxSize(BSize(splitWidth, B_SIZE_UNSET));
 
@@ -1087,36 +1128,44 @@ MainWindow::_CreateGUI()
 	fShapeListView = new ShapeListView(BRect(0, 0, splitWidth, 100),
 		"shape list view", new BMessage(MSG_SHAPE_SELECTED), this);
 	fTransformerListView = new TransformerListView(BRect(0, 0, splitWidth, 100),
-		"transformer list view");
+		"transformer list view", new BMessage(MSG_TRANSFORMER_SELECTED), this);
 	fPropertyListView = new IconObjectListView();
 
-	BLayoutBuilder::Group<>(leftSideView)
+	BLayoutBuilder::Split<>(leftSideView)
 		.AddGroup(B_VERTICAL, 0)
-			.SetInsets(-2, -1, -1, -1)
-			.Add(new BMenuField(NULL, fPathMenu))
+			.AddGroup(B_VERTICAL, 0)
+				.SetInsets(-2, -1, -1, -1)
+				.Add(new BMenuField(NULL, fPathMenu))
+			.End()
+			.Add(new BScrollView("path scroll view", fPathListView,
+				B_FOLLOW_NONE, 0, false, true, B_NO_BORDER))
 		.End()
-		.Add(new BScrollView("path scroll view", fPathListView,
-			B_FOLLOW_NONE, 0, false, true, B_NO_BORDER))
 		.AddGroup(B_VERTICAL, 0)
-			.SetInsets(-2, -2, -1, -1)
-			.Add(new BMenuField(NULL, fShapeMenu))
+			.AddGroup(B_VERTICAL, 0)
+				.SetInsets(-2, -2, -1, -1)
+				.Add(new BMenuField(NULL, fShapeMenu))
+			.End()
+			.Add(new BScrollView("shape scroll view", fShapeListView,
+				B_FOLLOW_NONE, 0, false, true, B_NO_BORDER))
 		.End()
-		.Add(new BScrollView("shape scroll view", fShapeListView,
-			B_FOLLOW_NONE, 0, false, true, B_NO_BORDER))
 		.AddGroup(B_VERTICAL, 0)
-			.SetInsets(-2, -2, -1, -1)
-			.Add(new BMenuField(NULL, fTransformerMenu))
+			.AddGroup(B_VERTICAL, 0)
+				.SetInsets(-2, -2, -1, -1)
+				.Add(new BMenuField(NULL, fTransformerMenu))
+			.End()
+			.Add(new BScrollView("transformer scroll view",
+				fTransformerListView, B_FOLLOW_NONE, 0, false, true, B_NO_BORDER))
 		.End()
-		.Add(new BScrollView("transformer scroll view",
-			fTransformerListView, B_FOLLOW_NONE, 0, false, true, B_NO_BORDER))
 		.AddGroup(B_VERTICAL, 0)
-			.SetInsets(-2, -2, -1, -1)
-			.Add(new BMenuField(NULL, fPropertyMenu))
+			.AddGroup(B_VERTICAL, 0)
+				.SetInsets(-2, -2, -1, -1)
+				.Add(new BMenuField(NULL, fPropertyMenu))
+			.End()
+			.Add(new ScrollView(fPropertyListView, SCROLL_VERTICAL,
+				BRect(0, 0, splitWidth, 100), "property scroll view",
+				B_FOLLOW_NONE, B_WILL_DRAW | B_FRAME_EVENTS, B_PLAIN_BORDER,
+				BORDER_RIGHT))
 		.End()
-		.Add(new ScrollView(fPropertyListView, SCROLL_VERTICAL,
-			BRect(0, 0, splitWidth, 100), "property scroll view",
-			B_FOLLOW_NONE, B_WILL_DRAW | B_FRAME_EVENTS, B_PLAIN_BORDER,
-			BORDER_RIGHT))
 	.End();
 
 	BGroupLayout* topSide = new BGroupLayout(B_HORIZONTAL);
@@ -1273,17 +1322,20 @@ MainWindow::_CreateMenuBar()
 
 	message = new BMessage(MSG_MOUSE_FILTER_MODE);
 	message->AddInt32("mode", SNAPPING_64);
-	fMouseFilter64MI = new BMenuItem("64 x 64", message, '3');
+	fMouseFilter64MI = new BMenuItem(B_TRANSLATE_COMMENT("64 × 64",
+		"The '×' is the Unicode multiplication sign U+00D7"), message, '3');
 	filterModeMenu->AddItem(fMouseFilter64MI);
 
 	message = new BMessage(MSG_MOUSE_FILTER_MODE);
 	message->AddInt32("mode", SNAPPING_32);
-	fMouseFilter32MI = new BMenuItem("32 x 32", message, '2');
+	fMouseFilter32MI = new BMenuItem(B_TRANSLATE_COMMENT("32 × 32",
+		"The '×' is the Unicode multiplication sign U+00D7"), message, '2');
 	filterModeMenu->AddItem(fMouseFilter32MI);
 
 	message = new BMessage(MSG_MOUSE_FILTER_MODE);
 	message->AddInt32("mode", SNAPPING_16);
-	fMouseFilter16MI = new BMenuItem("16 x 16", message, '1');
+	fMouseFilter16MI = new BMenuItem(B_TRANSLATE_COMMENT("16 × 16",
+		"The '×' is the Unicode multiplication sign U+00D7"), message, '1');
 	filterModeMenu->AddItem(fMouseFilter16MI);
 
 	filterModeMenu->SetRadioMode(true);
