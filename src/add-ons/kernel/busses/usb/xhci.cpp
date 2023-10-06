@@ -337,7 +337,7 @@ XHCI::Init()
 
 	// Find the right interrupt vector, using MSIs if available.
 	fIRQ = fPCIInfo.u.h0.interrupt_line;
-#if 1
+#if 0
 	if (fPciDevice->GetMsixCount() >= 1) {
 		uint8 msiVector = 0;
 		if (fPciDevice->ConfigureMsix(1, &msiVector) == B_OK

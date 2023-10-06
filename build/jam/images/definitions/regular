@@ -213,7 +213,7 @@ SYSTEM_ADD_ONS_DRIVERS_GRAPHICS += [ FFilterByBuildFeatures
 		intel_810 intel_extreme
 		matrox
 		nvidia
-		radeon radeon_hd
+#		radeon radeon_hd
 		via
 	}@ # x86,x86_64
 	x86 @{
