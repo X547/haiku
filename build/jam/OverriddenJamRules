@@ -97,7 +97,19 @@ rule Object
 			}
 
 		} else {
-			sysHeaders += [ FStandardHeaders $(TARGET_PACKAGING_ARCH) ]
+			local isCpp = 0 ;
+			switch $(>:S)
+			{
+				case .cpp : isCpp = 1 ;
+				case .l :	if [ on $(2) return $(GENERATE_C++) ] {
+								isCpp = 1 ;
+							}
+				case .y :	if [ on $(2) return $(GENERATE_C++) ] {
+								isCpp = 1 ;
+							}
+			}
+
+			sysHeaders += [ FStandardHeaders $(TARGET_PACKAGING_ARCH) : $(isCpp) ]
 				$(TARGET_HDRS_$(TARGET_PACKAGING_ARCH)) ;
 			defines += $(TARGET_DEFINES_$(TARGET_PACKAGING_ARCH))
 				$(TARGET_DEFINES) ;

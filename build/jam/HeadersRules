@@ -445,7 +445,7 @@ rule FStandardOSHeaders
 }
 
 
-rule FStandardHeaders architecture
+rule FStandardHeaders architecture : isCpp
 {
 	local osIncludes = add-ons add-ons/file_system add-ons/graphics
 					   add-ons/input_server add-ons/registrar
@@ -463,8 +463,10 @@ rule FStandardHeaders architecture
 	# Ordering here is important. We fill out things like limits.h and
 	# gcc only overrides if undefined.
 
-	# The c++ headers.
-	headers += [ C++HeaderDirectories $(architecture) ] ;
+	if $(isCpp) = 1 {
+		# The c++ headers.
+		headers += [ C++HeaderDirectories $(architecture) ] ;
+	}
 
 	# Use glibc headers
 	headers += [ FDirName $(HAIKU_TOP) headers glibc ] ;
