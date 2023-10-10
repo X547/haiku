@@ -148,6 +148,7 @@ AddNewDriversToPackage interrupt_controllers :
 	;
 AddNewDriversToPackage graphics :
 	ati
+	virtio_gpu
 	;
 
 # legacy drivers
@@ -314,6 +315,7 @@ AddBootModuleSymlinksToPackage
 	null # !!!
 	zero # !!!
 	ocores_i2c@riscv64,arm,arm64 # !!!
+	virtio_gpu # !!!
 ;
 
 # add-ons
