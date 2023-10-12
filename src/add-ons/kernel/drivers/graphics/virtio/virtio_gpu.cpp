@@ -27,6 +27,29 @@
 #define VIRTIO_GPU_DRIVER_MODULE_NAME "drivers/graphics/virtio_gpu/driver/v1"
 
 
+class CommandBuffer {
+public:
+	CommandBuffer(PhysicalMemoryAllocator& allocator): fAllocator(allocator) {}
+	status_t Init(void*& cmd, size_t cmdSize, void*& response, size_t responseSize);
+	~CommandBuffer();
+
+	size_t CmdSize() const {return fCmdSize;}
+	size_t ResponseSize() const {return fResponseSize;}
+
+	inline void* CommandVirt() const {return fCmdVirtAdr;}
+	inline phys_addr_t CommandPhys() const {return fCmdPhysAdr;}
+	inline void* ResponseVirt() const {return fCmdVirtAdr + fCmdSize;}
+	inline phys_addr_t ResponsePhys() const {return fCmdPhysAdr + fCmdSize;}
+
+private:
+	PhysicalMemoryAllocator& fAllocator;
+	size_t fCmdSize {};
+	size_t fResponseSize {};
+	uint8* fCmdVirtAdr {};
+	phys_addr_t fCmdPhysAdr {};
+};
+
+
 class VirtioGpuDriver: public DeviceDriver {
 public:
 	VirtioGpuDriver(DeviceNode* node): fNode(node) {}
@@ -40,16 +63,17 @@ private:
 	status_t Init();
 
 	status_t DrainQueues();
-	status_t SendCmd(void *cmd, size_t cmdSize, void *response, size_t responseSize);
+	status_t SendCmd(CommandBuffer& cmdBuf);
+
 	status_t GetDisplayInfo();
-	status_t GetEdids(int scanout);
-	status_t Create2d(int resourceId, int width, int height);
-	status_t Unref(int resourceId);
-	status_t AttachBacking(int resourceId);
-	status_t DetachBacking(int resourceId);
-	status_t SetScanout(int scanoutId, int resourceId, uint32 width, uint32 height);
-	status_t TransferToHost2d(int resourceId, uint32 width, uint32 height);
-	status_t FlushResource(int resourceId, uint32 width, uint32 height);
+	status_t GetEdids(uint32 scanout);
+	status_t Create2d(uint32 resourceId, uint32 width, uint32 height);
+	status_t Unref(uint32 resourceId);
+	status_t AttachBacking(uint32 resourceId);
+	status_t DetachBacking(uint32 resourceId);
+	status_t SetScanout(uint32 scanoutId, uint32 resourceId, uint32 width, uint32 height);
+	status_t TransferToHost2d(uint32 resourceId, uint32 width, uint32 height);
+	status_t FlushResource(uint32 resourceId, uint32 width, uint32 height);
 
 	static status_t UpdateThread(void *arg);
 	static void Vqwait(void* driverCookie, void* cookie);
@@ -96,6 +120,26 @@ private:
 };
 
 
+status_t
+CommandBuffer::Init(void *&cmd, size_t cmdSize, void *&response, size_t responseSize)
+{
+	CHECK_RET(fAllocator.Allocate(cmdSize + responseSize, (void**)&fCmdVirtAdr, &fCmdPhysAdr));
+
+	fCmdSize = cmdSize;
+	fResponseSize = responseSize;
+	cmd = fCmdVirtAdr;
+	response = fCmdVirtAdr + cmdSize;
+
+	return B_OK;
+}
+
+
+CommandBuffer::~CommandBuffer()
+{
+	fAllocator.Deallocate(fCmdSize + fResponseSize, fCmdVirtAdr, fCmdPhysAdr);
+}
+
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -134,6 +178,9 @@ get_feature_name(uint64 feature)
 }
 
 
+//	#pragma mark - VirtioGpuDriver
+
+
 status_t
 VirtioGpuDriver::DrainQueues()
 {
@@ -148,29 +195,18 @@ VirtioGpuDriver::DrainQueues()
 
 
 status_t
-VirtioGpuDriver::SendCmd(void *cmd, size_t cmdSize, void *response,
-    size_t responseSize)
+VirtioGpuDriver::SendCmd(CommandBuffer& cmdBuf)
 {
-	size_t totalSize = cmdSize + responseSize;
-	uint8* cmdVirtAdr;
-	phys_addr_t cmdPhysAdr;
+	struct virtio_gpu_ctrl_hdr *hdr = (struct virtio_gpu_ctrl_hdr *)cmdBuf.CommandVirt();
+	struct virtio_gpu_ctrl_hdr *responseHdr = (struct virtio_gpu_ctrl_hdr *)cmdBuf.ResponseVirt();
 
-	CHECK_RET(fPhysMemAllocator.Allocate(totalSize, (void**)&cmdVirtAdr, &cmdPhysAdr));
-	ScopeExit memoryReleaser([this, totalSize, cmdVirtAdr, cmdPhysAdr] {
-		fPhysMemAllocator.Deallocate(totalSize, cmdVirtAdr, cmdPhysAdr);
-	});
-
-	struct virtio_gpu_ctrl_hdr *hdr = (struct virtio_gpu_ctrl_hdr *)cmdVirtAdr;
-	struct virtio_gpu_ctrl_hdr *responseHdr = (struct virtio_gpu_ctrl_hdr *)response;
-
-	memcpy((void*)cmdVirtAdr, cmd, cmdSize);
-	memset((void*)(cmdVirtAdr + cmdSize), 0, responseSize);
+	memset((void*)responseHdr, 0, cmdBuf.ResponseSize());
 	hdr->flags |= VIRTIO_GPU_FLAG_FENCE;
 	hdr->fence_id = ++fFenceId;
 
 	physical_entry entries[] {
-		{ cmdPhysAdr, cmdSize },
-		{ cmdPhysAdr + cmdSize, responseSize },
+		{ cmdBuf.CommandPhys(), cmdBuf.CmdSize() },
+		{ cmdBuf.ResponsePhys(), cmdBuf.ResponseSize() },
 	};
 
 	ConditionVariable completedCond;
@@ -187,8 +223,6 @@ VirtioGpuDriver::SendCmd(void *cmd, size_t cmdSize, void *response,
 	lock.Unlock();
 	cvEntry.Wait();
 
-	memcpy(response, (void*)(cmdVirtAdr + cmdSize), responseSize);
-
 	if (responseHdr->fence_id != fFenceId) {
 		ERROR("response fence id not right(expected: %" B_PRIu64 ", actual: %" B_PRIu64 ")\n", fFenceId, responseHdr->fence_id);
 	}
@@ -196,29 +230,35 @@ VirtioGpuDriver::SendCmd(void *cmd, size_t cmdSize, void *response,
 }
 
 
+//	#pragma mark - Commands
+
+
 status_t
 VirtioGpuDriver::GetDisplayInfo()
 {
 	CALLED();
-	struct virtio_gpu_ctrl_hdr hdr = {};
-	struct virtio_gpu_resp_display_info displayInfo = {};
 
-	hdr.type = VIRTIO_GPU_CMD_GET_DISPLAY_INFO;
+	struct virtio_gpu_ctrl_hdr* hdr;
+	struct virtio_gpu_resp_display_info* displayInfo;
 
-	SendCmd(&hdr, sizeof(hdr), &displayInfo, sizeof(displayInfo));
+	CommandBuffer cmdBuf(fPhysMemAllocator);
+	CHECK_RET(cmdBuf.Init(*(void**)&hdr, sizeof(*hdr), *(void**)&displayInfo, sizeof(*displayInfo)));
+	*hdr = {.type = VIRTIO_GPU_CMD_GET_DISPLAY_INFO};
 
-	if (displayInfo.hdr.type != VIRTIO_GPU_RESP_OK_DISPLAY_INFO) {
+	CHECK_RET(SendCmd(cmdBuf));
+
+	if (displayInfo->hdr.type != VIRTIO_GPU_RESP_OK_DISPLAY_INFO) {
 		ERROR("failed getting display info\n");
 		return B_ERROR;
 	}
 
-	if (!displayInfo.pmodes[0].enabled) {
+	if (!displayInfo->pmodes[0].enabled) {
 		ERROR("pmodes[0] is not enabled\n");
 		return B_BAD_VALUE;
 	}
 
-	fFramebufferWidth = displayInfo.pmodes[0].r.width;
-	fFramebufferHeight = displayInfo.pmodes[0].r.height;
+	fFramebufferWidth = displayInfo->pmodes[0].r.width;
+	fFramebufferHeight = displayInfo->pmodes[0].r.height;
 	TRACE("virtio_gpu_get_display_info width %" B_PRIu32 " height %" B_PRIu32 "\n",
 		fFramebufferWidth, fFramebufferHeight);
 
@@ -227,45 +267,53 @@ VirtioGpuDriver::GetDisplayInfo()
 
 
 status_t
-VirtioGpuDriver::GetEdids(int scanout)
+VirtioGpuDriver::GetEdids(uint32 scanout)
 {
 	CALLED();
-	struct virtio_gpu_cmd_get_edid getEdid = {};
-	struct virtio_gpu_resp_edid response = {};
-	getEdid.hdr.type = VIRTIO_GPU_CMD_GET_EDID;
-	getEdid.scanout = scanout;
+	struct virtio_gpu_cmd_get_edid* getEdid;
+	struct virtio_gpu_resp_edid* response;
+	CommandBuffer cmdBuf(fPhysMemAllocator);
+	CHECK_RET(cmdBuf.Init(*(void**)&getEdid, sizeof(*getEdid), *(void**)&response, sizeof(*response)));
+	*getEdid = {
+		.hdr = {.type = VIRTIO_GPU_CMD_GET_EDID},
+		.scanout = scanout
+	};
 
-	SendCmd(&getEdid, sizeof(getEdid), &response, sizeof(response));
+	CHECK_RET(SendCmd(cmdBuf));
 
-	if (response.hdr.type != VIRTIO_GPU_RESP_OK_EDID) {
-		ERROR("failed getting edids %d\n", response.hdr.type);
+	if (response->hdr.type != VIRTIO_GPU_RESP_OK_EDID) {
+		ERROR("failed getting edids %d\n", response->hdr.type);
 		return B_ERROR;
 	}
 
 	fSharedInfo->has_edid = true;
-	memcpy(&fSharedInfo->edid_raw, response.edid, sizeof(edid1_raw));
+	memcpy(&fSharedInfo->edid_raw, response->edid, sizeof(edid1_raw));
 
 	return B_OK;
 }
 
 
 status_t
-VirtioGpuDriver::Create2d(int resourceId, int width, int height)
+VirtioGpuDriver::Create2d(uint32 resourceId, uint32 width, uint32 height)
 {
 	CALLED();
-	struct virtio_gpu_resource_create_2d resource = {};
-	struct virtio_gpu_ctrl_hdr response = {};
+	struct virtio_gpu_resource_create_2d* resource;
+	struct virtio_gpu_ctrl_hdr* response;
+	CommandBuffer cmdBuf(fPhysMemAllocator);
+	CHECK_RET(cmdBuf.Init(*(void**)&resource, sizeof(*resource), *(void**)&response, sizeof(*response)));
 
-	resource.hdr.type = VIRTIO_GPU_CMD_RESOURCE_CREATE_2D;
-	resource.resource_id = resourceId;
-	resource.format = VIRTIO_GPU_FORMAT_B8G8R8X8_UNORM;
-	resource.width = width;
-	resource.height = height;
+	*resource = {
+		.hdr = {.type = VIRTIO_GPU_CMD_RESOURCE_CREATE_2D},
+		.resource_id = resourceId,
+		.format = VIRTIO_GPU_FORMAT_B8G8R8X8_UNORM,
+		.width = width,
+		.height = height
+	};
 
-	SendCmd(&resource, sizeof(resource), &response, sizeof(response));
+	CHECK_RET(SendCmd(cmdBuf));
 
-	if (response.type != VIRTIO_GPU_RESP_OK_NODATA) {
-		ERROR("viogpu_create_2d: failed %d\n", response.type);
+	if (response->type != VIRTIO_GPU_RESP_OK_NODATA) {
+		ERROR("viogpu_create_2d: failed %d\n", response->type);
 		return B_ERROR;
 	}
 
@@ -274,19 +322,23 @@ VirtioGpuDriver::Create2d(int resourceId, int width, int height)
 
 
 status_t
-VirtioGpuDriver::Unref(int resourceId)
+VirtioGpuDriver::Unref(uint32 resourceId)
 {
 	CALLED();
-	struct virtio_gpu_resource_unref resource = {};
-	struct virtio_gpu_ctrl_hdr response = {};
+	struct virtio_gpu_resource_unref* resource;
+	struct virtio_gpu_ctrl_hdr* response;
+	CommandBuffer cmdBuf(fPhysMemAllocator);
+	CHECK_RET(cmdBuf.Init(*(void**)&resource, sizeof(*resource), *(void**)&response, sizeof(*response)));
 
-	resource.hdr.type = VIRTIO_GPU_CMD_RESOURCE_UNREF;
-	resource.resource_id = resourceId;
+	*resource = {
+		.hdr = {.type = VIRTIO_GPU_CMD_RESOURCE_UNREF},
+		.resource_id = resourceId
+	};
 
-	SendCmd(&resource, sizeof(resource), &response, sizeof(response));
+	CHECK_RET(SendCmd(cmdBuf));
 
-	if (response.type != VIRTIO_GPU_RESP_OK_NODATA) {
-		ERROR("virtio_gpu_unref: failed %d\n", response.type);
+	if (response->type != VIRTIO_GPU_RESP_OK_NODATA) {
+		ERROR("virtio_gpu_unref: failed %d\n", response->type);
 		return B_ERROR;
 	}
 
@@ -295,14 +347,16 @@ VirtioGpuDriver::Unref(int resourceId)
 
 
 status_t
-VirtioGpuDriver::AttachBacking(int resourceId)
+VirtioGpuDriver::AttachBacking(uint32 resourceId)
 {
 	CALLED();
 	struct virtio_gpu_resource_attach_backing_entries {
 		struct virtio_gpu_resource_attach_backing backing;
 		struct virtio_gpu_mem_entry entries[16];
-	} _PACKED backing = {};
-	struct virtio_gpu_ctrl_hdr response = {};
+	} _PACKED* backing;
+	struct virtio_gpu_ctrl_hdr* response;
+	CommandBuffer cmdBuf(fPhysMemAllocator);
+	CHECK_RET(cmdBuf.Init(*(void**)&backing, sizeof(*backing), *(void**)&response, sizeof(*response)));
 
 	physical_entry entries[16] = {};
 	status_t status = get_memory_map((void*)fFramebuffer, fFramebufferSize, entries, 16);
@@ -311,21 +365,26 @@ VirtioGpuDriver::AttachBacking(int resourceId)
 		return status;
 	}
 
-	backing.backing.hdr.type = VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING;
-	backing.backing.resource_id = resourceId;
+	*backing = {
+		.backing = {
+			.hdr = {.type = VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING},
+			.resource_id = resourceId
+		}
+	};
+
 	for (int i = 0; i < 16; i++) {
 		if (entries[i].size == 0)
 			break;
 		TRACE("virtio_gpu_attach_backing %d %lx %lx\n", i, entries[i].address, entries[i].size);
-		backing.entries[i].addr = entries[i].address;
-		backing.entries[i].length = entries[i].size;
-		backing.backing.nr_entries++;
+		backing->entries[i].addr = entries[i].address;
+		backing->entries[i].length = entries[i].size;
+		backing->backing.nr_entries++;
 	}
 
-	SendCmd(&backing, sizeof(backing), &response, sizeof(response));
+	CHECK_RET(SendCmd(cmdBuf));
 
-	if (response.type != VIRTIO_GPU_RESP_OK_NODATA) {
-		ERROR("virtio_gpu_attach_backing failed: %d\n", response.type);
+	if (response->type != VIRTIO_GPU_RESP_OK_NODATA) {
+		ERROR("virtio_gpu_attach_backing failed: %d\n", response->type);
 		return B_ERROR;
 	}
 
@@ -334,19 +393,23 @@ VirtioGpuDriver::AttachBacking(int resourceId)
 
 
 status_t
-VirtioGpuDriver::DetachBacking(int resourceId)
+VirtioGpuDriver::DetachBacking(uint32 resourceId)
 {
 	CALLED();
-	struct virtio_gpu_resource_detach_backing backing;
-	struct virtio_gpu_ctrl_hdr response = {};
+	struct virtio_gpu_resource_detach_backing* backing;
+	struct virtio_gpu_ctrl_hdr* response;
+	CommandBuffer cmdBuf(fPhysMemAllocator);
+	CHECK_RET(cmdBuf.Init(*(void**)&backing, sizeof(*backing), *(void**)&response, sizeof(*response)));
 
-	backing.hdr.type = VIRTIO_GPU_CMD_RESOURCE_DETACH_BACKING;
-	backing.resource_id = resourceId;
+	*backing = {
+		.hdr = {.type = VIRTIO_GPU_CMD_RESOURCE_DETACH_BACKING},
+		.resource_id = resourceId
+	};
 
-	SendCmd(&backing, sizeof(backing), &response, sizeof(response));
+	SendCmd(cmdBuf);
 
-	if (response.type != VIRTIO_GPU_RESP_OK_NODATA) {
-		ERROR("virtio_gpu_detach_backing failed: %d\n", response.type);
+	if (response->type != VIRTIO_GPU_RESP_OK_NODATA) {
+		ERROR("virtio_gpu_detach_backing failed: %d\n", response->type);
 		return B_ERROR;
 	}
 
@@ -355,23 +418,29 @@ VirtioGpuDriver::DetachBacking(int resourceId)
 
 
 status_t
-VirtioGpuDriver::SetScanout(int scanoutId, int resourceId,
+VirtioGpuDriver::SetScanout(uint32 scanoutId, uint32 resourceId,
     uint32 width, uint32 height)
 {
 	CALLED();
-	struct virtio_gpu_set_scanout set_scanout = {};
-	struct virtio_gpu_ctrl_hdr response = {};
+	struct virtio_gpu_set_scanout* set_scanout;
+	struct virtio_gpu_ctrl_hdr* response;
+	CommandBuffer cmdBuf(fPhysMemAllocator);
+	CHECK_RET(cmdBuf.Init(*(void**)&set_scanout, sizeof(*set_scanout), *(void**)&response, sizeof(*response)));
 
-	set_scanout.hdr.type = VIRTIO_GPU_CMD_SET_SCANOUT;
-	set_scanout.scanout_id = scanoutId;
-	set_scanout.resource_id = resourceId;
-	set_scanout.r.width = width;
-	set_scanout.r.height = height;
+	*set_scanout = {
+		.hdr = {.type = VIRTIO_GPU_CMD_SET_SCANOUT},
+		.r = {
+			.width = width,
+			.height = height
+		},
+		.scanout_id = scanoutId,
+		.resource_id = resourceId
+	};
 
-	SendCmd(&set_scanout, sizeof(set_scanout), &response, sizeof(response));
+	SendCmd(cmdBuf);
 
-	if (response.type != VIRTIO_GPU_RESP_OK_NODATA) {
-		ERROR("virtio_gpu_set_scanout failed %d\n", response.type);
+	if (response->type != VIRTIO_GPU_RESP_OK_NODATA) {
+		ERROR("virtio_gpu_set_scanout failed %d\n", response->type);
 		return B_ERROR;
 	}
 
@@ -380,22 +449,27 @@ VirtioGpuDriver::SetScanout(int scanoutId, int resourceId,
 
 
 status_t
-VirtioGpuDriver::TransferToHost2d(int resourceId,
+VirtioGpuDriver::TransferToHost2d(uint32 resourceId,
     uint32 width, uint32 height)
 {
-	struct virtio_gpu_transfer_to_host_2d transferToHost = {};
-	struct virtio_gpu_ctrl_hdr response = {};
+	struct virtio_gpu_transfer_to_host_2d* transferToHost;
+	struct virtio_gpu_ctrl_hdr* response;
+	CommandBuffer cmdBuf(fPhysMemAllocator);
+	CHECK_RET(cmdBuf.Init(*(void**)&transferToHost, sizeof(*transferToHost), *(void**)&response, sizeof(*response)));
 
-	transferToHost.hdr.type = VIRTIO_GPU_CMD_TRANSFER_TO_HOST_2D;
-	transferToHost.resource_id = resourceId;
-	transferToHost.r.width = width;
-	transferToHost.r.height = height;
+	*transferToHost = {
+		.hdr = {.type = VIRTIO_GPU_CMD_TRANSFER_TO_HOST_2D},
+		.r = {
+			.width = width,
+			.height = height
+		},
+		.resource_id = resourceId
+	};
 
-	SendCmd(&transferToHost, sizeof(transferToHost), &response,
-		sizeof(response));
+	SendCmd(cmdBuf);
 
-	if (response.type != VIRTIO_GPU_RESP_OK_NODATA) {
-		ERROR("virtio_gpu_transfer_to_host_2d failed %d\n", response.type);
+	if (response->type != VIRTIO_GPU_RESP_OK_NODATA) {
+		ERROR("virtio_gpu_transfer_to_host_2d failed %d\n", response->type);
 		return B_ERROR;
 	}
 
@@ -404,26 +478,35 @@ VirtioGpuDriver::TransferToHost2d(int resourceId,
 
 
 status_t
-VirtioGpuDriver::FlushResource(int resourceId, uint32 width,
+VirtioGpuDriver::FlushResource(uint32 resourceId, uint32 width,
     uint32 height)
 {
-	struct virtio_gpu_resource_flush resourceFlush = {};
-	struct virtio_gpu_ctrl_hdr response = {};
+	struct virtio_gpu_resource_flush* resourceFlush;
+	struct virtio_gpu_ctrl_hdr* response;
+	CommandBuffer cmdBuf(fPhysMemAllocator);
+	CHECK_RET(cmdBuf.Init(*(void**)&resourceFlush, sizeof(*resourceFlush), *(void**)&response, sizeof(*response)));
 
-	resourceFlush.hdr.type = VIRTIO_GPU_CMD_RESOURCE_FLUSH;
-	resourceFlush.resource_id = resourceId;
-	resourceFlush.r.width = width;
-	resourceFlush.r.height = height;
+	*resourceFlush = {
+		.hdr = {.type = VIRTIO_GPU_CMD_RESOURCE_FLUSH},
+		.r = {
+			.width = width,
+			.height = height
+		},
+		.resource_id = resourceId
+	};
 
-	SendCmd(&resourceFlush, sizeof(resourceFlush), &response, sizeof(response));
+	SendCmd(cmdBuf);
 
-	if (response.type != VIRTIO_GPU_RESP_OK_NODATA) {
-		ERROR("virtio_gpu_flush_resource failed %d\n", response.type);
+	if (response->type != VIRTIO_GPU_RESP_OK_NODATA) {
+		ERROR("virtio_gpu_flush_resource failed %d\n", response->type);
 		return B_ERROR;
 	}
 
 	return B_OK;
 }
+
+
+//	#pragma mark -
 
 
 status_t
