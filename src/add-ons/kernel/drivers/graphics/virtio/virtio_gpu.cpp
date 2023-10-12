@@ -9,15 +9,17 @@
 
 #include <graphic_driver.h>
 
-#include <lock.h>
+#include <util/AutoLock.h>
 #include <dm2/bus/Virtio.h>
 #include <virtio_info.h>
+#include <condition_variable.h>
 
 #include <AutoDeleter.h>
 #include <ContainerOf.h>
 #include <ScopeExit.h>
 
 #include "viogpu.h"
+#include "PhysicalMemoryAllocator.h"
 
 #define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
@@ -56,14 +58,12 @@ private:
 	DeviceNode*				fNode;
 	VirtioDevice* 			fVirtioDevice {};
 
+	PhysicalMemoryAllocator	fPhysMemAllocator {"virtio_gpu", 32, 1024*1024, 4};
+
 	uint64 					fFeatures {};
 
 	VirtioQueue*			fControlQueue {};
-	mutex					fCommandLock {};
-	area_id					fCommandArea = -1;
-	addr_t					fCommandBuffer {};
-	phys_addr_t				fCommandPhysAddr {};
-	sem_id					fCommandDone = -1;
+	spinlock				fCommandLock = B_SPINLOCK_INITIALIZER;
 	uint64					fFenceId {};
 
 	VirtioQueue*			fCursorQueue {};
@@ -151,34 +151,46 @@ status_t
 VirtioGpuDriver::SendCmd(void *cmd, size_t cmdSize, void *response,
     size_t responseSize)
 {
-	struct virtio_gpu_ctrl_hdr *hdr = (struct virtio_gpu_ctrl_hdr *)fCommandBuffer;
+	size_t totalSize = cmdSize + responseSize;
+	uint8* cmdVirtAdr;
+	phys_addr_t cmdPhysAdr;
+
+	CHECK_RET(fPhysMemAllocator.Allocate(totalSize, (void**)&cmdVirtAdr, &cmdPhysAdr));
+	ScopeExit memoryReleaser([this, totalSize, cmdVirtAdr, cmdPhysAdr] {
+		fPhysMemAllocator.Deallocate(totalSize, cmdVirtAdr, cmdPhysAdr);
+	});
+
+	struct virtio_gpu_ctrl_hdr *hdr = (struct virtio_gpu_ctrl_hdr *)cmdVirtAdr;
 	struct virtio_gpu_ctrl_hdr *responseHdr = (struct virtio_gpu_ctrl_hdr *)response;
 
-	memcpy((void*)fCommandBuffer, cmd, cmdSize);
-	memset((void*)(fCommandBuffer + cmdSize), 0, responseSize);
+	memcpy((void*)cmdVirtAdr, cmd, cmdSize);
+	memset((void*)(cmdVirtAdr + cmdSize), 0, responseSize);
 	hdr->flags |= VIRTIO_GPU_FLAG_FENCE;
 	hdr->fence_id = ++fFenceId;
 
 	physical_entry entries[] {
-		{ fCommandPhysAddr, cmdSize },
-		{ fCommandPhysAddr + cmdSize, responseSize },
+		{ cmdPhysAdr, cmdSize },
+		{ cmdPhysAdr + cmdSize, responseSize },
 	};
-	if (!fControlQueue->IsEmpty())
-		return B_ERROR;
 
-	status_t status = fControlQueue->RequestV(entries, 1, 1, NULL);
+	ConditionVariable completedCond;
+	completedCond.Init(this, "completedCond");
+	ConditionVariableEntry cvEntry;
+	completedCond.Add(&cvEntry);
+
+	InterruptsSpinLocker lock(&fCommandLock);
+
+	status_t status = fControlQueue->RequestV(entries, 1, 1, &completedCond);
 	if (status != B_OK)
 		return status;
 
-	acquire_sem(fCommandDone);
+	lock.Unlock();
+	cvEntry.Wait();
 
-	while (!fControlQueue->Dequeue(NULL, NULL))
-		spin(10);
-
-	memcpy(response, (void*)(fCommandBuffer + cmdSize), responseSize);
+	memcpy(response, (void*)(cmdVirtAdr + cmdSize), responseSize);
 
 	if (responseHdr->fence_id != fFenceId) {
-		ERROR("response fence id not right\n");
+		ERROR("response fence id not right(expected: %" B_PRIu64 ", actual: %" B_PRIu64 ")\n", fFenceId, responseHdr->fence_id);
 	}
 	return B_OK;
 }
@@ -453,6 +465,8 @@ VirtioGpuDriver::Init()
 {
 	fVirtioDevice = fNode->QueryBusInterface<VirtioDevice>();
 
+	CHECK_RET(fPhysMemAllocator.InitCheck());
+
 	fVirtioDevice->NegotiateFeatures(/*VIRTIO_GPU_F_EDID*/0,
 		 &fFeatures, &get_feature_name);
 
@@ -464,22 +478,6 @@ VirtioGpuDriver::Init()
 
 	fControlQueue = virtioQueues[0];
 	fCursorQueue = virtioQueues[1];
-
-	// create command buffer area
-	fCommandArea = create_area("virtiogpu command buffer", (void**)&fCommandBuffer,
-		B_ANY_KERNEL_BLOCK_ADDRESS, B_PAGE_SIZE,
-		B_FULL_LOCK, B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA);
-	CHECK_RET(fCommandArea);
-	DetachableScopeExit commandAreaDeleter([this] {
-		delete_area(fCommandArea);
-		fCommandArea = -1;
-	});
-
-	physical_entry entry;
-	CHECK_RET(get_memory_map((void*)fCommandBuffer, B_PAGE_SIZE, &entry, 1));
-
-	fCommandPhysAddr = entry.address;
-	mutex_init(&fCommandLock, "virtiogpu command lock");
 
 	// Setup interrupt
 	CHECK_RET(fVirtioDevice->SetupInterrupt(NULL, this));
@@ -493,7 +491,6 @@ VirtioGpuDriver::Init()
 
 	CHECK_RET(fNode->RegisterDevFsNode(name, &fDevFsNode));
 
-	commandAreaDeleter.Detach();
 	return B_OK;
 }
 
@@ -504,10 +501,6 @@ VirtioGpuDriver::~VirtioGpuDriver()
 
 	fVirtioDevice->FreeInterrupts();
 
-	mutex_destroy(&fCommandLock);
-
-	delete_area(fCommandArea);
-	fCommandArea = -1;
 	fVirtioDevice->FreeQueues();
 }
 
@@ -525,10 +518,6 @@ VirtioGpuDriver::DevFsNode::Open(const char* path, int openMode, DevFsNodeHandle
 
 	status_t status;
 	size_t sharedSize = (sizeof(virtio_gpu_shared_info) + 7) & ~7;
-
-	Base().fCommandDone = create_sem(1, "virtio_gpu_command");
-	if (Base().fCommandDone < B_OK)
-		goto error;
 
 	status = Base().GetDisplayInfo();
 	if (status != B_OK)
@@ -599,8 +588,6 @@ error2:
 	delete_area(Base().fFramebufferArea);
 	Base().fFramebufferArea = -1;
 error:
-	delete_sem(Base().fCommandDone);
-	Base().fCommandDone = -1;
 	return B_ERROR;
 }
 
@@ -614,13 +601,11 @@ VirtioGpuDriver::DevFsNode::Close()
 		return B_OK;
 
 	Base().fUpdateThreadRunning = false;
-	delete_sem(Base().fCommandDone);
-	Base().fCommandDone = -1;
 
 	int32 result;
 	wait_for_thread(Base().fUpdateThread, &result);
 	Base().fUpdateThread = -1;
-	Base().DrainQueues();
+	//Base().DrainQueues();
 
 	return B_OK;
 }
@@ -632,7 +617,11 @@ VirtioGpuDriver::Vqwait(void* driverCookie, void* cookie)
 	CALLED();
 	VirtioGpuDriver* info = (VirtioGpuDriver*)cookie;
 
-	release_sem_etc(info->fCommandDone, 1, B_DO_NOT_RESCHEDULE);
+	SpinLocker lock(&info->fCommandLock);
+
+	ConditionVariable* cv;
+	if (info->fControlQueue->Dequeue((void**)&cv, NULL))
+		cv->NotifyAll();
 }
 
 
