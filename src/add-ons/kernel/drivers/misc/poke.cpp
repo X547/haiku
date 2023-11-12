@@ -16,6 +16,8 @@
 #if defined(__i386__) || defined(__x86_64__)
 #include <thread.h>
 #endif
+#include <team.h>
+#include <vm/vm.h>
 
 
 static status_t poke_open(const char*, uint32, void**);
