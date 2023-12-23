@@ -184,6 +184,7 @@ Map(addr_t virtAdr, phys_addr_t physAdr, uint64 flags)
 		.isGlobal = IS_KERNEL_ADDRESS(virtAdr),
 		.isAccessed = true,
 		.isDirty = true,
+		.ppn = physAdr / B_PAGE_SIZE,
 	};
 	newPte.val |= flags;
 
