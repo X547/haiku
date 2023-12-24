@@ -141,7 +141,7 @@ status_t
 pci_reserve_device(uchar virtualBus, uchar device, uchar function,
 	const char *driverName, void *nodeCookie)
 {
-	return ENOSYS;
+	return B_OK;
 #if 0
 	status_t status;
 	uint8 bus;
@@ -230,7 +230,7 @@ status_t
 pci_unreserve_device(uchar virtualBus, uchar device, uchar function,
 	const char *driverName, void *nodeCookie)
 {
-	return ENOSYS;
+	return B_OK;
 #if 0
 	status_t status;
 	uint8 bus;
