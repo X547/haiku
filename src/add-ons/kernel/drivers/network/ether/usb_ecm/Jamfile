@@ -4,6 +4,5 @@ UsePrivateKernelHeaders ;
 UsePrivateHeaders net ;
 
 KernelAddon usb_ecm :
-	Driver.cpp
-	ECMDevice.cpp
+	usb_ecm.cpp
 	;
