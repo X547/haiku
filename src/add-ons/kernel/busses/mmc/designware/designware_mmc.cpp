@@ -30,17 +30,6 @@
 		} \
 	} \
 
-#define VOLATILE_ASSIGN_QUIRKS(Type) \
-	void operator=(const Type& rhs) volatile \
-	{ \
-		value = rhs.value; \
-	} \
-	 \
-	void operator=(const volatile Type& rhs) volatile \
-	{ \
-		value = rhs.value; \
-	} \
-
 
 #define DESIGNWARE_MMC_DRIVER_MODULE_NAME "busses/mmc/designware_mmc/driver/v1"
 
@@ -69,8 +58,6 @@ union DesignwareMmcCmd {
 		uint32 start:      1; // 31
 	};
 	uint32 value;
-
-	VOLATILE_ASSIGN_QUIRKS(DesignwareMmcCmd)
 };
 
 union DesignwareMmcCtrl {
@@ -92,8 +79,6 @@ union DesignwareMmcCtrl {
 		uint32 unknown4:     6; // 26
 	};
 	uint32 value;
-
-	VOLATILE_ASSIGN_QUIRKS(DesignwareMmcCtrl)
 };
 
 static const DesignwareMmcCtrl kDesignwareMmcCtrlResetAll = {
@@ -121,8 +106,6 @@ union DesignwareMmcStatus {
 		uint32 dmaReq:     1; // 31
 	};
 	uint32 value;
-
-	VOLATILE_ASSIGN_QUIRKS(DesignwareMmcStatus)
 };
 
 union DesignwareMmcInt {
@@ -146,8 +129,6 @@ union DesignwareMmcInt {
 		uint32 unknown1: 16; // 16
 	};
 	uint32 value;
-
-	VOLATILE_ASSIGN_QUIRKS(DesignwareMmcInt)
 };
 
 static const DesignwareMmcInt kDesignwareMmcIntAll = {
@@ -183,8 +164,6 @@ union DesignwareMmcFifoth {
 		uint32 unknown2: 1; // 31
 	};
 	uint32 value;
-
-	VOLATILE_ASSIGN_QUIRKS(DesignwareMmcFifoth)
 };
 
 union DesignwareMmcDmacBmod {
@@ -196,8 +175,6 @@ union DesignwareMmcDmacBmod {
 		uint32 unknown2: 24; //  8
 	};
 	uint32 value;
-
-	VOLATILE_ASSIGN_QUIRKS(DesignwareMmcDmacBmod)
 };
 
 enum struct DesignwareMmcDmacHconTransMode: uint32 {
@@ -221,8 +198,6 @@ union DesignwareMmcDmacHcon {
 		uint32 unknown5:   4; // 28
 	};
 	uint32 value;
-
-	VOLATILE_ASSIGN_QUIRKS(DesignwareMmcDmacHcon)
 };
 
 struct DesignwareMmcRegs {
@@ -559,7 +534,7 @@ DesignwareMmcDriver::Init()
 
 	fRegs->pwren = 1;
 
-	fRegs->ctrl = kDesignwareMmcCtrlResetAll;
+	fRegs->ctrl.value = kDesignwareMmcCtrlResetAll.value;
 	if (retry_count([this] {return (fRegs->ctrl.value & kDesignwareMmcCtrlResetAll.value) == 0;}, 1000) < B_OK) {
 		dprintf("[!] reset failed\n");
 		return B_IO_ERROR;
@@ -567,15 +542,15 @@ DesignwareMmcDriver::Init()
 
 	CHECK_RET(fMmcBus.SetClock(400));
 
-	fRegs->rintsts = kDesignwareMmcIntAll;
-	fRegs->intmask = {};
+	fRegs->rintsts.value = kDesignwareMmcIntAll.value;
+	fRegs->intmask.value = 0;
 
 	fRegs->tmout = 0xFFFFFFFF;
 
 	fRegs->idinten = 0;
-	fRegs->bmod = {.swReset = 1};
+	fRegs->bmod.value = DesignwareMmcDmacBmod{.swReset = 1}.value;
 
-	fRegs->fifoth = fFifothVal;
+	fRegs->fifoth.value = fFifothVal.value;
 
 	fRegs->clkena = 0;
 	fRegs->clksrc = 0;
@@ -594,7 +569,7 @@ DesignwareMmcDriver::Init()
 	fRegs->idsts = 0xffffffff;
  	fRegs->idinten = DWMCI_IDINTEN_MASK;
 
-	fRegs->ctrl = DesignwareMmcCtrl {.intEnable = true};
+	fRegs->ctrl.value = DesignwareMmcCtrl {.intEnable = true}.value;
 
 	device_attr attrs[] = {
 		{B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "MMC Bus Manager"}},
@@ -675,7 +650,7 @@ DesignwareMmcDriver::ExecuteCommand(const mmc_command& cmd, const mmc_data* data
 	ConditionVariableEntry cvEntry;
 	fCmdCompletedCond.Add(&cvEntry);
 
-	fRegs->cmd = {
+	fRegs->cmd.value = DesignwareMmcCmd {
 		.indx       = cmd.command,
 		.respExp    = cmd.response != NULL,
 		.respLong   = cmd.isWideResponse,
@@ -687,7 +662,7 @@ DesignwareMmcDriver::ExecuteCommand(const mmc_command& cmd, const mmc_data* data
 		.init       = needInit,
 		.useHoldReg = true,
 		.start      = true,
-	};
+	}.value;
 
 	CHECK_RET_MSG(cvEntry.Wait(B_RELATIVE_TIMEOUT, 2000000), "[!] MmcDriver::ExecuteCommand: timeout when executing command\n");
 
@@ -803,20 +778,20 @@ DesignwareMmcDriver::MmcBusImpl::SetClock(uint32 kilohertz)
 	fBase.fRegs->clksrc = 0;
 
 	fBase.fRegs->clkdiv = div;
-	fBase.fRegs->cmd = {
+	fBase.fRegs->cmd.value = DesignwareMmcCmd {
 		.prvDatWait = true,
 		.updClk = true,
 		.start = true
-	};
+	}.value;
 	CHECK_RET(retry_count([this]() {return !fBase.fRegs->cmd.start;}, 10000));
 
 	fBase.fRegs->clkena = DWMCI_CLKEN_ENABLE | DWMCI_CLKEN_LOW_PWR;
 
-	fBase.fRegs->cmd = {
+	fBase.fRegs->cmd.value = DesignwareMmcCmd {
 		.prvDatWait = true,
 		.updClk = true,
 		.start = true
-	};
+	}.value;
 	CHECK_RET(retry_count([this]() {return !fBase.fRegs->cmd.start;}, 10000));
 
 	fBase.fClockFreq = freq;
