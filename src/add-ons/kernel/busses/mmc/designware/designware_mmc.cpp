@@ -19,6 +19,8 @@
 #include <condition_variable.h>
 #include <util/iovec_support.h>
 
+#include "designware_mmc_defs.h"
+
 #define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
 #define CHECK_RET_MSG(err, msg...) \
@@ -32,267 +34,6 @@
 
 
 #define DESIGNWARE_MMC_DRIVER_MODULE_NAME "busses/mmc/designware_mmc/driver/v1"
-
-
-union DesignwareMmcCmd {
-	struct {
-		uint32 indx:       6; //  0
-		uint32 respExp:    1; //  6
-		uint32 respLong:   1; //  7
-		uint32 respCrc:    1; //  8
-		uint32 datExp:     1; //  9
-		uint32 datWr:      1; // 10
-		uint32 strmMode:   1; // 11
-		uint32 sendStop:   1; // 12
-		uint32 prvDatWait: 1; // 13
-		uint32 stop:       1; // 14
-		uint32 init:       1; // 15
-		uint32 unknown1:   5; // 16
-		uint32 updClk:     1; // 21
-		uint32 ceataRd:    1; // 22
-		uint32 ccsExp:     1; // 23
-		uint32 unknown2:   4; // 24
-		uint32 voltSwitch: 1; // 28
-		uint32 useHoldReg: 1; // 29
-		uint32 unknown3:   1; // 30
-		uint32 start:      1; // 31
-	};
-	uint32 value;
-};
-
-union DesignwareMmcCtrl {
-	struct {
-		uint32 reset:        1; //  0
-		uint32 fifoReset:    1; //  1
-		uint32 dmaReset:     1; //  2
-		uint32 unknown2:     1; //  3
-		uint32 intEnable:    1; //  4
-		uint32 dmaEnable:    1; //  5
-		uint32 readWait:     1; //  6
-		uint32 sendIrqResp:  1; //  7
-		uint32 abrtReadData: 1; //  8
-		uint32 sendCcsd:     1; //  9
-		uint32 sendAsCcsd:   1; // 10
-		uint32 ceataIntEn:   1; // 11
-		uint32 unknown3:    13; // 12
-		uint32 useIdmac:     1; // 25
-		uint32 unknown4:     6; // 26
-	};
-	uint32 value;
-};
-
-static const DesignwareMmcCtrl kDesignwareMmcCtrlResetAll = {
-	.reset = true,
-	.fifoReset = true,
-	.dmaReset = true,
-};
-
-enum class DesignwareMmcCardType: uint32 {
-	bit1 = 0,
-	bit4 = 1 << 0,
-	bit8 = 1 << 16
-};
-
-union DesignwareMmcStatus {
-	struct {
-		uint32 unknown1:   2; //  0
-		uint32 fifoEmpty:  1; //  2
-		uint32 fifoFull:   1; //  3
-		uint32 unknown2:   5; //  4
-		uint32 busy:       1; //  9
-		uint32 unknown3:   7; // 10
-		uint32 fcnt:      13; // 17
-		uint32 unknown4:   1; // 30
-		uint32 dmaReq:     1; // 31
-	};
-	uint32 value;
-};
-
-union DesignwareMmcInt {
-	struct {
-		uint32 cd:        1; //  0
-		uint32 respError: 1; //  1
-		uint32 cmdDone:   1; //  2
-		uint32 dataOver:  1; //  3
-		uint32 txdr:      1; //  4
-		uint32 rxdr:      1; //  5
-		uint32 rcrc:      1; //  6
-		uint32 dcrc:      1; //  7
-		uint32 rto:       1; //  8
-		uint32 drto:      1; //  9
-		uint32 hto:       1; // 10
-		uint32 frun:      1; // 11
-		uint32 hle:       1; // 12
-		uint32 sbe:       1; // 13
-		uint32 acd:       1; // 14
-		uint32 ebe:       1; // 15
-		uint32 unknown1: 16; // 16
-	};
-	uint32 value;
-};
-
-static const DesignwareMmcInt kDesignwareMmcIntAll = {
-	.value = 0xffffffff
-};
-
-static const DesignwareMmcInt kDesignwareMmcIntDataError = {
-	.dcrc = true,
-	.frun = true,
-	.hle = true,
-	.sbe = true,
-	.ebe = true,
-};
-
-static const DesignwareMmcInt kDesignwareMmcIntDataTimeout = {
-	.drto = true,
-	.hto = true,
-};
-
-static const DesignwareMmcInt kDesignwareMmcIntCmdError = {
-	.respError = true,
-	.rcrc = true,
-	.rto = true,
-	.hle = true,
-};
-
-union DesignwareMmcFifoth {
-	struct {
-		uint32 txWmark: 12; //  0
-		uint32 unknown1: 4; // 12
-		uint32 rxWmark: 12; // 16
-		uint32 mSize:    3; // 28
-		uint32 unknown2: 1; // 31
-	};
-	uint32 value;
-};
-
-union DesignwareMmcDmacBmod {
-	struct {
-		uint32 swReset:   1; //  0
-		uint32 fb:        1; //  1
-		uint32 unknown1:  5; //  2
-		uint32 enable:    1; //  7
-		uint32 unknown2: 24; //  8
-	};
-	uint32 value;
-};
-
-enum struct DesignwareMmcDmacHconTransMode: uint32 {
-	idma  = 0,
-	dwdma = 1,
-	gdma  = 2,
-	nodma = 3,
-};
-
-union DesignwareMmcDmacHcon {
-	struct {
-		uint32 unknown1:   1; //  0
-		uint32 slotNum:    5; //  1
-		uint32 unknown2:   1; //  6
-		uint32 hdataWidth: 3; //  7
-		uint32 unknown3:   6; // 10
-		DesignwareMmcDmacHconTransMode
-		       transMode:  2; // 16
-		uint32 unknown4:   9; // 18
-		uint32 addrConfig: 1; // 27
-		uint32 unknown5:   4; // 28
-	};
-	uint32 value;
-};
-
-struct DesignwareMmcRegs {
-	DesignwareMmcCtrl ctrl;
-	uint32 pwren;
-	uint32 clkdiv;
-	uint32 clksrc;
-	uint32 clkena;
-	uint32 tmout;
-	DesignwareMmcCardType ctype;
-	uint32 blksiz;
-	uint32 bytcnt;
-	DesignwareMmcInt intmask;
-	uint32 cmdarg;
-	DesignwareMmcCmd cmd;
-	uint32 resp0;
-	uint32 resp1;
-	uint32 resp2;
-	uint32 resp3;
-	DesignwareMmcInt mintsts;
-	DesignwareMmcInt rintsts;
-	DesignwareMmcStatus status;
-	DesignwareMmcFifoth fifoth;
-	uint32 cdetect;
-	uint32 wrtprt;
-	uint32 gpio;
-	uint32 tcmcnt;
-	uint32 tbbcnt;
-	uint32 debnce;
-	uint32 usrid;
-	uint32 verid;
-	DesignwareMmcDmacHcon hcon;
-	uint32 uhsReg;
-	uint32 unknown1[2];
-	DesignwareMmcDmacBmod bmod;
-	uint32 pldmnd;
-	union {
-		struct {
-			uint32 dbaddr;
-			uint32 idsts;
-			uint32 idinten;
-			uint32 dscaddr;
-			uint32 bufaddr;
-			uint32 unknown2_1[27];
-		};
-		struct {
-			uint32 dbaddrl;
-			uint32 dbaddru;
-			uint32 idsts64;
-			uint32 idinten64;
-			uint32 dscaddrl;
-			uint32 dscaddru;
-			uint32 bufaddrl;
-			uint32 bufaddru;
-			uint32 unknown2_2[24];
-		};
-	};
-	uint32 uhsRegExt;
-	uint32 unknown3[61];
-	uint32 data;
-};
-
-union DesignwareMmcIdmacDescFlags {
-	struct {
-		uint32 unknown1: 2;  //  0
-		uint32 ld: 1;        //  2
-		uint32 fs: 1;        //  3
-		uint32 ch: 1;        //  4
-		uint32 unknown2: 26; //  5
-		uint32 own: 1;       // 31
-	};
-	uint32 value;
-};
-
-struct DesignwareMmcIdmacDesc {
-	DesignwareMmcIdmacDescFlags flags;
-	uint32 cnt;
-	uint32 addr;
-	uint32 nextAddr;
-};
-
-
-/* CLKENA register */
-#define DWMCI_CLKEN_ENABLE		(1 << 0)
-#define DWMCI_CLKEN_LOW_PWR		(1 << 16)
-
-/* UHS register */
-#define DWMCI_DDR_MODE			(1 << 16)
-
-/* Internal IDMAC interrupt defines */
-#define DWMCI_IDINTEN_NI		(1 << 8)
-#define DWMCI_IDINTEN_RI		(1 << 1)
-#define DWMCI_IDINTEN_TI		(1 << 0)
-
-#define DWMCI_IDINTEN_MASK		(DWMCI_IDINTEN_TI | DWMCI_IDINTEN_RI | DWMCI_IDINTEN_NI)
 
 
 class DesignwareMmcDriver: public DeviceDriver {
@@ -547,12 +288,12 @@ DesignwareMmcDriver::Init()
 
 	fRegs->tmout = 0xFFFFFFFF;
 
-	fRegs->idinten = 0;
+	fRegs->idinten.value = 0;
 	fRegs->bmod.value = DesignwareMmcDmacBmod{.swReset = 1}.value;
 
 	fRegs->fifoth.value = fFifothVal.value;
 
-	fRegs->clkena = 0;
+	fRegs->clkena.value = 0;
 	fRegs->clksrc = 0;
 
 	fRegs->intmask.value
@@ -567,7 +308,11 @@ DesignwareMmcDriver::Init()
 	dprintf("fRegs->intmask: %#" B_PRIx32 "\n", fRegs->intmask.value);
 
 	fRegs->idsts = 0xffffffff;
- 	fRegs->idinten = DWMCI_IDINTEN_MASK;
+ 	fRegs->idinten.value = DesignwareMmcIdIntEn {
+ 		.ti = true,
+ 		.ri = true,
+ 		.ni = true
+ 	}.value;
 
 	fRegs->ctrl.value = DesignwareMmcCtrl {.intEnable = true}.value;
 
@@ -774,7 +519,7 @@ DesignwareMmcDriver::MmcBusImpl::SetClock(uint32 kilohertz)
 	uint32 div = (sclk == freq) ? 0 : div_round_up<uint64>(sclk, 2 * freq);
 	dprintf("  div: %" B_PRIu32 "\n", div);
 
-	fBase.fRegs->clkena = 0;
+	fBase.fRegs->clkena.value = 0;
 	fBase.fRegs->clksrc = 0;
 
 	fBase.fRegs->clkdiv = div;
@@ -785,7 +530,10 @@ DesignwareMmcDriver::MmcBusImpl::SetClock(uint32 kilohertz)
 	}.value;
 	CHECK_RET(retry_count([this]() {return !fBase.fRegs->cmd.start;}, 10000));
 
-	fBase.fRegs->clkena = DWMCI_CLKEN_ENABLE | DWMCI_CLKEN_LOW_PWR;
+	fBase.fRegs->clkena.value = DesignwareMmcClkEna {
+		.enable = true,
+		.lowPwr = true
+	}.value;
 
 	fBase.fRegs->cmd.value = DesignwareMmcCmd {
 		.prvDatWait = true,
@@ -829,12 +577,7 @@ DesignwareMmcDriver::MmcBusImpl::SetBusWidth(int width)
 		break;
 	}
 
-	uint32 uhsReg = fBase.fRegs->uhsReg;
-	if (fBase.fDdrMode)
-		uhsReg |= DWMCI_DDR_MODE;
-	else
-		uhsReg |= ~DWMCI_DDR_MODE;
-	fBase.fRegs->uhsReg = uhsReg;
+	fBase.fRegs->uhsReg.ddrMode = fBase.fDdrMode;
 
 	return B_OK;
 }
