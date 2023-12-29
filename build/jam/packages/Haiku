@@ -114,7 +114,7 @@ AddNewDriversToPackage power : $(SYSTEM_ADD_ONS_DRIVERS_POWER) ;
 AddNewDriversToPackage sensor : $(SYSTEM_ADD_ONS_DRIVERS_SENSOR) ;
 AddNewDriversToPackage network :
 	usb_ecm
-#	virtio_net
+	virtio_net
 	dwmac
 	;
 AddNewDriversToPackage input :
@@ -277,7 +277,7 @@ AddBootModuleSymlinksToPackage
 #	ide_isa@x86 isa@x86,x86_64 intel it8211
 #	legacy_sata
 	locked_pool
-	mmc mmc_disk
+	mmc designware_mmc mmc_disk
 	nvme_disk
 	openpic@ppc
 	plic@riscv64
@@ -306,6 +306,7 @@ AddBootModuleSymlinksToPackage
 	jh7110_reset@riscv64
 	<driver>syscon@riscv64,arm,arm64
 	power_syscon@riscv64,arm,arm64
+	<driver>fu740_cache@riscv64
 	ati # !!!
 	hda # !!!
 	i2c_hid # !!!
@@ -317,6 +318,7 @@ AddBootModuleSymlinksToPackage
 	ocores_i2c@riscv64,arm,arm64 # !!!
 	virtio_gpu # !!!
 	usb_ecm # !!!
+	virtio_net # !!!
 ;
 
 # add-ons
