@@ -319,6 +319,7 @@ AddBootModuleSymlinksToPackage
 	virtio_gpu # !!!
 	usb_ecm # !!!
 	virtio_net # !!!
+	dwmac # !!!
 ;
 
 # add-ons
