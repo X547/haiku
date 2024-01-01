@@ -17,7 +17,7 @@
 #include <dm2/bus/Virtio.h>
 
 
-#define TRACE_VIRTIO
+//#define TRACE_VIRTIO
 #ifdef TRACE_VIRTIO
 #	define TRACE(x...) dprintf("virtio_mmio: " x)
 #else
