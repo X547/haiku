@@ -2087,8 +2087,10 @@ XHCI::ConfigureEndpoint(xhci_endpoint* ep, uint8 slot, uint8 number, uint8 type,
 	_WriteContext(&device->input_ctx->endpoints[number].dwendpoint4,
 		dwendpoint4.value);
 
+#ifdef TRACE_USB
 	dprintf("endpoint[%u]: ", number);
 	DumpEndpointState(device->input_ctx->endpoints[number]);
+#endif
 
 	return B_OK;
 }

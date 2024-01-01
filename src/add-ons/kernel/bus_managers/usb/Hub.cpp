@@ -393,6 +393,8 @@ UsbHubDriver::UpdatePort(uint8 index)
 						speed = USB_SPEED_FULLSPEED;
 				}
 
+				snooze(50000);
+
 				uint8 hubPort = index;
 				UsbDevice* newDevice = NULL;
 				if (fUsbDevice->AllocateDevice(hubPort, speed, &newDevice) >= B_OK) {
