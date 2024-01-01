@@ -74,8 +74,6 @@ public:
 private:
 	status_t _Init();
 
-	static void _ReadCallback(void *cookie, int32 status, void *data, size_t actualLength);
-	static void _WriteCallback(void *cookie, int32 status, void *data, size_t actualLength);
 	static void _NotifyCallback(void *cookie, int32 status, void *data, size_t actualLength);
 
 	status_t _SetupDevice();
@@ -115,14 +113,6 @@ private:
 	UsbPipe*			fNotifyEndpoint {};
 	UsbPipe*			fReadEndpoint {};
 	UsbPipe*			fWriteEndpoint {};
-
-	// data stores for async usb transfers
-	uint32				fActualLengthRead {};
-	uint32				fActualLengthWrite {};
-	int32				fStatusRead = B_ERROR;
-	int32				fStatusWrite = B_ERROR;
-	sem_id				fNotifyReadSem = -1;
-	sem_id				fNotifyWriteSem = -1;
 
 	uint8 *				fNotifyBuffer {};
 	uint32				fNotifyBufferLength {};

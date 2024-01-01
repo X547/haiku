@@ -9,6 +9,7 @@
 #include <string.h>
 #include <new>
 
+#include <condition_variable.h>
 #include <ether_driver.h>
 #include <net/if_media.h>
 
@@ -35,11 +36,6 @@ UsbEcmDriver::Probe(DeviceNode* node, DeviceDriver** outDriver)
 
 UsbEcmDriver::~UsbEcmDriver()
 {
-	if (fNotifyReadSem >= B_OK)
-		delete_sem(fNotifyReadSem);
-	if (fNotifyWriteSem >= B_OK)
-		delete_sem(fNotifyWriteSem);
-
 	if (fOpen && !fRemoved)
 		fNotifyEndpoint->CancelQueuedTransfers();
 
@@ -96,18 +92,6 @@ UsbEcmDriver::_Init()
 		return B_ERROR;
 	}
 
-	fNotifyReadSem = create_sem(0, DRIVER_NAME"_notify_read");
-	if (fNotifyReadSem < B_OK) {
-		TRACE_ALWAYS("failed to create read notify sem\n");
-		return B_ERROR;
-	}
-
-	fNotifyWriteSem = create_sem(0, DRIVER_NAME"_notify_write");
-	if (fNotifyWriteSem < B_OK) {
-		TRACE_ALWAYS("failed to create write notify sem\n");
-		return B_ERROR;
-	}
-
 	if (_SetupDevice() != B_OK) {
 		TRACE_ALWAYS("failed to setup device\n");
 		return B_ERROR;
@@ -127,26 +111,6 @@ UsbEcmDriver::_Init()
 	CHECK_RET(fNode->RegisterDevFsNode(name, &fDevFsNode));
 
 	return B_OK;
-}
-
-
-void
-UsbEcmDriver::_ReadCallback(void *cookie, int32 status, void *data, size_t actualLength)
-{
-	UsbEcmDriver *device = (UsbEcmDriver *)cookie;
-	device->fActualLengthRead = actualLength;
-	device->fStatusRead = status;
-	release_sem_etc(device->fNotifyReadSem, 1, B_DO_NOT_RESCHEDULE);
-}
-
-
-void
-UsbEcmDriver::_WriteCallback(void *cookie, int32 status, void *data, size_t actualLength)
-{
-	UsbEcmDriver *device = (UsbEcmDriver *)cookie;
-	device->fActualLengthWrite = actualLength;
-	device->fStatusWrite = status;
-	release_sem_etc(device->fNotifyWriteSem, 1, B_DO_NOT_RESCHEDULE);
 }
 
 
@@ -370,7 +334,6 @@ UsbEcmDriver::DevFsNode::GetCapabilities() const
 status_t
 UsbEcmDriver::DevFsNode::Open(const char* path, int openMode, DevFsNodeHandle **outHandle)
 {
-	TRACE_ALWAYS("(1)\n");
 	if (Base().fOpen)
 		return B_BUSY;
 	if (Base().fRemoved)
@@ -459,25 +422,42 @@ UsbEcmDriver::DevFsNode::Close()
 status_t
 UsbEcmDriver::DevFsNode::Read(off_t pos, void* buffer, size_t* numBytes)
 {
+	TRACE("Read(%" B_PRIuSIZE ")\n", *numBytes);
 	if (Base().fRemoved) {
 		*numBytes = 0;
 		return B_DEVICE_NOT_FOUND;
 	}
 
-	status_t result = Base().fReadEndpoint->QueueBulk(buffer, *numBytes, _ReadCallback, &Base());
+	ConditionVariable cv;
+	cv.Init(this, "UsbEcmDriver::DevFsNode::Read");
+	ConditionVariableEntry cvEntry;
+	cv.Add(&cvEntry);
+
+	status_t ioStatus;
+	auto Callback = [numBytes, &cv, &ioStatus](int32 status, void *data, size_t actualLength) {
+		*numBytes = actualLength;
+		ioStatus = status;
+		cv.NotifyOne(B_OK);
+	};
+
+	auto CallbackWrapper = [](void *cookie, int32 status, void *data, size_t actualLength) {
+		(*(decltype(Callback)*)cookie)(status, data, actualLength);
+	};
+
+	status_t result = Base().fReadEndpoint->QueueBulk(buffer, *numBytes, CallbackWrapper, &Callback);
 	if (result != B_OK) {
 		*numBytes = 0;
 		return result;
 	}
 
-	result = acquire_sem_etc(Base().fNotifyReadSem, 1, B_CAN_INTERRUPT, 0);
+	result = cvEntry.Wait(B_CAN_INTERRUPT, 0);
 	if (result < B_OK) {
 		*numBytes = 0;
 		return result;
 	}
 
-	if (Base().fStatusRead != B_OK && Base().fStatusRead != B_CANCELED && !Base().fRemoved) {
-		TRACE_ALWAYS("device status error 0x%08" B_PRIx32 "\n", Base().fStatusRead);
+	if (ioStatus != B_OK && ioStatus != B_CANCELED && !Base().fRemoved) {
+		TRACE_ALWAYS("device status error 0x%08" B_PRIx32 "\n", ioStatus);
 		result = Base().fReadEndpoint->GetObject()->ClearFeature(USB_FEATURE_ENDPOINT_HALT);
 		if (result != B_OK) {
 			TRACE_ALWAYS("failed to clear halt state on read\n");
@@ -486,7 +466,7 @@ UsbEcmDriver::DevFsNode::Read(off_t pos, void* buffer, size_t* numBytes)
 		}
 	}
 
-	*numBytes = Base().fActualLengthRead;
+	TRACE_ALWAYS("read done: %" B_PRIuSIZE "\n", *numBytes);
 	return B_OK;
 }
 
@@ -494,26 +474,42 @@ UsbEcmDriver::DevFsNode::Read(off_t pos, void* buffer, size_t* numBytes)
 status_t
 UsbEcmDriver::DevFsNode::Write(off_t pos, const void* buffer, size_t* numBytes)
 {
+	TRACE("Write(%" B_PRIuSIZE ")\n", *numBytes);
 	if (Base().fRemoved) {
 		*numBytes = 0;
 		return B_DEVICE_NOT_FOUND;
 	}
 
-	status_t result = Base().fWriteEndpoint->QueueBulk((uint8 *)buffer,
-		*numBytes, _WriteCallback, &Base());
+	ConditionVariable cv;
+	cv.Init(this, "UsbEcmDriver::DevFsNode::Write");
+	ConditionVariableEntry cvEntry;
+	cv.Add(&cvEntry);
+
+	status_t ioStatus;
+	auto Callback = [numBytes, &cv, &ioStatus](int32 status, void *data, size_t actualLength) {
+		*numBytes = actualLength;
+		ioStatus = status;
+		cv.NotifyOne(B_OK);
+	};
+
+	auto CallbackWrapper = [](void *cookie, int32 status, void *data, size_t actualLength) {
+		(*(decltype(Callback)*)cookie)(status, data, actualLength);
+	};
+
+	status_t result = Base().fWriteEndpoint->QueueBulk((uint8 *)buffer, *numBytes, CallbackWrapper, &Callback);
 	if (result != B_OK) {
 		*numBytes = 0;
 		return result;
 	}
 
-	result = acquire_sem_etc(Base().fNotifyWriteSem, 1, B_CAN_INTERRUPT, 0);
+	result = cvEntry.Wait(B_CAN_INTERRUPT, 0);
 	if (result < B_OK) {
 		*numBytes = 0;
 		return result;
 	}
 
-	if (Base().fStatusWrite != B_OK && Base().fStatusWrite != B_CANCELED && !Base().fRemoved) {
-		TRACE_ALWAYS("device status error 0x%08" B_PRIx32 "\n", Base().fStatusWrite);
+	if (ioStatus != B_OK && ioStatus != B_CANCELED && !Base().fRemoved) {
+		TRACE_ALWAYS("device status error 0x%08" B_PRIx32 "\n", ioStatus);
 		result = Base().fWriteEndpoint->GetObject()->ClearFeature(
 			USB_FEATURE_ENDPOINT_HALT);
 		if (result != B_OK) {
@@ -523,7 +519,7 @@ UsbEcmDriver::DevFsNode::Write(off_t pos, const void* buffer, size_t* numBytes)
 		}
 	}
 
-	*numBytes = Base().fActualLengthWrite;
+	TRACE_ALWAYS("write done: %" B_PRIuSIZE "\n", *numBytes);
 	return B_OK;
 }
 
