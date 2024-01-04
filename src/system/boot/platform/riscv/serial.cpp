@@ -24,7 +24,7 @@ DebugUART* gUART = NULL;
 template <typename T> static DebugUART*
 GetUartInstance(uart_info *info) {
 	static char buffer[sizeof(T)];
-	return new(buffer) T(info->regs.start, info->clock);
+	return new(buffer) T(info->regs.start, info->clock, info->reg_io_width, info->reg_shift);
 }
 
 

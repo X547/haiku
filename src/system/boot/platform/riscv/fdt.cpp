@@ -187,9 +187,14 @@ HandleFdt(const void* fdt, int node, uint32 addressCells, uint32 sizeCells,
 		uint64* reg = (uint64*)fdt_getprop(fdt, node, "reg", NULL);
 		sUart.regs.start = fdt64_to_cpu(*(reg + 0));
 		sUart.regs.size  = fdt64_to_cpu(*(reg + 1));
+		int len;
+		const void* prop = fdt_getprop(fdt, node, "reg-io-width", &len);
+		sUart.reg_io_width = (prop == NULL || len != 4) ? 1 : fdt32_to_cpu(*(uint32*)prop);
+		prop = fdt_getprop(fdt, node, "reg-shift", &len);
+		sUart.reg_shift = (prop == NULL || len != 4) ? 0 : fdt32_to_cpu(*(uint32*)prop);
 		sUart.irq = GetInterrupt(fdt, node);
-		const void* prop = fdt_getprop(fdt, node, "clock-frequency", NULL);
-		sUart.clock = (prop == NULL) ? 0 : fdt32_to_cpu(*(uint32*)prop);
+		prop = fdt_getprop(fdt, node, "clock-frequency", NULL);
+		sUart.clock = (prop == NULL || len != 4) ? 0 : fdt32_to_cpu(*(uint32*)prop);
 	} else if (HasFdtString(compatible, compatibleLen, "qemu,fw-cfg-mmio")) {
 		gFwCfgRegs = (FwCfgRegs *volatile)
 			fdt64_to_cpu(*(uint64*)fdt_getprop(fdt, node, "reg", NULL));

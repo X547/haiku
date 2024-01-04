@@ -18,9 +18,9 @@
 
 
 template <typename T> DebugUART*
-get_uart(addr_t base, int64 clock) {
+get_uart(addr_t base, int64 clock, uint32 regIoWidth, uint32 regShift) {
 	static char buffer[sizeof(T)];
-	return new(buffer) T(base, clock);
+	return new(buffer) T(base, clock, regIoWidth, regShift);
 }
 
 
@@ -42,10 +42,18 @@ arch_handle_acpi()
 		strcpy(uart.kind, UART_KIND_8250);
 		uart.regs.start = 0x10000000;
 		uart.regs.size = 0x100;
+#if defined(__ARM__) || defined(__aarch64__)
+		uart.reg_io_width = 4;
+		uart.reg_shift = 2;
+#else
+		uart.reg_io_width = 1;
+		uart.reg_shift = 0;
+#endif
 		uart.irq = 0;
 		uart.clock = 0;
 
-		gUART = get_uart<DebugUART8250>(uart.regs.start, uart.clock);
+		gUART = get_uart<DebugUART8250>(uart.regs.start,
+			uart.clock, uart.reg_io_width, uart.reg_shift);
 	}
 
 	acpi_spcr *spcr = (acpi_spcr*)acpi_find_table(ACPI_SPCR_SIGNATURE);
@@ -58,6 +66,13 @@ arch_handle_acpi()
 
 		uart.regs.start = spcr->base_address.address;
 		uart.regs.size = B_PAGE_SIZE;
+#if defined(__ARM__) || defined(__aarch64__)
+		uart.reg_io_width = 4;
+		uart.reg_shift = 2;
+#else
+		uart.reg_io_width = 1;
+		uart.reg_shift = 0;
+#endif
 		uart.irq = spcr->gisv;
 		uart.clock = spcr->clock;
 

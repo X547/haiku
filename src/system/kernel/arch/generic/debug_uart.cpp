@@ -10,24 +10,36 @@
 void
 DebugUART::Out8(int reg, uint8 value)
 {
-#if 0
-	// 32-bit aligned
-	*((uint32 *)Base() + reg) = value;
-#else
-	*((uint8 *)Base() + reg) = value;
-#endif
+	void* address = (uint8*)Base() + (reg << fRegShift);
+	switch (fRegIoWidth) {
+		case 1:
+			*(vint8*)address = value;
+			break;
+		case 2:
+			*(vint16*)address = value;
+			break;
+		case 4:
+			*(vint32*)address = value;
+			break;
+	}
 }
 
 
 uint8
 DebugUART::In8(int reg)
 {
-#if 0
-	// 32-bit aligned
-	return *((uint32 *)Base() + reg);
-#else
-	return *((uint8 *)Base() + reg);
-#endif
+	void* address = (uint8*)Base() + (reg << fRegShift);
+	switch (fRegIoWidth) {
+		case 1:
+			return *(vint8*)address;
+			break;
+		case 2:
+			return *(vint16*)address;
+			break;
+		case 4:
+			return *(vint32*)address;
+	}
+	return 0;
 }
 
 

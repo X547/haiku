@@ -22,6 +22,22 @@
 static DebugUART* sArchDebugUART = NULL;
 
 
+template <typename T> DebugUART*
+get_uart(addr_t base, int64 clock, uint32 regIoWidth, uint32 regShift) {
+	static char buffer[sizeof(T)];
+	return new(buffer) T(base, clock, regIoWidth, regShift);
+}
+
+
+static const struct supported_uart {
+	const char*	kind;
+	DebugUART* (*uart_driver_init)(addr_t base, int64 clock, uint32 regIoWidth, uint32 regShift);
+} kSupportedUarts[] = {
+	{ UART_KIND_8250, &get_uart<DebugUART8250> },
+	{ UART_KIND_SIFIVE, &get_uart<ArchUARTSifive> },
+};
+
+
 void
 arch_debug_remove_interrupt_handler(uint32 line)
 {
@@ -103,14 +119,14 @@ arch_debug_serial_early_boot_message(const char *string)
 status_t
 arch_debug_console_init(kernel_args *args)
 {
-	if (strncmp(args->arch_args.uart.kind, UART_KIND_8250,
-			sizeof(args->arch_args.uart.kind)) == 0) {
-		sArchDebugUART = arch_get_uart_8250(args->arch_args.uart.regs.start,
-			args->arch_args.uart.clock);
-	} else if (strncmp(args->arch_args.uart.kind, UART_KIND_SIFIVE,
-			sizeof(args->arch_args.uart.kind)) == 0) {
-		sArchDebugUART = arch_get_uart_sifive(args->arch_args.uart.regs.start,
-			args->arch_args.uart.clock);
+	const uart_info& uart = args->arch_args.uart;
+	for (uint32 i = 0; i < B_COUNT_OF(kSupportedUarts); i++) {
+		const supported_uart& supported = kSupportedUarts[i];
+		if (strncmp(uart.kind, supported.kind, sizeof(uart.kind)) == 0) {
+			sArchDebugUART = supported.uart_driver_init(uart.regs.start,
+				uart.clock, uart.reg_io_width, uart.reg_shift);
+			break;
+		}
 	}
 
 	if (sArchDebugUART != NULL)

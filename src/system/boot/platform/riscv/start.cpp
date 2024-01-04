@@ -237,7 +237,9 @@ _start(int hartId, void* fdt)
 		.regs = {
 			.start = 0x10000000,
 			.size = 0x100
-		}
+		},
+		.reg_io_width = 1,
+		.reg_shift = 0
 	};
 	serial_init(&uart);
 	fdt_init(fdt);
