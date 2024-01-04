@@ -13,6 +13,8 @@
 typedef struct {
 	char kind[32];
 	addr_range regs;
+	uint32 reg_io_width;
+	uint32 reg_shift;
 	uint32 irq;
 	int64 clock;
 } __attribute__((packed)) uart_info;

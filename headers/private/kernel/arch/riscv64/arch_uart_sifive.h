@@ -68,7 +68,7 @@ struct UARTSifiveRegs {
 
 class ArchUARTSifive : public DebugUART {
 public:
-							ArchUARTSifive(addr_t base, int64 clock);
+							ArchUARTSifive(addr_t base, int64 clock, uint32 regIoWidth, uint32 regShift);
 							~ArchUARTSifive();
 
 	virtual	void			InitEarly();
