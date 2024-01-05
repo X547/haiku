@@ -104,12 +104,12 @@ platform_get_boot_partitions(struct stage2_args* args, Node* bootDevice,
 {
 	NodeIterator iterator = list->GetIterator();
 	boot::Partition *partition = NULL;
+	status_t res = B_ENTRY_NOT_FOUND;
 	while ((partition = (boot::Partition *)iterator.Next()) != NULL) {
-		// ToDo: just take the first partition for now
 		partitionList->Insert(partition);
-		return B_OK;
+		res = B_OK;
 	}
-	return B_ENTRY_NOT_FOUND;
+	return res;
 }
 
 
