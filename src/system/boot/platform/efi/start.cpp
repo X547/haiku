@@ -22,6 +22,9 @@
 
 #include "arch_mmu.h"
 #include "arch_start.h"
+#ifdef __riscv
+#include "arch/riscv64/arch_traps.h"
+#endif
 #include "acpi.h"
 #include "console.h"
 #include "cpu.h"
@@ -242,6 +245,10 @@ efi_main(efi_handle image, efi_system_table *systemTable)
 	kRuntimeServices = systemTable->RuntimeServices;
 
 	call_ctors();
+
+#ifdef __riscv
+	//arch_traps_init();
+#endif
 
 	console_init();
 	serial_init();

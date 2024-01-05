@@ -141,7 +141,7 @@ arch_start_kernel(addr_t kernelEntry)
 		}
 	}
 
-	// arch_traps_init();
+	//arch_traps_init();
 
 	// Update EFI, generate final kernel physical memory map, etc.
 	arch_mmu_post_efi_setup(memory_map_size, memory_map,
