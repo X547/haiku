@@ -5,10 +5,10 @@
 
 
 #include "VirtioInputDevice.h"
-#include "WaylandKeycodes.h"
 
 #include <virtio_input_driver.h>
 #include <virtio_defs.h>
+#include <evdev_keycodes.h>
 
 #include <stdio.h>
 #include <string.h>
