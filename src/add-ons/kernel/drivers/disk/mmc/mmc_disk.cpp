@@ -204,6 +204,7 @@ status_t MmcDiskDriver::Init()
 
 	dma_restrictions restrictions {
 		.high_address = 0xffffffff,
+		.alignment = 32,
 		.max_segment_count = 256,
 		.max_segment_size = fBlockSize * 8
 	};
