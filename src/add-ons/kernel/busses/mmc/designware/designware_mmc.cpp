@@ -254,6 +254,7 @@ DesignwareMmcDriver::Init()
 		reset->SetAsserted(false);
 
 	//fBusFreq = fCiuClock->GetRate();
+	dprintf("  fCiuClock->GetRate(): %" B_PRId64 "\n", fCiuClock->GetRate());
 	fBusFreq = 49500000;
 	dprintf("  fBusFreq: %" B_PRId64 "\n", fBusFreq);
 	if (fBusFreq <= 0)
