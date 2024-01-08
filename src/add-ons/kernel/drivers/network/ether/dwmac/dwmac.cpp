@@ -7,15 +7,18 @@
 #include <KernelExport.h>
 
 #include <dm2/bus/FDT.h>
+#include <dm2/bus/MII.h>
 #include <dm2/device/Clock.h>
 #include <dm2/device/Reset.h>
 
 #include <AutoDeleter.h>
 #include <AutoDeleterOS.h>
 #include <ContainerOf.h>
+#include <ScopeExit.h>
 
 #include <net/ether_driver.h>
 #include <net/if_media.h>
+#include <compat/dev/mii/mii.h>
 
 #include <kernel.h>
 #include <locks.h>
@@ -29,23 +32,40 @@
 #define DWMAC_DRIVER_MODULE_NAME "drivers/network/dwmac/driver/v1"
 
 
-template <typename Proc>
-status_t retry_count(Proc&& proc, uint32 count)
+template<typename Cond> static status_t
+wait_for_cond(Cond cond, int32 attempts, bigtime_t retryInterval)
 {
-	for (; count > 0; count--) {
-		if (proc())
+	for (; attempts > 0; attempts--) {
+		if (cond())
 			return B_OK;
-		snooze(1000);
+
+		snooze(retryInterval);
 	}
-	dprintf("[!] timeout\n");
 	return B_TIMED_OUT;
+}
+
+
+static void
+hex_dump(uint8* data, size_t length)
+{
+	for (size_t offset = 0; offset < length; offset++) {
+		if (offset % 16 == 0) {
+			dprintf("%08" B_PRIxSIZE " ", offset);
+		}
+		dprintf(" %02x", *data);
+		data++;
+		if (offset % 16 == 15)
+			dprintf("\n");
+	}
+	if (length % 16 != 0)
+		dprintf("\n");
 }
 
 
 class DwmacDriver: public DeviceDriver {
 public:
+	virtual ~DwmacDriver();
 	DwmacDriver(DeviceNode* node): fNode(node) {}
-	virtual ~DwmacDriver() = default;
 
 	// DeviceDriver
 	static status_t Probe(DeviceNode* node, DeviceDriver** driver);
@@ -56,8 +76,8 @@ private:
 	static const uint32 kAxiBusWidth = 8;
 	static const uint32 kDescSize = ROUNDUP(sizeof(DwmacDesc), kDmaMinAlign);
 	static const uint32 kMaxPacketSize = ROUNDUP(1568, kDmaMinAlign);
-	static const uint32 kDescCountTx = 4;
-	static const uint32 kDescCountRx = 4;
+	static const uint32 kDescCountTx = 32;
+	static const uint32 kDescCountRx = 32;
 	static const uint32 kDescCount = kDescCountTx + kDescCountRx;
 
 private:
@@ -67,6 +87,19 @@ private:
 	status_t ConfigureMac();
 	status_t ConfigureDma(uint32 tqs);
 
+	void SetDuplex(bool isFullDuplex);
+	void SetSpeed(uint32 speed);
+	void SetClockRate(uint32 speed);
+
+	status_t MdioWaitIdle();
+	status_t MdioRead(uint32 addr, uint32 reg);
+	status_t MdioWrite(uint32 addr, uint32 reg, uint16 value);
+
+	static int32 HandleInterrupt(void* arg);
+	inline int32 HandleInterruptInt();
+
+	status_t GetSendPacket(uint8*& packet);
+	status_t Send(uint8* packet, uint32 length);
 	status_t Receive(uint8*& packet);
 	status_t FreePacket(uint8* packet);
 
@@ -79,6 +112,8 @@ private:
 	AreaDeleter fRegsArea;
 	DwmacRegs volatile* fRegs {};
 	uint64 fRegsLen {};
+	long fIrqVector = -1;
+	bool fInterruptHandlerInstalled = false;
 
 	ClockDevice* fTxClock {};
 	ClockDevice* fRmiiRtxClock {};
@@ -90,12 +125,15 @@ private:
 	uint8* fDmaAddr {};
 	phys_addr_t fDmaPhysAddr {};
 
-	DwmacDesc* fTxDescs {};
-	DwmacDesc* fRxDescs {};
+	uint8* fTxDescs {};
+	uint8* fRxDescs {};
 	phys_addr_t fTxDescsPhys {};
 	phys_addr_t fRxDescsPhys {};
+	uint32 fTxDescIdx {};
 	uint32 fRxDescIdx {};
 
+	uint8* fTxBuffer {};
+	phys_addr_t fTxBufferPhys {};
 	uint8* fRxBuffer {};
 	phys_addr_t fRxBufferPhys {};
 
@@ -103,6 +141,22 @@ private:
 
 	sem_id fLinkStateChangeSem = -1;
 
+	class MiiDevice: public BusDriver, ::MiiDevice {
+	private:
+		uint32 fAddress = 0;
+		DeviceNode *fNode {};
+
+	public:
+		virtual ~MiiDevice() = default;
+		DwmacDriver &Base() {return ContainerOf(*this, &DwmacDriver::fMiiDevice);}
+
+		status_t InitDriver(DeviceNode* node) final;
+		void* QueryInterface(const char* name) final;
+		void DriverAttached(bool isAttached) final;
+
+		status_t Read(uint32 reg) final;
+		status_t Write(uint32 reg, uint16 value) final;
+	} fMiiDevice;
 
 	class DevFsNode: public ::DevFsNode, public ::DevFsNodeHandle {
 	public:
@@ -132,6 +186,21 @@ DwmacDriver::Probe(DeviceNode* node, DeviceDriver** outDriver)
 }
 
 
+DwmacDriver::~DwmacDriver()
+{
+	ClockDevice* clock;
+	for (uint32 i = 0; fFdtDevice->GetClock(i, &clock) >= B_OK; i++)
+		clock->SetEnabled(false);
+
+	ResetDevice* reset;
+	for (uint32 i = 0; fFdtDevice->GetReset(i, &reset) >= B_OK; i++)
+		reset->SetAsserted(true);
+
+	if (fInterruptHandlerInstalled)
+		remove_io_interrupt_handler(fIrqVector, HandleInterrupt, this);
+}
+
+
 status_t
 DwmacDriver::Init()
 {
@@ -149,6 +218,12 @@ DwmacDriver::Init()
 		B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA, (void**)&fRegs));
 	if (!fRegsArea.IsSet())
 		return fRegsArea.Get();
+
+	uint64 irq;
+	CHECK_RET(fFdtDevice->GetInterruptByName("macirq", NULL, &irq));
+	fIrqVector = irq;
+	CHECK_RET(install_io_interrupt_handler(fIrqVector, HandleInterrupt, this, 0));
+	fInterruptHandlerInstalled = true;
 
 	CHECK_RET(fFdtDevice->GetClockByName("gtx", &fTxClock));
 	CHECK_RET(fFdtDevice->GetClockByName("rmii_rtx", &fRmiiRtxClock));
@@ -174,12 +249,14 @@ DwmacDriver::Init()
 
 	snooze(10);
 
-	if (retry_count([this] {return fRegs->dma.busMode.swr == false;}, 50) < B_OK) {
+	fRegs->dma.busMode.swr = true;
+
+	if (wait_for_cond([this] {return fRegs->dma.busMode.swr == false;}, 50, 1000) < B_OK) {
 		dprintf("[!] fRegs->dma.busMode.swr == true\n");
 		return B_IO_ERROR;
 	}
 
-	//fRegs->mac.usTicCounter = (fTxClock->GetRate() / 1000000) - 1;
+	fRegs->mac.usTicCounter = (125000000 /*fTxClock->GetRate()*/ / 1000000) - 1;
 
 	dprintf("  gtx\n");
 	dprintf("    enabled: %d\n", fTxClock->IsEnabled());
@@ -191,12 +268,47 @@ DwmacDriver::Init()
 	if (!fTxClock->IsEnabled() || !fRmiiRtxClock->IsEnabled())
 		return ENODEV;
 
-	uint32 txDescsOfs = fDmaAreaSize;
-	fDmaAreaSize += fDmaAreaSize + kDescCountTx * kDescSize;
-	uint32 rxDescsOfs = fDmaAreaSize;
-	fDmaAreaSize += fDmaAreaSize + kDescCountRx * kDescSize;
-	uint32 rxBufferOfs = fDmaAreaSize;
-	fDmaAreaSize += kDescCountRx * kMaxPacketSize;
+	static const device_attr attrs[] = {
+		{.name = B_DEVICE_PRETTY_NAME, .type = B_STRING_TYPE, .value = {.string = "MII Device"}},
+		{.name = B_DEVICE_BUS,         .type = B_STRING_TYPE, .value = {.string = "mii"}},
+		{}
+	};
+	CHECK_RET(fNode->RegisterNode(fNode, static_cast<BusDriver*>(&fMiiDevice), attrs, NULL));
+
+	dprintf("  BMCR: %#04" B_PRIx32 "\n", fMiiDevice.Read(MII_BMCR));
+	dprintf("  BMSR: %#04" B_PRIx32 "\n", fMiiDevice.Read(MII_BMSR));
+	dprintf("  PHYIDR1: %#04" B_PRIx32 "\n", fMiiDevice.Read(MII_PHYIDR1));
+	dprintf("  PHYIDR2: %#04" B_PRIx32 "\n", fMiiDevice.Read(MII_PHYIDR2));
+	dprintf("  ANAR: %#04" B_PRIx32 "\n", fMiiDevice.Read(MII_ANAR));
+	dprintf("  ANLPAR: %#04" B_PRIx32 "\n", fMiiDevice.Read(MII_ANLPAR));
+	dprintf("  ANER: %#04" B_PRIx32 "\n", fMiiDevice.Read(MII_ANER));
+	dprintf("  ANNP: %#04" B_PRIx32 "\n", fMiiDevice.Read(MII_ANNP));
+	dprintf("  ANLPRNP: %#04" B_PRIx32 "\n", fMiiDevice.Read(MII_ANLPRNP));
+	dprintf("  100T2CR: %#04" B_PRIx32 "\n", fMiiDevice.Read(MII_100T2CR));
+	dprintf("  100T2SR: %#04" B_PRIx32 "\n", fMiiDevice.Read(MII_100T2SR));
+	dprintf("  PSECR: %#04" B_PRIx32 "\n", fMiiDevice.Read(MII_PSECR));
+	dprintf("  PSESR: %#04" B_PRIx32 "\n", fMiiDevice.Read(MII_PSESR));
+	dprintf("  MMDACR: %#04" B_PRIx32 "\n", fMiiDevice.Read(MII_MMDACR));
+	dprintf("  MMDAADR: %#04" B_PRIx32 "\n", fMiiDevice.Read(MII_MMDAADR));
+	dprintf("  EXTSR: %#04" B_PRIx32 "\n", fMiiDevice.Read(MII_EXTSR));
+
+	SetDuplex(true);
+	SetSpeed(1000);
+	SetClockRate(1000);
+
+	dprintf("  gtx rate: %" B_PRId64 " Hz\n", fTxClock->GetRate());
+	dprintf("  rmii_rtx rate: %" B_PRId64 " Hz\n", fRmiiRtxClock->GetRate());
+
+	auto ReserveDmaMem = [this](uint32 size) {
+		uint32 offset = fDmaAreaSize;
+		fDmaAreaSize += size;
+		return offset;
+	};
+
+	uint32 txDescsOfs  = ReserveDmaMem(kDescCountTx * kDescSize);
+	uint32 rxDescsOfs  = ReserveDmaMem(kDescCountRx * kDescSize);
+	uint32 txBufferOfs = ReserveDmaMem(kDescCountTx * kMaxPacketSize);
+	uint32 rxBufferOfs = ReserveDmaMem(kDescCountRx * kMaxPacketSize);
 
 	fDmaArea.SetTo(create_area(
 		"DWMAC DMA",
@@ -211,12 +323,14 @@ DwmacDriver::Init()
 	CHECK_RET(get_memory_map(fDmaAddr, B_PAGE_SIZE, &pe, 1));
 	fDmaPhysAddr = pe.address;
 
-	fTxDescs = (DwmacDesc*)(fDmaAddr + txDescsOfs);
-	fRxDescs = (DwmacDesc*)(fDmaAddr + rxDescsOfs);
-	fRxBuffer =             fDmaAddr + rxBufferOfs;
+	fTxDescs  = fDmaAddr + txDescsOfs;
+	fRxDescs  = fDmaAddr + rxDescsOfs;
+	fTxBuffer = fDmaAddr + txBufferOfs;
+	fRxBuffer = fDmaAddr + rxBufferOfs;
 
 	fTxDescsPhys  = fDmaPhysAddr + txDescsOfs;
 	fRxDescsPhys  = fDmaPhysAddr + rxDescsOfs;
+	fTxBufferPhys = fDmaPhysAddr + txBufferOfs;
 	fRxBufferPhys = fDmaPhysAddr + rxBufferOfs;
 
 	uint32 tqs;
@@ -313,12 +427,14 @@ DwmacDriver::ConfigureMac()
 	fRegs->mac.qxTxFlowCtrl[0].tfe = true;
 	fRegs->mac.rxFlowCtrl.rfe = true;
 
-	fRegs->mac.config.gpslce = false;
-	fRegs->mac.config.wd = false;
-	fRegs->mac.config.jd = false;
-	fRegs->mac.config.je = false;
-	fRegs->mac.config.cst = true;
-	fRegs->mac.config.acs = true;
+	DwmacMacConfig config {.val = fRegs->mac.config.val};
+	config.gpslce = false;
+	config.wd = false;
+	config.jd = false;
+	config.je = false;
+	config.cst = true;
+	config.acs = true;
+	fRegs->mac.config.val = config.val;
 
 	fRegs->mac.addr[0].hi = (fMacAddr[5] << 8) | fMacAddr[4];
 	fRegs->mac.addr[0].lo = (fMacAddr[3] << 24) | (fMacAddr[2] << 16) | (fMacAddr[1] << 8) | fMacAddr[0];
@@ -360,7 +476,7 @@ DwmacDriver::ConfigureDma(uint32 tqs)
 	}.val;
 
 	for (uint32 i = 0; i < kDescCountRx; i++) {
-		DwmacDesc* desc = &fRxDescs[i];
+		DwmacDesc* desc = (DwmacDesc*)(fRxDescs + i * kDescSize);
 		desc->des0 = (uint32)(fRxBufferPhys + i * kMaxPacketSize);
 		desc->des3 = {.buf1v = true, .own = true};
 		memory_full_barrier();
@@ -389,6 +505,206 @@ DwmacDriver::ConfigureDma(uint32 tqs)
 	 */
 	fRegs->dma.channels[0].rxEndAddr = fRxDescsPhys + (kDescCountRx - 1) * kDescSize;
 
+	/* Enable interrupts */
+	fRegs->dma.channels[0].intrEna.val = DwmacDmaChannelIntrEna {
+		.tie = true,
+		.rie = true
+	}.val;
+
+	{
+		DwmacDmaChannelStatus status {.val = fRegs->dma.channels[0].status.val};
+		dprintf("dwmac: status: %#" B_PRIx32 "\n", status.val);
+		DwmacDmaChannelIntrEna intrEna {.val = fRegs->dma.channels[0].intrEna.val};
+		fRegs->dma.channels[0].status.val = status.val & intrEna.val;
+	}
+
+	return B_OK;
+}
+
+
+void
+DwmacDriver::SetDuplex(bool isFullDuplex)
+{
+	fRegs->mac.config.dm = isFullDuplex;
+	if (!isFullDuplex)
+		fRegs->mtl.chan[0].txOpMode.ftq = true;
+}
+
+
+void
+DwmacDriver::SetSpeed(uint32 speed)
+{
+	DwmacMacConfig config {.val = fRegs->mac.config.val};
+	switch (speed) {
+	case 10:
+		config.ps = true;
+		config.fes = false;
+		break;
+	case 100:
+		config.ps = true;
+		config.fes = true;
+		break;
+	case 1000:
+		config.ps = false;
+		config.fes = false;
+		break;
+	default:
+		return;
+	}
+	fRegs->mac.config.val = config.val;
+}
+
+
+void
+DwmacDriver::SetClockRate(uint32 speed)
+{
+	uint32 rate;
+	switch (speed) {
+	case 10:
+		rate =   2500000;
+		break;
+	case 100:
+		rate =  25000000;
+		break;
+	case 1000:
+		rate = 125000000;
+		break;
+	default:
+		return;
+	}
+	fTxClock->SetRate(rate);
+	fRmiiRtxClock->SetRate(rate);
+}
+
+
+status_t
+DwmacDriver::MdioWaitIdle()
+{
+	return wait_for_cond([&](){return !fRegs->mac.mdioAddr.gb;}, 1000000, 1);
+}
+
+
+status_t
+DwmacDriver::MdioRead(uint32 addr, uint32 reg)
+{
+	CHECK_RET(MdioWaitIdle());
+
+	DwmacMdioAddr mdioAddr {.val = fRegs->mac.mdioAddr.val};
+	mdioAddr.val &= DwmacMdioAddr{.c45e = true, .skap = true}.val;
+	mdioAddr.pa  = addr;
+	mdioAddr.rda = reg;
+	mdioAddr.cr  = DwmacMdioAddrCr::cr250_300;
+	mdioAddr.goc = DwmacMdioAddrGoc::read;
+	mdioAddr.gb  = true;
+	fRegs->mac.mdioAddr.val = mdioAddr.val;
+
+	snooze(10);
+
+	CHECK_RET(MdioWaitIdle());
+
+	return fRegs->mac.mdioData.gd;
+}
+
+
+status_t
+DwmacDriver::MdioWrite(uint32 addr, uint32 reg, uint16 value)
+{
+	CHECK_RET(MdioWaitIdle());
+
+	fRegs->mac.mdioData.val = value;
+
+	DwmacMdioAddr mdioAddr {.val = fRegs->mac.mdioAddr.val};
+	mdioAddr.val &= DwmacMdioAddr{.c45e = true, .skap = true}.val;
+	mdioAddr.pa  = addr;
+	mdioAddr.rda = reg;
+	mdioAddr.cr  = DwmacMdioAddrCr::cr250_300;
+	mdioAddr.goc = DwmacMdioAddrGoc::write;
+	mdioAddr.gb  = true;
+	fRegs->mac.mdioAddr.val = mdioAddr.val;
+
+	snooze(10);
+
+	CHECK_RET(MdioWaitIdle());
+
+	return B_OK;
+}
+
+
+int32
+DwmacDriver::HandleInterrupt(void* arg)
+{
+	return static_cast<DwmacDriver*>(arg)->HandleInterruptInt();
+}
+
+
+int32
+DwmacDriver::HandleInterruptInt()
+{
+	dprintf("DwmacDriver::HandleInterrupt()\n");
+
+	DwmacDmaChannelStatus status {.val = fRegs->dma.channels[0].status.val};
+	DwmacDmaChannelIntrEna intrEna {.val = fRegs->dma.channels[0].intrEna.val};
+
+	dprintf("  status: %#" B_PRIx32 "\n", status.val);
+
+	fRegs->dma.channels[0].status.val = status.val & intrEna.val;
+
+	return B_HANDLED_INTERRUPT;
+}
+
+
+status_t
+DwmacDriver::GetSendPacket(uint8*& packet)
+{
+	DwmacDesc* desc = (DwmacDesc*)(fTxDescs + fTxDescIdx * kDescSize);
+	if (desc->des3.own)
+		return EAGAIN;
+
+	packet = fTxBuffer + fTxDescIdx * kMaxPacketSize;
+	return B_OK;
+}
+
+
+status_t
+DwmacDriver::Send(uint8* packet, uint32 length)
+{
+	uint8* expectedPacket = fTxBuffer + fTxDescIdx * kMaxPacketSize;
+#if 0
+	dprintf("DwmacDriver::Send(%p, %" B_PRIu32 ")\n", packet, length);
+	dprintf("  expectedPacket: %p\n", expectedPacket);
+	dprintf("  fTxDescIdx: %" B_PRIu32 "\n", fTxDescIdx);
+#endif
+	if (packet != expectedPacket)
+		return EINVAL;
+
+	DwmacDesc* desc = (DwmacDesc*)(fTxDescs + fTxDescIdx * kDescSize);
+
+	desc->des0 = fTxBufferPhys + fTxDescIdx * kMaxPacketSize;
+	desc->des1 = 0;
+	desc->des2 = length;
+	/*
+	 * Make sure that if HW sees the _OWN write below, it will see all the
+	 * writes to the rest of the descriptor too.
+	 */
+	memory_full_barrier();
+	desc->des3 = {
+		.length = length,
+		.ld = true,
+		.fd = true,
+		.own = true
+	};
+
+	fTxDescIdx = (fTxDescIdx + 1) % kDescCountTx;
+	fRegs->dma.channels[0].txEndAddr = fTxDescsPhys + fTxDescIdx * kDescSize;
+
+	for (;;) {
+		memory_full_barrier();
+		if (desc->des3.own) {
+			snooze(10000);
+			continue;
+		}
+		break;
+	}
 	return B_OK;
 }
 
@@ -396,7 +712,7 @@ DwmacDriver::ConfigureDma(uint32 tqs)
 status_t
 DwmacDriver::Receive(uint8*& packet)
 {
-	DwmacDesc* desc = &fRxDescs[fRxDescIdx];
+	DwmacDesc* desc = (DwmacDesc*)(fRxDescs + fRxDescIdx * kDescSize);
 	if (desc->des3.own)
 		return EAGAIN;
 
@@ -409,10 +725,15 @@ status_t
 DwmacDriver::FreePacket(uint8* packet)
 {
 	uint8* expectedPacket = fRxBuffer + fRxDescIdx * kMaxPacketSize;
+#if 0
+	dprintf("DwmacDriver::FreePacket(%p)\n", packet);
+	dprintf("  expectedPacket: %p\n", expectedPacket);
+	dprintf("  fRxDescIdx: %" B_PRIu32 "\n", fRxDescIdx);
+#endif
 	if (packet != expectedPacket)
 		return EINVAL;
 
-	DwmacDesc* desc = &fRxDescs[fRxDescIdx];
+	DwmacDesc* desc = (DwmacDesc*)(fRxDescs + fRxDescIdx * kDescSize);
 	desc->des0 = 0;
 	memory_full_barrier();
 	desc->des0 = fRxBufferPhys + fRxDescIdx * kMaxPacketSize;
@@ -429,9 +750,51 @@ DwmacDriver::FreePacket(uint8* packet)
 
 	fRxDescIdx = (fRxDescIdx + 1) % kDescCountRx;
 
-	return 0;
+	return B_OK;
 }
 
+
+// #pragma mark - DwmacDriver::MiiDevice
+
+status_t
+DwmacDriver::MiiDevice::InitDriver(DeviceNode* node)
+{
+	fNode = node;
+	return B_OK;
+}
+
+
+void*
+DwmacDriver::MiiDevice::QueryInterface(const char* name)
+{
+	if (strcmp(name, ::MiiDevice::ifaceName) == 0)
+		return static_cast<::MiiDevice*>(this);
+
+	return NULL;
+}
+
+
+void
+DwmacDriver::MiiDevice::DriverAttached(bool isAttached)
+{
+}
+
+
+status_t
+DwmacDriver::MiiDevice::Read(uint32 reg)
+{
+	return Base().MdioRead(fAddress, reg);
+}
+
+
+status_t
+DwmacDriver::MiiDevice::Write(uint32 reg, uint16 value)
+{
+	return Base().MdioWrite(fAddress, reg, value);
+}
+
+
+// #pragma mark - DwmacDriver::DevFsNode
 
 DevFsNode::Capabilities
 DwmacDriver::DevFsNode::GetCapabilities() const
@@ -466,19 +829,27 @@ DwmacDriver::DevFsNode::Close()
 status_t
 DwmacDriver::DevFsNode::Read(off_t pos, void* buffer, size_t* numBytes)
 {
-	uint8* packet;
-	int32 length;
+	uint8* packet {};
+	int32 length {};
 	for (;;) {
 		length = Base().Receive(packet);
 		if (length == EAGAIN && Base().fOpenCount > 0) {
-			snooze(10000);
+			snooze(1000); // TODO: use interrupts
 			continue;
 		}
+#if 0
+		dprintf("DwmacDriver::Receive(%p): %" B_PRId32 "\n", packet, length);
+		dprintf("  *numBytes: %" B_PRIuSIZE "\n", *numBytes);
+#endif
 		if (length < 0) {
 			*numBytes = 0;
 			return length;
 		}
+		break;
 	}
+#if 0
+	hex_dump(packet, length);
+#endif
 	Base().FreePacket(packet);
 	*numBytes = std::min<size_t>(*numBytes, length);
 	user_memcpy(buffer, packet, *numBytes);
@@ -489,8 +860,29 @@ DwmacDriver::DevFsNode::Read(off_t pos, void* buffer, size_t* numBytes)
 status_t
 DwmacDriver::DevFsNode::Write(off_t pos, const void* buffer, size_t* numBytes)
 {
-	*numBytes = 0;
-	return B_IO_ERROR;
+	uint8* packet {};
+	for (;;) {
+		status_t res = Base().GetSendPacket(packet);
+		if (res == EAGAIN && Base().fOpenCount > 0) {
+			snooze(1000); // TODO: use interrupts
+			continue;
+		}
+		if (res < 0) {
+			*numBytes = 0;
+			return res;
+		}
+		break;
+	}
+	user_memcpy(packet, buffer, *numBytes);
+#if 0
+	hex_dump(packet, *numBytes);
+#endif
+	status_t res = Base().Send(packet, *numBytes);
+	if (res < B_OK) {
+		*numBytes = 0;
+		return res;
+	}
+	return B_OK;
 }
 
 
@@ -518,10 +910,18 @@ DwmacDriver::DevFsNode::Control(uint32 op, void *buffer, size_t length, bool isK
 		}
 		case ETHER_GET_LINK_STATE: {
 			ether_link_state state {
-				.media = IFM_ETHER | IFM_FULL_DUPLEX | IFM_ACTIVE,
+				.media = IFM_ETHER | IFM_FULL_DUPLEX,
 				.quality = 1000,
 				.speed = 1000 * 1000 * 1000, // 1Gbps
 			};
+
+			int32 miiStatus = Base().fMiiDevice.Read(MII_BMSR);
+
+			if (miiStatus >= 0) {
+				if ((BMSR_LINK & miiStatus) != 0)
+					state.media |= IFM_ACTIVE;
+			}
+
 			CHECK_RET(user_memcpy(buffer, &state, sizeof(state)));
 			return B_OK;
 		}

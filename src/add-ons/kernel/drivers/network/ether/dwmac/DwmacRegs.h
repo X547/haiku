@@ -346,6 +346,50 @@ union DwmacDmaChannelRxControl {
 	uint32 val;
 };
 
+union DwmacDmaChannelIntrEna {
+	struct {
+		uint32 tie:       1; //  0
+		uint32 tse:       1; //  1
+		uint32 tbue:      1; //  2
+		uint32 unknown1:  3; //  3
+		uint32 rie:       1; //  6
+		uint32 rbue:      1; //  7
+		uint32 rse:       1; //  8
+		uint32 rwe:       1; //  9
+		uint32 ete:       1; // 10
+		uint32 ere:       1; // 11
+		uint32 fbe:       1; // 12
+		uint32 cde:       1; // 13
+		uint32 aie:       1; // 14
+		uint32 nie:       1; // 15
+		uint32 unknown2: 16; // 16
+	};
+	uint32 val;
+};
+
+union DwmacDmaChannelStatus {
+	struct {
+		uint32 ti:        1; //  0
+		uint32 tps:       1; //  1
+		uint32 tbu:       1; //  2
+		uint32 unknown1:  3; //  3
+		uint32 ri:        1; //  6
+		uint32 rbu:       1; //  7
+		uint32 rps:       1; //  8
+		uint32 rwt:       1; //  9
+		uint32 eti:       1; // 10
+		uint32 eri:       1; // 11
+		uint32 fbe:       1; // 12
+		uint32 cde:       1; // 13
+		uint32 ais:       1; // 14
+		uint32 nis:       1; // 15
+		uint32 teb:       3; // 16
+		uint32 reb:       3; // 19
+		uint32 unknown2: 10; // 22
+	};
+	uint32 val;
+};
+
 struct DwmacDmaChannelRegs {
 	DwmacDmaChannelControl control;
 	DwmacDmaChannelTxControl txControl;
@@ -360,7 +404,7 @@ struct DwmacDmaChannelRegs {
 	uint32 rxEndAddr;
 	uint32 txRingLen;
 	uint32 rxRingLen;
-	uint32 intrEna;
+	DwmacDmaChannelIntrEna intrEna;
 	uint32 rxWatchdog;
 	uint32 slotCtrlStatus;
 	uint32 unknown3;
@@ -371,7 +415,7 @@ struct DwmacDmaChannelRegs {
 	uint32 curTxBufAddr;
 	uint32 unknown6;
 	uint32 curRxBufAddr;
-	uint32 status;
+	DwmacDmaChannelStatus status;
 	uint32 unknown7[7];
 };
 
@@ -458,14 +502,14 @@ static_assert(offsetof(DwmacRegs, dma) == 0x1000);
 
 union DwmacDescDes3 {
 	struct {
-		uint32 length:   15;
-		uint32 unknown1:  9;
-		uint32 buf1v:     1;
-		uint32 unknown2:  3;
-		uint32 ld:        1;
-		uint32 fd:        1;
-		uint32 unknown3:  1;
-		uint32 own:       1;
+		uint32 length:   15; //  0
+		uint32 unknown1:  9; // 15
+		uint32 buf1v:     1; // 24
+		uint32 unknown2:  3; // 25
+		uint32 ld:        1; // 28
+		uint32 fd:        1; // 29
+		uint32 unknown3:  1; // 30
+		uint32 own:       1; // 31
 	};
 	uint32 val;
 };
