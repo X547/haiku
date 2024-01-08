@@ -1,4 +1,6 @@
 #include <string.h>
+#include <algorithm>
+#include <variant>
 #include <new>
 
 #include <ByteOrder.h>
@@ -28,6 +30,10 @@
 #define JH7110_CLOCK_DRIVER_MODULE_NAME "drivers/clock/jh7110_clock/driver/v1"
 
 
+class Jh7110ClockDriver;
+
+typedef ClockDevice* (*GetParentFn)(Jh7110ClockDriver& base, uint32 index);
+
 union StarfiveClockRegs {
 	struct {
 		uint32 div: 24;
@@ -36,6 +42,41 @@ union StarfiveClockRegs {
 		uint32 enable: 1;
 	};
 	uint32 val;
+};
+
+
+enum class ClockDefType: uint8 {
+	empty,
+	composite,
+	fixed,
+	fixFactor
+};
+
+struct ClockDefComposite {
+	ClockDefType type = ClockDefType::composite;
+	uint8 gate;
+	uint8 div;
+	uint8 mux = 1;
+	uint16 parents[2];
+};
+
+struct ClockDefFixed {
+	ClockDefType type = ClockDefType::fixed;
+	uint32 rate;
+};
+
+struct ClockDefFixFactor {
+	ClockDefType type = ClockDefType::fixFactor;
+	uint32 mul;
+	uint32 div;
+	uint16 parent;
+};
+
+union ClockDef {
+	ClockDefType type;
+	ClockDefComposite composite;
+	ClockDefFixed fixed;
+	ClockDefFixFactor fixFactor;
 };
 
 
@@ -49,11 +90,12 @@ private:
 		status_t Init(phys_addr_t physAdr, size_t size);
 	};
 
-	class Jh7110ClockDevice: public ClockDevice {
+	class ClockDevice: public ::ClockDevice {
 	public:
-		Jh7110ClockDevice(Jh7110ClockDriver& base): fBase(base) {}
+		virtual ~ClockDevice() = default;
+		ClockDevice(Jh7110ClockDriver& base): fBase(base) {}
 
-		int32 Id() const {return this - fBase.GetClock(0);};
+		int32 Id() const {return this - (ClockDevice*)fBase.fClocks[0];};
 
 		DeviceNode* OwnerNode() final;
 
@@ -64,8 +106,8 @@ private:
 		int64 SetRate(int64 rate) final;
 		int64 SetRateDry(int64 rate) const final;
 
-		ClockDevice* GetParent() const final;
-		status_t SetParent(ClockDevice* parent) final;
+		::ClockDevice* GetParent() const final;
+		status_t SetParent(::ClockDevice* parent) final;
 
 	private:
 		Jh7110ClockDriver& fBase;
@@ -81,12 +123,14 @@ public:
 	void* QueryInterface(const char* name) final;
 
 	// ClockController
-	ClockDevice* GetDevice(const uint8* optInfo, uint32 optInfoSize) final;
+	::ClockDevice* GetDevice(const uint8* optInfo, uint32 optInfoSize) final;
 
 private:
 	status_t Init();
 	StarfiveClockRegs volatile* GetRegs(int32 id) const;
-	Jh7110ClockDevice* GetClock(int32 id) {return (Jh7110ClockDevice*)fClocks[id];}
+	::ClockDevice* GetClock(int32 id) {return (id < JH7110_CLK_END) ? (ClockDevice*)fClocks[id] : fExternalClocks[id - JH7110_CLK_END];}
+
+	ClockDef GetClockDef(int32 id);
 
 private:
 	DeviceNode* fNode;
@@ -96,13 +140,16 @@ private:
 	MmioRange fStg;
 	MmioRange fAon;
 
-	ClockDevice* fOscClock {};
-	ClockDevice* fGmac1RmiiRefinClock {};
-	ClockDevice* fStgApbClock {};
-	ClockDevice* fGmac0RmiiRefinClock {};
-
-	char fClocks[JH7110_CLK_END][sizeof(Jh7110ClockDevice)];
+	char fClocks[JH7110_CLK_END][sizeof(ClockDevice)] {};
+	::ClockDevice* fExternalClocks[15] {};
 };
+
+
+static uint64
+div_round_up(uint64 value, uint64 div)
+{
+	return (value + div - 1) / div;
+}
 
 
 status_t
@@ -134,15 +181,16 @@ Jh7110ClockDriver::Probe(DeviceNode* node, DeviceDriver** outDriver)
 
 Jh7110ClockDriver::Jh7110ClockDriver(DeviceNode* node): fNode(node)
 {
-	for (auto clock: fClocks)
-		new(clock) Jh7110ClockDevice(*this);
+	for (char* clock: fClocks) {
+		new(clock) ClockDevice(*this);
+	}
 }
 
 
 Jh7110ClockDriver::~Jh7110ClockDriver()
 {
-	for (auto clock: fClocks)
-		((Jh7110ClockDevice*)clock)->~Jh7110ClockDevice();
+	for (char* clock: fClocks)
+		((ClockDevice*)clock)->~ClockDevice();
 }
 
 
@@ -162,10 +210,21 @@ Jh7110ClockDriver::Init()
 	CHECK_RET(fFdtDevice->GetRegByName("aon", &regs, &regsLen));
 	CHECK_RET(fAon.Init(regs, regsLen));
 
-	CHECK_RET(fFdtDevice->GetClockByName("osc",              &fOscClock));
-	CHECK_RET(fFdtDevice->GetClockByName("gmac1_rmii_refin", &fGmac1RmiiRefinClock));
-	CHECK_RET(fFdtDevice->GetClockByName("stg_apb",          &fStgApbClock));
-	CHECK_RET(fFdtDevice->GetClockByName("gmac0_rmii_refin", &fGmac0RmiiRefinClock));
+	CHECK_RET(fFdtDevice->GetClockByName("osc",              &fExternalClocks[JH7110_OSC              - JH7110_CLK_END]));
+	CHECK_RET(fFdtDevice->GetClockByName("gmac1_rmii_refin", &fExternalClocks[JH7110_GMAC1_RMII_REFIN - JH7110_CLK_END]));
+//	CHECK_RET(fFdtDevice->GetClockByName("gmac1_rgmii_rxin", &fExternalClocks[JH7110_GMAC1_RGMII_RXIN - JH7110_CLK_END]));
+//	CHECK_RET(fFdtDevice->GetClockByName("i2stx_bclk_ext",   &fExternalClocks[JH7110_I2STX_BCLK_EXT   - JH7110_CLK_END]));
+//	CHECK_RET(fFdtDevice->GetClockByName("i2stx_lrck_ext",   &fExternalClocks[JH7110_I2STX_LRCK_EXT   - JH7110_CLK_END]));
+//	CHECK_RET(fFdtDevice->GetClockByName("i2srx_bclk_ext",   &fExternalClocks[JH7110_I2SRX_BCLK_EXT   - JH7110_CLK_END]));
+//	CHECK_RET(fFdtDevice->GetClockByName("i2srx_lrck_ext",   &fExternalClocks[JH7110_I2SRX_LRCK_EXT   - JH7110_CLK_END]));
+//	CHECK_RET(fFdtDevice->GetClockByName("tdm_ext",          &fExternalClocks[JH7110_TDM_EXT          - JH7110_CLK_END]));
+//	CHECK_RET(fFdtDevice->GetClockByName("mclk_ext",         &fExternalClocks[JH7110_MCLK_EXT         - JH7110_CLK_END]));
+//	CHECK_RET(fFdtDevice->GetClockByName("jtag_tck_inner",   &fExternalClocks[JH7110_JTAG_TCK_INNER   - JH7110_CLK_END]));
+//	CHECK_RET(fFdtDevice->GetClockByName("bist_apb",         &fExternalClocks[JH7110_BIST_APB         - JH7110_CLK_END]));
+//	CHECK_RET(fFdtDevice->GetClockByName("stg_apb",          &fExternalClocks[JH7110_STG_APB          - JH7110_CLK_END]));
+	CHECK_RET(fFdtDevice->GetClockByName("gmac0_rmii_refin", &fExternalClocks[JH7110_GMAC0_RMII_REFIN - JH7110_CLK_END]));
+//	CHECK_RET(fFdtDevice->GetClockByName("gmac0_rgmii_rxin", &fExternalClocks[JH7110_GMAC0_RGMII_RXIN - JH7110_CLK_END]));
+//	CHECK_RET(fFdtDevice->GetClockByName("clk_rtc",          &fExternalClocks[JH7110_CLK_RTC          - JH7110_CLK_END]));
 
 	return B_OK;
 }
@@ -211,10 +270,140 @@ Jh7110ClockDriver::GetDevice(const uint8* optInfo, uint32 optInfoSize)
 }
 
 
-// #pragma mark - Jh7110ClockDevice
+ClockDef
+Jh7110ClockDriver::GetClockDef(int32 id)
+{
+	switch (id) {
+		case JH7110_CPU_ROOT: return {.composite = {.mux = 1, .parents = {JH7110_OSC, JH7110_PLL0_OUT}}};
+		case JH7110_CPU_CORE: return {.composite = {.div = 3, .parents = {JH7110_CPU_ROOT}}};
+		case JH7110_CPU_BUS: return {.composite = {.div = 2, .parents = {JH7110_CPU_CORE}}};
+		case JH7110_PERH_ROOT: return {.composite = {.div = 2, .mux = 1, .parents = {JH7110_PLL0_OUT, JH7110_PLL2_OUT}}};
+		case JH7110_BUS_ROOT: return {.composite = {.mux = 1, .parents = {JH7110_OSC, JH7110_PLL2_OUT}}};
+		case JH7110_NOCSTG_BUS: return {.composite = {.div = 3, .parents = {JH7110_BUS_ROOT}}};
+		case JH7110_AXI_CFG0: return {.composite = {.div = 2, .parents = {JH7110_BUS_ROOT}}};
+		case JH7110_STG_AXIAHB: return {.composite = {.div = 2, .parents = {JH7110_AXI_CFG0}}};
+		case JH7110_AHB0: return {.composite = {.gate = 1, .parents = {JH7110_STG_AXIAHB}}};
+		case JH7110_AHB1: return {.composite = {.gate = 1, .parents = {JH7110_STG_AXIAHB}}};
+		case JH7110_APB_BUS_FUNC: return {.composite = {.div = 4, .parents = {JH7110_STG_AXIAHB}}};
+		case JH7110_APB0: return {.composite = {.gate = 1, .parents = {JH7110_APB_BUS}}};
+		case JH7110_AUDIO_ROOT: return {.composite = {.div = 5, .parents = {JH7110_PLL2_OUT}}};
+		case JH7110_MCLK_INNER: return {.composite = {.div = 5, .parents = {JH7110_AUDIO_ROOT}}};
+		case JH7110_MCLK: return {.composite = {.mux = 1, .parents = {JH7110_MCLK_INNER, JH7110_MCLK_EXT}}};
+		case JH7110_VOUT_SRC: return {.composite = {.gate = 1, .parents = {JH7110_VOUT_ROOT}}};
+		case JH7110_VOUT_AXI: return {.composite = {.div = 3, .parents = {JH7110_VOUT_ROOT}}};
+		case JH7110_NOC_BUS_CLK_DISP_AXI: return {.composite = {.gate = 1, .parents = {JH7110_VOUT_AXI}}};
+		case JH7110_VOUT_TOP_CLK_VOUT_AHB: return {.composite = {.gate = 1, .parents = {JH7110_AHB1}}};
+		case JH7110_VOUT_TOP_CLK_VOUT_AXI: return {.composite = {.gate = 1, .parents = {JH7110_VOUT_AXI}}};
+		case JH7110_VOUT_TOP_CLK_HDMITX0_MCLK: return {.composite = {.gate = 1, .parents = {JH7110_MCLK}}};
+		case JH7110_VOUT_TOP_CLK_MIPIPHY_REF: return {.composite = {.div = 2, .parents = {JH7110_OSC}}};
+		case JH7110_QSPI_CLK_AHB: return {.composite = {.gate = 1, .parents = {JH7110_AHB1}}};
+		case JH7110_QSPI_CLK_APB: return {.composite = {.gate = 1, .parents = {JH7110_APB12}}};
+		case JH7110_QSPI_REF_SRC: return {.composite = {.div = 5, .parents = {JH7110_GMACUSB_ROOT}}};
+//		case JH7110_QSPI_CLK_REF: return {.composite = {.gate = 1, .mux = 1, .parents = {JH7110_OSC, JH7110_U0_CDNS_QSPI_REF_SRC}}};
+		case JH7110_SDIO0_CLK_AHB: return {.composite = {.gate = 1, .parents = {JH7110_AHB0}}};
+		case JH7110_SDIO1_CLK_AHB: return {.composite = {.gate = 1, .parents = {JH7110_AHB0}}};
+		case JH7110_SDIO0_CLK_SDCARD: return {.composite = {.gate = 1, .div = 4, .parents = {JH7110_AXI_CFG0}}};
+		case JH7110_SDIO1_CLK_SDCARD: return {.composite = {.gate = 1, .div = 4, .parents = {JH7110_AXI_CFG0}}};
+		case JH7110_USB_125M: return {.composite = {.div = 4, .parents = {JH7110_GMACUSB_ROOT}}};
+		case JH7110_NOC_BUS_CLK_STG_AXI: return {.composite = {.gate = 1, .parents = {JH7110_NOCSTG_BUS}}};
+		case JH7110_GMAC5_CLK_AHB: return {.composite = {.gate = 1, .parents = {JH7110_AHB0}}};
+		case JH7110_GMAC5_CLK_AXI: return {.composite = {.gate = 1, .parents = {JH7110_STG_AXIAHB}}};
+		case JH7110_GMAC_SRC: return {.composite = {.div = 3, .parents = {JH7110_GMACUSB_ROOT}}};
+		case JH7110_GMAC1_GTXCLK: return {.composite = {.div = 4, .parents = {JH7110_GMACUSB_ROOT}}};
+		case JH7110_GMAC1_RMII_RTX: return {.composite = {.div = 5, .parents = {JH7110_GMAC1_RMII_REFIN}}};
+		case JH7110_GMAC5_CLK_PTP: return {.composite = {.gate = 1, .div = 5, .parents = {JH7110_GMAC_SRC}}};
+		case JH7110_GMAC5_CLK_TX: return {.composite = {.gate = 1, .mux = 1, .parents = {JH7110_GMAC1_GTXCLK, JH7110_GMAC1_RMII_RTX}}};
+		case JH7110_GMAC1_GTXC: return {.composite = {.gate = 1, .parents = {JH7110_GMAC1_GTXCLK}}};
+		case JH7110_GMAC0_GTXCLK: return {.composite = {.gate = 1, .div = 4, .parents = {JH7110_GMACUSB_ROOT}}};
+		case JH7110_GMAC0_PTP: return {.composite = {.gate = 1, .div = 5, .parents = {JH7110_GMAC_SRC}}};
+		case JH7110_GMAC0_GTXC: return {.composite = {.gate = 1, .parents = {JH7110_GMAC0_GTXCLK}}};
+		case JH7110_I2C2_CLK_APB: return {.composite = {.gate = 1, .parents = {JH7110_APB0}}};
+		case JH7110_I2C5_CLK_APB: return {.composite = {.gate = 1, .parents = {JH7110_APB0}}};
+		case JH7110_UART0_CLK_APB: return {.composite = {.gate = 1, .parents = {JH7110_APB0}}};
+		case JH7110_UART0_CLK_CORE: return {.composite = {.gate = 1, .parents = {JH7110_OSC}}};
+		case JH7110_UART1_CLK_APB: return {.composite = {.gate = 1, .parents = {JH7110_APB0}}};
+		case JH7110_UART1_CLK_CORE: return {.composite = {.gate = 1, .parents = {JH7110_OSC}}};
+		case JH7110_UART2_CLK_APB: return {.composite = {.gate = 1, .parents = {JH7110_APB0}}};
+		case JH7110_UART2_CLK_CORE: return {.composite = {.gate = 1, .parents = {JH7110_OSC}}};
+		case JH7110_UART3_CLK_APB: return {.composite = {.gate = 1, .parents = {JH7110_APB0}}};
+		case JH7110_UART3_CLK_CORE: return {.composite = {.gate = 1, .div = 8, .parents = {JH7110_PERH_ROOT}}};
+		case JH7110_UART4_CLK_APB: return {.composite = {.gate = 1, .parents = {JH7110_APB0}}};
+		case JH7110_UART4_CLK_CORE: return {.composite = {.gate = 1, .div = 8, .parents = {JH7110_PERH_ROOT}}};
+		case JH7110_UART5_CLK_APB: return {.composite = {.gate = 1, .parents = {JH7110_APB0}}};
+		case JH7110_UART5_CLK_CORE: return {.composite = {.gate = 1, .div = 8, .parents = {JH7110_PERH_ROOT}}};
+		case JH7110_I2STX_4CH0_BCLK_MST: return {.composite = {.gate = 1, .div = 5, .parents = {JH7110_MCLK}}};
+		case JH7110_I2STX0_4CHBCLK: return {.composite = {.mux = 1, .parents = {JH7110_I2STX_4CH0_BCLK_MST, JH7110_I2STX_BCLK_EXT}}};
+		case JH7110_USB0_CLK_USB_APB: return {.composite = {.gate = 1, .parents = {JH7110_STG_APB}}};
+		case JH7110_USB0_CLK_UTMI_APB: return {.composite = {.gate = 1, .parents = {JH7110_STG_APB}}};
+		case JH7110_USB0_CLK_AXI: return {.composite = {.gate = 1, .parents = {JH7110_STG_AXIAHB}}};
+		case JH7110_USB0_CLK_LPM: return {.composite = {.gate = 1, .div = 2, .parents = {JH7110_OSC}}};
+		case JH7110_USB0_CLK_STB: return {.composite = {.gate = 1, .div = 3, .parents = {JH7110_OSC}}};
+		case JH7110_USB0_CLK_APP_125: return {.composite = {.gate = 1, .parents = {JH7110_USB_125M}}};
+		case JH7110_USB0_REFCLK: return {.composite = {.div = 2, .parents = {JH7110_OSC}}};
+		case JH7110_PCIE0_CLK_AXI_MST0: return {.composite = {.gate = 1, .parents = {JH7110_STG_AXIAHB}}};
+		case JH7110_PCIE0_CLK_APB: return {.composite = {.gate = 1, .parents = {JH7110_STG_APB}}};
+		case JH7110_PCIE0_CLK_TL: return {.composite = {.gate = 1, .parents = {JH7110_STG_AXIAHB}}};
+		case JH7110_PCIE1_CLK_AXI_MST0: return {.composite = {.gate = 1, .parents = {JH7110_STG_AXIAHB}}};
+		case JH7110_PCIE1_CLK_APB: return {.composite = {.gate = 1, .parents = {JH7110_STG_APB}}};
+		case JH7110_PCIE1_CLK_TL: return {.composite = {.gate = 1, .parents = {JH7110_STG_AXIAHB}}};
+		case JH7110_U0_GMAC5_CLK_AHB: return {.composite = {.gate = 1, .parents = {JH7110_AON_AHB}}};
+		case JH7110_U0_GMAC5_CLK_AXI: return {.composite = {.gate = 1, .parents = {JH7110_AON_AHB}}};
+		case JH7110_GMAC0_RMII_RTX: return {.composite = {.div = 5, .parents = {JH7110_GMAC0_RMII_REFIN}}};
+		case JH7110_U0_GMAC5_CLK_TX: return {.composite = {.gate = 1, .mux = 1, .parents = {JH7110_GMAC0_GTXCLK, JH7110_GMAC0_RMII_RTX}}};
+		case JH7110_OTPC_CLK_APB: return {.composite = {.gate = 1, .parents = {JH7110_AON_APB}}};
+		case JH7110_PLL0_OUT: return {.fixed = {.rate = 1250000000}};
+		case JH7110_PLL1_OUT: return {.fixed = {.rate = 1066000000}};
+		case JH7110_PLL2_OUT: return {.fixed = {.rate = 1228800000}};
+		case JH7110_AON_APB: return {.fixFactor = {.mul = 1, .div = 1, .parent = JH7110_APB_BUS_FUNC}};
+		case JH7110_DDR_ROOT: return {.fixFactor = {.mul = 1, .div = 1, .parent = JH7110_PLL1_OUT}};
+		case JH7110_VOUT_ROOT: return {.fixFactor = {.mul = 1, .div = 1, .parent = JH7110_PLL2_OUT}};
+		case JH7110_GMACUSB_ROOT: return {.fixFactor = {.mul = 1, .div = 1, .parent = JH7110_PLL0_OUT}};
+		case JH7110_PCLK2_MUX_FUNC_PCLK: return {.fixFactor = {.mul = 1, .div = 1, .parent = JH7110_APB_BUS_FUNC}};
+		case JH7110_APB_BUS: return {.fixFactor = {.mul = 1, .div = 1, .parent = JH7110_U2_PCLK_MUX_PCLK}};
+		case JH7110_APB12: return {.fixFactor = {.mul = 1, .div = 1, .parent = JH7110_APB_BUS}};
+//		case JH7110_VOUT_TOP_CLK_HDMITX0_BCLK: return {.fixFactor = {.mul = 1, .div = 1, .parent = JH7110_U0_I2STX_4CH_BCLK}};
+		case JH7110_AON_AHB: return {.fixFactor = {.mul = 1, .div = 1, .parent = JH7110_STG_AXIAHB}};
+//		case JH7110_I2C2_CLK_CORE: return {.fixFactor = {.mul = 1, .div = 1, .parent = JH7110_U2_DW_I2C_CLK_APB}};
+		case JH7110_I2C5_CLK_CORE: return {.composite = {.gate = 1, .parents = {JH7110_OSC}}};
+//		case JH7110_U2_PCLK_MUX_PCLK: return {.fixFactor = {.mul = 1, .div = 1, .parent = JH7110_U2_PCLK_MUX_FUNC_PCLK}};
+		case JH7110_U0_GMAC5_CLK_PTP: return {.fixFactor = {.mul = 1, .div = 1, .parent = JH7110_GMAC0_PTP}};
+//		case JH7110_U0_DC8200_CLK_PIX0: return {.composite = {.gate = 1, .mux = 1, .parents = {JH7110_U0_DC8200_CLK_PIX_SELS}}};
+//		case JH7110_U0_DC8200_CLK_PIX1: return {.composite = {.gate = 1, .mux = 1, .parents = {JH7110_U0_DC8200_CLK_PIX_SELS}}};
+//		case JH7110_DOM_VOUT_TOP_LCD_CLK: return {.composite = {.gate = 1, .mux = 1, .parents = {JH7110_DOM_VOUT_TOP_LCD_CLK_SELS}}};
+//		case JH7110_U0_CDNS_DSITX_CLK_DPI: return {.composite = {.gate = 1, .mux = 1, .parents = {JH7110_U0_CDNS_DSITX_CLK_SELS}}};
+		case JH7110_APB: return {.composite = {.div = 5, .parents = {JH7110_DISP_AHB}}};
+		case JH7110_TX_ESC: return {.composite = {.div = 5, .parents = {JH7110_DISP_AHB}}};
+		case JH7110_DC8200_PIX0: return {.composite = {.div = 6, .parents = {JH7110_DISP_ROOT}}};
+		case JH7110_DSI_SYS: return {.composite = {.div = 5, .parents = {JH7110_DISP_ROOT}}};
+		case JH7110_STG_APB: return {.fixFactor = {.mul = 1, .div = 1, .parent = JH7110_APB_BUS}};
+//		case JH7110_DISP_ROOT: return {.fixFactor = {.mul = 1, .div = 1, .parent = JH7110_U0_DOM_VOUT_TOP_CLK_VOUT_SRC}};
+//		case JH7110_DISP_AXI: return {.fixFactor = {.mul = 1, .div = 1, .parent = JH7110_U0_DOM_VOUT_TOP_VOUT_AXI}};
+//		case JH7110_DISP_AHB: return {.fixFactor = {.mul = 1, .div = 1, .parent = JH7110_U0_DOM_VOUT_TOP_CLK_VOUT_AHB}};
+//		case JH7110_HDMITX0_MCLK: return {.fixFactor = {.mul = 1, .div = 1, .parent = JH7110_U0_DOM_VOUT_TOP_CLK_HDMITX0_MCLK}};
+//		case JH7110_HDMITX0_SCK: return {.fixFactor = {.mul = 1, .div = 1, .parent = JH7110_U0_DOM_VOUT_TOP_CLK_HDMITX0_BCLK}};
+		case JH7110_U0_PCLK_MUX_FUNC_PCLK: return {.fixFactor = {.mul = 1, .div = 1, .parent = JH7110_APB}};
+		case JH7110_DISP_APB: return {.fixFactor = {.mul = 1, .div = 1, .parent = JH7110_U0_PCLK_MUX_FUNC_PCLK}};
+		case JH7110_U0_DC8200_CLK_PIX0_OUT: return {.fixFactor = {.mul = 1, .div = 1, .parent = JH7110_U0_DC8200_CLK_PIX0}};
+		case JH7110_U0_DC8200_CLK_PIX1_OUT: return {.fixFactor = {.mul = 1, .div = 1, .parent = JH7110_U0_DC8200_CLK_PIX1}};
+		case JH7110_U0_DC8200_CLK_AXI: return {.composite = {.gate = 1, .parents = {JH7110_DISP_AXI}}};
+		case JH7110_U0_DC8200_CLK_CORE: return {.composite = {.gate = 1, .parents = {JH7110_DISP_AXI}}};
+		case JH7110_U0_DC8200_CLK_AHB: return {.composite = {.gate = 1, .parents = {JH7110_DISP_AHB}}};
+		case JH7110_U0_MIPITX_DPHY_CLK_TXESC: return {.composite = {.gate = 1, .parents = {JH7110_TX_ESC}}};
+		case JH7110_U0_CDNS_DSITX_CLK_SYS: return {.composite = {.gate = 1, .parents = {JH7110_DSI_SYS}}};
+		case JH7110_U0_CDNS_DSITX_CLK_APB: return {.composite = {.gate = 1, .parents = {JH7110_DSI_SYS}}};
+		case JH7110_U0_CDNS_DSITX_CLK_TXESC: return {.composite = {.gate = 1, .parents = {JH7110_TX_ESC}}};
+		case JH7110_U0_HDMI_TX_CLK_SYS: return {.composite = {.gate = 1, .parents = {JH7110_DISP_APB}}};
+		case JH7110_U0_HDMI_TX_CLK_MCLK: return {.composite = {.gate = 1, .parents = {JH7110_HDMITX0_MCLK}}};
+		case JH7110_U0_HDMI_TX_CLK_BCLK: return {.composite = {.gate = 1, .parents = {JH7110_HDMITX0_SCK}}};
+		default: return {.type = ClockDefType::empty};
+	}
+}
+
+
+// #pragma mark - ClockDevice
 
 DeviceNode*
-Jh7110ClockDriver::Jh7110ClockDevice::OwnerNode()
+Jh7110ClockDriver::ClockDevice::OwnerNode()
 {
 	fBase.fNode->AcquireReference();
 	return fBase.fNode;
@@ -222,160 +411,35 @@ Jh7110ClockDriver::Jh7110ClockDevice::OwnerNode()
 
 
 bool
-Jh7110ClockDriver::Jh7110ClockDevice::IsEnabled() const
+Jh7110ClockDriver::ClockDevice::IsEnabled() const
 {
-	switch (Id()) {
-	case JH7110_AHB0:
-	case JH7110_AHB1:
-	case JH7110_APB0:
-	case JH7110_VOUT_SRC:
-	case JH7110_NOC_BUS_CLK_DISP_AXI:
-	case JH7110_VOUT_TOP_CLK_VOUT_AHB:
-	case JH7110_VOUT_TOP_CLK_VOUT_AXI:
-	case JH7110_VOUT_TOP_CLK_HDMITX0_MCLK:
-	case JH7110_QSPI_CLK_AHB:
-	case JH7110_QSPI_CLK_APB:
-	case JH7110_QSPI_CLK_REF:
-	case JH7110_SDIO0_CLK_AHB:
-	case JH7110_SDIO1_CLK_AHB:
-	case JH7110_SDIO0_CLK_SDCARD:
-	case JH7110_SDIO1_CLK_SDCARD:
-	case JH7110_NOC_BUS_CLK_STG_AXI:
-	case JH7110_GMAC5_CLK_AHB:
-	case JH7110_GMAC5_CLK_AXI:
-	case JH7110_GMAC5_CLK_PTP:
-	case JH7110_GMAC5_CLK_TX:
-	case JH7110_GMAC1_GTXC:
-	case JH7110_GMAC0_GTXCLK:
-	case JH7110_GMAC0_PTP:
-	case JH7110_GMAC0_GTXC:
-	case JH7110_I2C2_CLK_APB:
-	case JH7110_I2C5_CLK_APB:
-	case JH7110_UART0_CLK_APB:
-	case JH7110_UART0_CLK_CORE:
-	case JH7110_UART1_CLK_APB:
-	case JH7110_UART1_CLK_CORE:
-	case JH7110_UART2_CLK_APB:
-	case JH7110_UART2_CLK_CORE:
-	case JH7110_UART3_CLK_APB:
-	case JH7110_UART3_CLK_CORE:
-	case JH7110_UART4_CLK_APB:
-	case JH7110_UART4_CLK_CORE:
-	case JH7110_UART5_CLK_APB:
-	case JH7110_UART5_CLK_CORE:
-	case JH7110_I2STX_4CH0_BCLK_MST:
-	case JH7110_USB0_CLK_USB_APB:
-	case JH7110_USB0_CLK_UTMI_APB:
-	case JH7110_USB0_CLK_AXI:
-	case JH7110_USB0_CLK_LPM:
-	case JH7110_USB0_CLK_STB:
-	case JH7110_USB0_CLK_APP_125:
-	case JH7110_PCIE0_CLK_AXI_MST0:
-	case JH7110_PCIE0_CLK_APB:
-	case JH7110_PCIE0_CLK_TL:
-	case JH7110_PCIE1_CLK_AXI_MST0:
-	case JH7110_PCIE1_CLK_APB:
-	case JH7110_PCIE1_CLK_TL:
-	case JH7110_U0_GMAC5_CLK_AHB:
-	case JH7110_U0_GMAC5_CLK_AXI:
-	case JH7110_U0_GMAC5_CLK_TX:
-	case JH7110_OTPC_CLK_APB:
-	case JH7110_I2C5_CLK_CORE:
-	case JH7110_U0_DC8200_CLK_PIX0:
-	case JH7110_U0_DC8200_CLK_PIX1:
-	case JH7110_DOM_VOUT_TOP_LCD_CLK:
-	case JH7110_U0_CDNS_DSITX_CLK_DPI:
-	case JH7110_U0_DC8200_CLK_AXI:
-	case JH7110_U0_DC8200_CLK_CORE:
-	case JH7110_U0_DC8200_CLK_AHB:
-	case JH7110_U0_MIPITX_DPHY_CLK_TXESC:
-	case JH7110_U0_CDNS_DSITX_CLK_SYS:
-	case JH7110_U0_CDNS_DSITX_CLK_APB:
-	case JH7110_U0_CDNS_DSITX_CLK_TXESC:
-	case JH7110_U0_HDMI_TX_CLK_SYS:
-	case JH7110_U0_HDMI_TX_CLK_MCLK:
-	case JH7110_U0_HDMI_TX_CLK_BCLK:
-		return fBase.GetRegs(Id())->enable;
+	uint32 id = Id();
+	ClockDef def = fBase.GetClockDef(id);
+
+	switch (def.type) {
+		case ClockDefType::composite:
+			if (def.composite.gate)
+				return fBase.GetRegs(id)->enable;
+			break;
+		default:
+			break;
 	}
 	return true;
 }
 
 
 status_t
-Jh7110ClockDriver::Jh7110ClockDevice::SetEnabled(bool doEnable)
+Jh7110ClockDriver::ClockDevice::SetEnabled(bool doEnable)
 {
-	switch (Id()) {
-		case JH7110_AHB0:
-		case JH7110_AHB1:
-		case JH7110_APB0:
-		case JH7110_VOUT_SRC:
-		case JH7110_NOC_BUS_CLK_DISP_AXI:
-		case JH7110_VOUT_TOP_CLK_VOUT_AHB:
-		case JH7110_VOUT_TOP_CLK_VOUT_AXI:
-		case JH7110_VOUT_TOP_CLK_HDMITX0_MCLK:
-		case JH7110_QSPI_CLK_AHB:
-		case JH7110_QSPI_CLK_APB:
-		case JH7110_QSPI_CLK_REF:
-		case JH7110_SDIO0_CLK_AHB:
-		case JH7110_SDIO1_CLK_AHB:
-		case JH7110_SDIO0_CLK_SDCARD:
-		case JH7110_SDIO1_CLK_SDCARD:
-		case JH7110_NOC_BUS_CLK_STG_AXI:
-		case JH7110_GMAC5_CLK_AHB:
-		case JH7110_GMAC5_CLK_AXI:
-		case JH7110_GMAC5_CLK_PTP:
-		case JH7110_GMAC5_CLK_TX:
-		case JH7110_GMAC1_GTXC:
-		case JH7110_GMAC0_GTXCLK:
-		case JH7110_GMAC0_PTP:
-		case JH7110_GMAC0_GTXC:
-		case JH7110_I2C2_CLK_APB:
-		case JH7110_I2C5_CLK_APB:
-		case JH7110_UART0_CLK_APB:
-		case JH7110_UART0_CLK_CORE:
-		case JH7110_UART1_CLK_APB:
-		case JH7110_UART1_CLK_CORE:
-		case JH7110_UART2_CLK_APB:
-		case JH7110_UART2_CLK_CORE:
-		case JH7110_UART3_CLK_APB:
-		case JH7110_UART3_CLK_CORE:
-		case JH7110_UART4_CLK_APB:
-		case JH7110_UART4_CLK_CORE:
-		case JH7110_UART5_CLK_APB:
-		case JH7110_UART5_CLK_CORE:
-		case JH7110_I2STX_4CH0_BCLK_MST:
-		case JH7110_USB0_CLK_USB_APB:
-		case JH7110_USB0_CLK_UTMI_APB:
-		case JH7110_USB0_CLK_AXI:
-		case JH7110_USB0_CLK_LPM:
-		case JH7110_USB0_CLK_STB:
-		case JH7110_USB0_CLK_APP_125:
-		case JH7110_PCIE0_CLK_AXI_MST0:
-		case JH7110_PCIE0_CLK_APB:
-		case JH7110_PCIE0_CLK_TL:
-		case JH7110_PCIE1_CLK_AXI_MST0:
-		case JH7110_PCIE1_CLK_APB:
-		case JH7110_PCIE1_CLK_TL:
-		case JH7110_U0_GMAC5_CLK_AHB:
-		case JH7110_U0_GMAC5_CLK_AXI:
-		case JH7110_U0_GMAC5_CLK_TX:
-		case JH7110_OTPC_CLK_APB:
-		case JH7110_I2C5_CLK_CORE:
-		case JH7110_U0_DC8200_CLK_PIX0:
-		case JH7110_U0_DC8200_CLK_PIX1:
-		case JH7110_DOM_VOUT_TOP_LCD_CLK:
-		case JH7110_U0_CDNS_DSITX_CLK_DPI:
-		case JH7110_U0_DC8200_CLK_AXI:
-		case JH7110_U0_DC8200_CLK_CORE:
-		case JH7110_U0_DC8200_CLK_AHB:
-		case JH7110_U0_MIPITX_DPHY_CLK_TXESC:
-		case JH7110_U0_CDNS_DSITX_CLK_SYS:
-		case JH7110_U0_CDNS_DSITX_CLK_APB:
-		case JH7110_U0_CDNS_DSITX_CLK_TXESC:
-		case JH7110_U0_HDMI_TX_CLK_SYS:
-		case JH7110_U0_HDMI_TX_CLK_MCLK:
-		case JH7110_U0_HDMI_TX_CLK_BCLK:
-			fBase.GetRegs(Id())->enable = doEnable;
+	uint32 id = Id();
+	ClockDef def = fBase.GetClockDef(id);
+
+	switch (def.type) {
+		case ClockDefType::composite:
+			if (def.composite.gate)
+				fBase.GetRegs(id)->enable = doEnable;
+			break;
+		default:
 			break;
 	}
 	return B_OK;
@@ -383,12 +447,13 @@ Jh7110ClockDriver::Jh7110ClockDevice::SetEnabled(bool doEnable)
 
 
 int64
-Jh7110ClockDriver::Jh7110ClockDevice::GetRate() const
+Jh7110ClockDriver::ClockDevice::GetRate() const
 {
 	int32 id = Id();
+	ClockDef def = fBase.GetClockDef(id);
 	volatile StarfiveClockRegs* regs = fBase.GetRegs(id);
 
-	auto GetDivider = [regs](ClockDevice* parent, uint32 divWidth) -> int64 {
+	auto GetDivider = [regs](::ClockDevice* parent, uint32 divWidth) -> int64 {
 		int64 parentRate = parent->GetRate();
 		if (parentRate < B_OK)
 			return parentRate;
@@ -397,95 +462,106 @@ Jh7110ClockDriver::Jh7110ClockDevice::GetRate() const
 		if (div == 0)
 			return B_BAD_VALUE;
 
-		return (parentRate + div - 1) / div;
+		return div_round_up(parentRate, div);
 	};
 
-	auto GetMux = [regs](ClockDevice* parent1, ClockDevice* parent2) -> int64 {
-		switch (regs->mux) {
-			case 0:
-				return parent1->GetRate();
-			case 1:
-				return parent2->GetRate();
-			default:
-				return B_BAD_VALUE;
+	switch (def.type) {
+		case ClockDefType::composite: {
+			uint32 parentIndex = 0;
+			if (def.composite.mux > 0)
+				parentIndex = regs->mux & ((1 << def.composite.mux) - 1);
+
+			::ClockDevice* parent = fBase.GetClock(def.composite.parents[parentIndex]);
+			if (parent == NULL)
+				return B_ERROR;
+
+			if (def.composite.div > 0)
+				return GetDivider(parent, def.composite.div);
+
+			return parent->GetRate();
 		}
+		case ClockDefType::fixed:
+			return def.fixed.rate;
+
+		case ClockDefType::fixFactor: {
+			::ClockDevice* parent = fBase.GetClock(def.fixFactor.parent);
+			if (parent == NULL)
+				return B_ERROR;
+
+			return parent->GetRate() / def.fixFactor.div * def.fixFactor.mul;
+		}
+		default:
+			return ENOSYS;
+	}
+}
+
+
+int64
+Jh7110ClockDriver::ClockDevice::SetRate(int64 rate)
+{
+	int32 id = Id();
+	ClockDef def = fBase.GetClockDef(id);
+	volatile StarfiveClockRegs* regs = fBase.GetRegs(id);
+
+	if (rate <= 0)
+		return B_BAD_VALUE;
+
+	auto SetDivider = [regs, rate](::ClockDevice* parent, uint32 divWidth) -> int64 {
+		int64 parentRate = parent->GetRate();
+		uint32 div = div_round_up(parentRate, rate);
+		div = std::min<uint32>(div, 1 << divWidth);
+		regs->div = div;
+		return div_round_up(parentRate, div);
 	};
 
-	switch (id) {
-		case JH7110_PLL0_OUT:
-			return 1250000000;
-		case JH7110_PLL1_OUT:
-			return 1066000000;
-		case JH7110_PLL2_OUT:
-			return 1228800000;
-		case JH7110_SDIO0_CLK_AHB:
-		case JH7110_SDIO1_CLK_AHB:
-			return fBase.GetClock(JH7110_AHB0)->GetRate();
-		case JH7110_SDIO0_CLK_SDCARD:
-		case JH7110_SDIO1_CLK_SDCARD:
-			return GetDivider(fBase.GetClock(JH7110_AXI_CFG0), 4);
-		case JH7110_AHB0:
-			return fBase.GetClock(JH7110_STG_AXIAHB)->GetRate();
-		case JH7110_STG_AXIAHB:
-			return GetDivider(fBase.GetClock(JH7110_AXI_CFG0), 2);
-		case JH7110_AXI_CFG0:
-			return GetDivider(fBase.GetClock(JH7110_BUS_ROOT), 2);
-		case JH7110_BUS_ROOT:
-			return GetMux(fBase.fOscClock, fBase.GetClock(JH7110_PLL2_OUT));
+	switch (def.type) {
+		case ClockDefType::composite: {
+			uint32 parentIndex = 0;
+			if (def.composite.mux > 0)
+				parentIndex = regs->mux & ((1 << def.composite.mux) - 1);
+
+			::ClockDevice* parent = fBase.GetClock(def.composite.parents[parentIndex]);
+			if (parent == NULL)
+				return B_ERROR;
+
+			if (def.composite.div > 0)
+				return SetDivider(parent, def.composite.div);
+
+			break;
+		}
+		default:
+			break;
 	}
 	return ENOSYS;
 }
 
 
 int64
-Jh7110ClockDriver::Jh7110ClockDevice::SetRate(int64 rate)
-{
-	return ENOSYS;
-}
-
-
-int64
-Jh7110ClockDriver::Jh7110ClockDevice::SetRateDry(int64 rate) const
+Jh7110ClockDriver::ClockDevice::SetRateDry(int64 rate) const
 {
 	return ENOSYS;
 }
 
 
 ClockDevice*
-Jh7110ClockDriver::Jh7110ClockDevice::GetParent() const
+Jh7110ClockDriver::ClockDevice::GetParent() const
 {
 	int32 id = Id();
+	ClockDef def = fBase.GetClockDef(id);
 	volatile StarfiveClockRegs* regs = fBase.GetRegs(id);
 
-	switch (id) {
-		case JH7110_CPU_ROOT:
-			switch (regs->mux) {
-				case 0:
-					return fBase.fOscClock;
-				case 1:
-					return fBase.GetClock(JH7110_PLL0_OUT);
-				default:
-					break;
-			}
-		case JH7110_PERH_ROOT:
-			switch (regs->mux) {
-				case 0:
-					return fBase.GetClock(JH7110_PLL0_OUT);
-				case 1:
-					return fBase.GetClock(JH7110_PLL2_OUT);
-				default:
-					break;
-			}
-			break;
-		case JH7110_BUS_ROOT:
-			switch (regs->mux) {
-				case 0:
-					return fBase.fOscClock;
-				case 1:
-					return fBase.GetClock(JH7110_PLL2_OUT);
-				default:
-					break;
-			}
+	switch (def.type) {
+		case ClockDefType::composite: {
+			uint32 parentIndex = 0;
+			if (def.composite.mux > 0)
+				parentIndex = regs->mux & ((1 << def.composite.mux) - 1);
+
+			return fBase.GetClock(def.composite.parents[parentIndex]);
+		}
+		case ClockDefType::fixFactor:
+			return fBase.GetClock(def.fixFactor.parent);
+
+		default:
 			break;
 	}
 	return NULL;
@@ -493,32 +569,29 @@ Jh7110ClockDriver::Jh7110ClockDevice::GetParent() const
 
 
 status_t
-Jh7110ClockDriver::Jh7110ClockDevice::SetParent(ClockDevice* parent)
+Jh7110ClockDriver::ClockDevice::SetParent(::ClockDevice* parent)
 {
 	int32 id = Id();
+	ClockDef def = fBase.GetClockDef(id);
 	volatile StarfiveClockRegs* regs = fBase.GetRegs(id);
 
-	switch (id) {
-		case JH7110_CPU_ROOT:
-			if (parent == fBase.fOscClock)
-				regs->mux = 0;
-			else if (parent == fBase.GetClock(JH7110_PLL0_OUT))
-				regs->mux = 1;
-			break;
-		case JH7110_PERH_ROOT:
-			if (parent == fBase.GetClock(JH7110_PLL0_OUT))
-				regs->mux = 0;
-			else if (parent == fBase.GetClock(JH7110_PLL2_OUT))
-				regs->mux = 1;
-			break;
-		case JH7110_BUS_ROOT:
-			if (parent == fBase.fOscClock)
-				regs->mux = 0;
-			else if (parent == fBase.GetClock(JH7110_PLL2_OUT))
-				regs->mux = 1;
+	switch (def.type) {
+		case ClockDefType::composite: {
+			if (def.composite.mux <= 0)
+				return ENOSYS;
+
+			for (uint32 parentIndex = 0; parentIndex < (1U << def.composite.mux); parentIndex++) {
+				if (parent == fBase.GetClock(def.composite.parents[parentIndex])) {
+					regs->mux = parentIndex;
+					return B_OK;
+				}
+			}
+			return B_BAD_VALUE;
+		}
+		default:
 			break;
 	}
-	return B_BAD_VALUE;
+	return ENOSYS;
 }
 
 
