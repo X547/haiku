@@ -10,7 +10,6 @@ SubInclude HAIKU_TOP src add-ons kernel bus_managers isa ;
 SubInclude HAIKU_TOP src add-ons kernel bus_managers mmc ;
 SubInclude HAIKU_TOP src add-ons kernel bus_managers pci ;
 SubInclude HAIKU_TOP src add-ons kernel bus_managers ps2 ;
-SubInclude HAIKU_TOP src add-ons kernel bus_managers random ;
 SubInclude HAIKU_TOP src add-ons kernel bus_managers scsi ;
 SubInclude HAIKU_TOP src add-ons kernel bus_managers usb ;
 SubInclude HAIKU_TOP src add-ons kernel bus_managers virtio ;

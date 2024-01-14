@@ -92,6 +92,7 @@ if $(TARGET_ARCH) = x86 || $(TARGET_ARCH) = x86_64 {
 AddNewDriversToPackage :
 	null
 	zero
+	random
 #	wmi@x86,x86_64
 	;
 AddNewDriversToPackage audio :
@@ -315,6 +316,7 @@ AddBootModuleSymlinksToPackage
 	virtio_input # !!!
 	null # !!!
 	zero # !!!
+	random # !!!
 	ocores_i2c@riscv64,arm,arm64 # !!!
 	virtio_gpu # !!!
 	usb_ecm # !!!

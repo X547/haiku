@@ -308,7 +308,7 @@ yarrow_uninit()
 
 
 status_t
-yarrow_rng_read(void* cookie, void *_buffer, size_t *_numBytes)
+yarrow_rng_read(void *_buffer, size_t *_numBytes)
 {
 	if (!IS_USER_ADDRESS(_buffer))
 		return B_BAD_ADDRESS;
@@ -342,7 +342,7 @@ yarrow_rng_read(void* cookie, void *_buffer, size_t *_numBytes)
 
 
 status_t
-yarrow_rng_write(void* cookie, const void *_buffer, size_t *_numBytes)
+yarrow_rng_write(const void *_buffer, size_t *_numBytes)
 {
 	OCTET *buffer = (OCTET*)_buffer;
 

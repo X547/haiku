@@ -11,8 +11,6 @@
 
 #include <OS.h>
 
-#include "random.h"
-
 
 #ifdef __cplusplus
 extern "C" {
@@ -22,8 +20,8 @@ status_t yarrow_init();
 void yarrow_uninit();
 void yarrow_enqueue_randomness(const uint64 value);
 
-status_t yarrow_rng_read(void* cookie, void *_buffer, size_t *_numBytes);
-status_t yarrow_rng_write(void* cookie, const void *_buffer, size_t *_numBytes);
+status_t yarrow_rng_read(void *_buffer, size_t *_numBytes);
+status_t yarrow_rng_write(const void *_buffer, size_t *_numBytes);
 
 
 #define RANDOM_INIT yarrow_init
