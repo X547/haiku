@@ -13,15 +13,18 @@
 
 #include <AutoDeleter.h>
 #include <AutoDeleterOS.h>
+#include <util/AutoLock.h>
 #include <ContainerOf.h>
 #include <ScopeExit.h>
+
 
 #include <net/ether_driver.h>
 #include <net/if_media.h>
 #include <compat/dev/mii/mii.h>
 
 #include <kernel.h>
-#include <locks.h>
+#include <lock.h>
+#include <condition_variable.h>
 #include <arch/atomic.h>
 
 #include "DwmacRegs.h"
@@ -45,27 +48,13 @@ wait_for_cond(Cond cond, int32 attempts, bigtime_t retryInterval)
 }
 
 
-static void
-hex_dump(uint8* data, size_t length)
-{
-	for (size_t offset = 0; offset < length; offset++) {
-		if (offset % 16 == 0) {
-			dprintf("%08" B_PRIxSIZE " ", offset);
-		}
-		dprintf(" %02x", *data);
-		data++;
-		if (offset % 16 == 15)
-			dprintf("\n");
-	}
-	if (length % 16 != 0)
-		dprintf("\n");
-}
-
-
 class DwmacDriver: public DeviceDriver {
 public:
 	virtual ~DwmacDriver();
-	DwmacDriver(DeviceNode* node): fNode(node) {}
+	DwmacDriver(DeviceNode* node): fNode(node) {
+		fCanReadCond.Init(this, "DwmacDriver::fCanReadCond");
+		fCanWriteCond.Init(this, "DwmacDriver::fCanWriteCond");
+	}
 
 	// DeviceDriver
 	static status_t Probe(DeviceNode* node, DeviceDriver** driver);
@@ -105,6 +94,7 @@ private:
 
 private:
 	mutex	fLock = MUTEX_INITIALIZER("DwmacDriver");
+	spinlock fSpinlock = B_SPINLOCK_INITIALIZER;
 
 	DeviceNode* fNode;
 	FdtDevice* fFdtDevice {};
@@ -139,6 +129,10 @@ private:
 
 	std::atomic<int32> fOpenCount {};
 
+	ConditionVariable fCanReadCond;
+	ConditionVariable fCanWriteCond;
+
+	ether_link_state fLinkState {.media = IFM_ETHER};
 	sem_id fLinkStateChangeSem = -1;
 
 	class MiiDevice: public BusDriver, ::MiiDevice {
@@ -160,7 +154,7 @@ private:
 
 	class DevFsNode: public ::DevFsNode, public ::DevFsNodeHandle {
 	public:
-		DwmacDriver &Base() {return ContainerOf(*this, &DwmacDriver::fDevFsNode);}
+		DwmacDriver& Base() {return ContainerOf(*this, &DwmacDriver::fDevFsNode);}
 
 		Capabilities GetCapabilities() const final;
 		status_t Open(const char* path, int openMode, DevFsNodeHandle **outHandle) final;
@@ -222,6 +216,7 @@ DwmacDriver::Init()
 	uint64 irq;
 	CHECK_RET(fFdtDevice->GetInterruptByName("macirq", NULL, &irq));
 	fIrqVector = irq;
+	dprintf("  fIrqVector: %ld\n", fIrqVector);
 	CHECK_RET(install_io_interrupt_handler(fIrqVector, HandleInterrupt, this, 0));
 	fInterruptHandlerInstalled = true;
 
@@ -291,10 +286,6 @@ DwmacDriver::Init()
 	dprintf("  MMDACR: %#04" B_PRIx32 "\n", fMiiDevice.Read(MII_MMDACR));
 	dprintf("  MMDAADR: %#04" B_PRIx32 "\n", fMiiDevice.Read(MII_MMDAADR));
 	dprintf("  EXTSR: %#04" B_PRIx32 "\n", fMiiDevice.Read(MII_EXTSR));
-
-	SetDuplex(true);
-	SetSpeed(1000);
-	SetClockRate(1000);
 
 	dprintf("  gtx rate: %" B_PRId64 " Hz\n", fTxClock->GetRate());
 	dprintf("  rmii_rtx rate: %" B_PRId64 " Hz\n", fRmiiRtxClock->GetRate());
@@ -506,11 +497,14 @@ DwmacDriver::ConfigureDma(uint32 tqs)
 	fRegs->dma.channels[0].rxEndAddr = fRxDescsPhys + (kDescCountRx - 1) * kDescSize;
 
 	/* Enable interrupts */
+	fRegs->mac.intEn = (1 << 0);
+	fRegs->dma.channels[0].intrEna.val = 0xffffffff;
+/*
 	fRegs->dma.channels[0].intrEna.val = DwmacDmaChannelIntrEna {
 		.tie = true,
 		.rie = true
 	}.val;
-
+*/
 	{
 		DwmacDmaChannelStatus status {.val = fRegs->dma.channels[0].status.val};
 		dprintf("dwmac: status: %#" B_PRIx32 "\n", status.val);
@@ -640,14 +634,102 @@ DwmacDriver::HandleInterrupt(void* arg)
 int32
 DwmacDriver::HandleInterruptInt()
 {
-	dprintf("DwmacDriver::HandleInterrupt()\n");
+	//dprintf("DwmacDriver::HandleInterrupt()\n");
 
 	DwmacDmaChannelStatus status {.val = fRegs->dma.channels[0].status.val};
 	DwmacDmaChannelIntrEna intrEna {.val = fRegs->dma.channels[0].intrEna.val};
 
-	dprintf("  status: %#" B_PRIx32 "\n", status.val);
+	if (status.ri || status.eri)
+		fCanReadCond.NotifyAll();
+
+	if (status.ti || status.eti)
+		fCanWriteCond.NotifyAll();
+#if 0
+	bool isFirst = true;
+	auto Separator = [&isFirst]() {
+		if (isFirst) {isFirst = false;} else {dprintf(",");}
+	};
+	dprintf("  status: {");
+	if (status.ti ) {Separator(); dprintf("ti");}
+	if (status.tps) {Separator(); dprintf("tps");}
+	if (status.tbu) {Separator(); dprintf("tbu");}
+	if (status.ri ) {Separator(); dprintf("ri");}
+	if (status.rbu) {Separator(); dprintf("rbu");}
+	if (status.rps) {Separator(); dprintf("rps");}
+	if (status.rwt) {Separator(); dprintf("rwt");}
+	if (status.eti) {Separator(); dprintf("eti");}
+	if (status.eri) {Separator(); dprintf("eri");}
+	if (status.fbe) {Separator(); dprintf("fbe");}
+	if (status.cde) {Separator(); dprintf("cde");}
+	if (status.ais) {Separator(); dprintf("ais");}
+	if (status.nis) {Separator(); dprintf("nis");}
+	if (status.teb) {Separator(); dprintf("teb");}
+	if (status.reb) {Separator(); dprintf("reb");}
+	dprintf("}\n");
+#endif
 
 	fRegs->dma.channels[0].status.val = status.val & intrEna.val;
+
+	uint32 macIntStatus = fRegs->mac.intStatus;
+	if (((1 << 0) & macIntStatus) != 0) {
+		DwmacPhyifControlStatus phyifControlStatus {.val = fRegs->mac.phyifControlStatus.val};
+		dprintf("dwmac: mac.phyifControlStatus %#" B_PRIx32 "\n", phyifControlStatus.val);
+		if (phyifControlStatus.lnksts) {
+			uint32 speed = 0;
+			switch (phyifControlStatus.speed) {
+				case DwmacPhyifControlStatusSpeed::speed2_5:
+					speed = 10;
+					break;
+				case DwmacPhyifControlStatusSpeed::speed25:
+					speed = 100;
+					break;
+				case DwmacPhyifControlStatusSpeed::speed125:
+					speed = 1000;
+					break;
+			}
+			bool duplex = phyifControlStatus.lnkmod;
+
+			SetDuplex(duplex);
+			SetSpeed(speed);
+			SetClockRate(speed);
+
+			{
+				SpinLocker lock(fSpinlock);
+				fLinkState = {
+					.media = IFM_ETHER | IFM_ACTIVE,
+					.quality = 1000,
+					.speed = speed * 1000000ULL
+				};
+				// TODO: more precise detection (T vs TX etc.)
+				switch (speed) {
+					case 10:
+						fLinkState.media |= IFM_10_T;
+						break;
+					case 100:
+						fLinkState.media |= IFM_100_TX;
+						break;
+					case 1000:
+						fLinkState.media |= IFM_1000_T;
+						break;
+				}
+				if (duplex)
+					fLinkState.media |= IFM_FULL_DUPLEX;
+				else
+					fLinkState.media |= IFM_HALF_DUPLEX;
+			}
+
+			const char* duplexStr = duplex ? "full" : "half";
+			dprintf("dwmac: link up: %" B_PRIu32" %s\n", speed, duplexStr);
+		} else {
+			dprintf("dwmac: link down\n");
+			SpinLocker lock(fSpinlock);
+			fLinkState = {
+				.media = IFM_ETHER,
+			};
+		}
+		SpinLocker lock(fSpinlock);
+		release_sem_etc(fLinkStateChangeSem, 1, B_DO_NOT_RESCHEDULE);
+	}
 
 	return B_HANDLED_INTERRUPT;
 }
@@ -679,8 +761,9 @@ DwmacDriver::Send(uint8* packet, uint32 length)
 
 	DwmacDesc* desc = (DwmacDesc*)(fTxDescs + fTxDescIdx * kDescSize);
 
-	desc->des0 = fTxBufferPhys + fTxDescIdx * kMaxPacketSize;
-	desc->des1 = 0;
+	phys_addr_t physAddr = fTxBufferPhys + fTxDescIdx * kMaxPacketSize;
+	desc->des0 = (uint32) physAddr;
+	desc->des1 = (uint32)(physAddr >> 32);
 	desc->des2 = length;
 	/*
 	 * Make sure that if HW sees the _OWN write below, it will see all the
@@ -694,17 +777,10 @@ DwmacDriver::Send(uint8* packet, uint32 length)
 		.own = true
 	};
 
+	//dprintf("DwmacDriver::EnqueueTx\n");
 	fTxDescIdx = (fTxDescIdx + 1) % kDescCountTx;
 	fRegs->dma.channels[0].txEndAddr = fTxDescsPhys + fTxDescIdx * kDescSize;
 
-	for (;;) {
-		memory_full_barrier();
-		if (desc->des3.own) {
-			snooze(10000);
-			continue;
-		}
-		break;
-	}
 	return B_OK;
 }
 
@@ -736,8 +812,9 @@ DwmacDriver::FreePacket(uint8* packet)
 	DwmacDesc* desc = (DwmacDesc*)(fRxDescs + fRxDescIdx * kDescSize);
 	desc->des0 = 0;
 	memory_full_barrier();
-	desc->des0 = fRxBufferPhys + fRxDescIdx * kMaxPacketSize;
-	desc->des1 = 0;
+	phys_addr_t physAddr = fRxBufferPhys + fRxDescIdx * kMaxPacketSize;
+	desc->des0 = (uint32) physAddr;
+	desc->des1 = (uint32)(physAddr >> 32);
 	desc->des2 = 0;
 	/*
 	 * Make sure that if HW sees the _OWN write below, it will see all the
@@ -746,6 +823,7 @@ DwmacDriver::FreePacket(uint8* packet)
 	memory_full_barrier();
 	desc->des3 = {.buf1v = true, .own = true};
 
+	//dprintf("DwmacDriver::EnqueueRx\n");
 	fRegs->dma.channels[0].rxEndAddr = fRxDescsPhys + fRxDescIdx * kDescSize;
 
 	fRxDescIdx = (fRxDescIdx + 1) % kDescCountRx;
@@ -832,14 +910,15 @@ DwmacDriver::DevFsNode::Read(off_t pos, void* buffer, size_t* numBytes)
 	uint8* packet {};
 	int32 length {};
 	for (;;) {
+		ConditionVariableEntry cvEntry;
+		Base().fCanReadCond.Add(&cvEntry);
 		length = Base().Receive(packet);
 		if (length == EAGAIN && Base().fOpenCount > 0) {
-			snooze(1000); // TODO: use interrupts
+			cvEntry.Wait();
 			continue;
 		}
 #if 0
 		dprintf("DwmacDriver::Receive(%p): %" B_PRId32 "\n", packet, length);
-		dprintf("  *numBytes: %" B_PRIuSIZE "\n", *numBytes);
 #endif
 		if (length < 0) {
 			*numBytes = 0;
@@ -847,9 +926,6 @@ DwmacDriver::DevFsNode::Read(off_t pos, void* buffer, size_t* numBytes)
 		}
 		break;
 	}
-#if 0
-	hex_dump(packet, length);
-#endif
 	Base().FreePacket(packet);
 	*numBytes = std::min<size_t>(*numBytes, length);
 	user_memcpy(buffer, packet, *numBytes);
@@ -862,11 +938,16 @@ DwmacDriver::DevFsNode::Write(off_t pos, const void* buffer, size_t* numBytes)
 {
 	uint8* packet {};
 	for (;;) {
+		ConditionVariableEntry cvEntry;
+		Base().fCanWriteCond.Add(&cvEntry);
 		status_t res = Base().GetSendPacket(packet);
 		if (res == EAGAIN && Base().fOpenCount > 0) {
-			snooze(1000); // TODO: use interrupts
+			cvEntry.Wait();
 			continue;
 		}
+#if 0
+		dprintf("DwmacDriver::Send(%p): %" B_PRIuSIZE "\n", packet, *numBytes);
+#endif
 		if (res < 0) {
 			*numBytes = 0;
 			return res;
@@ -874,9 +955,6 @@ DwmacDriver::DevFsNode::Write(off_t pos, const void* buffer, size_t* numBytes)
 		break;
 	}
 	user_memcpy(packet, buffer, *numBytes);
-#if 0
-	hex_dump(packet, *numBytes);
-#endif
 	status_t res = Base().Send(packet, *numBytes);
 	if (res < B_OK) {
 		*numBytes = 0;
@@ -905,24 +983,13 @@ DwmacDriver::DevFsNode::Control(uint32 op, void *buffer, size_t length, bool isK
 		case ETHER_SET_LINK_STATE_SEM: {
 			sem_id value;
 			CHECK_RET(user_memcpy(&value, buffer, sizeof(value)));
+			InterruptsSpinLocker lock(Base().fSpinlock);
 			Base().fLinkStateChangeSem = value;
 			return B_OK;
 		}
 		case ETHER_GET_LINK_STATE: {
-			ether_link_state state {
-				.media = IFM_ETHER | IFM_FULL_DUPLEX,
-				.quality = 1000,
-				.speed = 1000 * 1000 * 1000, // 1Gbps
-			};
-
-			int32 miiStatus = Base().fMiiDevice.Read(MII_BMSR);
-
-			if (miiStatus >= 0) {
-				if ((BMSR_LINK & miiStatus) != 0)
-					state.media |= IFM_ACTIVE;
-			}
-
-			CHECK_RET(user_memcpy(buffer, &state, sizeof(state)));
+			InterruptsSpinLocker lock(Base().fSpinlock);
+			CHECK_RET(user_memcpy(buffer, &Base().fLinkState, sizeof(Base().fLinkState)));
 			return B_OK;
 		}
 	}

@@ -88,6 +88,30 @@ union DwmacRxqCtrl2 {
 	uint32 val;
 };
 
+enum class DwmacPhyifControlStatusSpeed: uint32 {
+	speed2_5 = 0,
+	speed25  = 1,
+	speed125 = 2,
+};
+
+union DwmacPhyifControlStatus {
+	struct {
+		uint32 tc:          1; //  0
+		uint32 lud:         1; //  1
+		uint32 unknown1:    2; //  2
+		uint32 smidrxs:     1; //  4
+		uint32 unknown2:   11; //  5
+		uint32 lnkmod:      1; // 16
+		DwmacPhyifControlStatusSpeed
+		       speed:       2; // 17
+		uint32 lnksts:      1; // 19
+		uint32 jabto:       1; // 20
+		uint32 falsecadet:  1; // 21
+		uint32 unknown3:   10; // 22
+	};
+	uint32 val;
+};
+
 union DwmacHwFeature1 {
 	struct {
 		uint32 rxFifoSize:  5; //  0
@@ -160,7 +184,7 @@ struct DwmacMacRegs {
 	uint32 usTicCounter;
 	uint32 pcsBase;
 	uint32 unknown7[5];
-	uint32 phyifControlStatus;
+	DwmacPhyifControlStatus phyifControlStatus;
 	uint32 unknown8[6];
 	uint32 debug;
 	uint32 unknown9;
