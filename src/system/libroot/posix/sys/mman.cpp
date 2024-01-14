@@ -125,7 +125,7 @@ mmap(void* address, size_t length, int protection, int flags, int fd,
 	}
 
 	// translate mapping, address specification, and protection
-	int mapping = (flags & MAP_SHARED) != 0
+	int mapping = (flags & MAP_SHARED) != 0 || (protection & PROT_WRITE) == 0
 		? REGION_NO_PRIVATE_MAP : REGION_PRIVATE_MAP;
 
 	uint32 addressSpec;
