@@ -13,6 +13,7 @@
 
 #include <AutoDeleterOS.h>
 #include <lock.h>
+#include <util/Vector.h>
 
 #include <arch/generic/msi.h>
 
@@ -132,7 +133,7 @@ protected:
 	uint8 volatile* fRegs{};
 	uint64 fRegsLen{};
 
-	pci_resource_range fResourceRanges[kPciRangeEnd] {};
+	Vector<pci_resource_range> fResourceRanges;
 
 	class BusManager: public BusDriver {
 	public:

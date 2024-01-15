@@ -73,68 +73,78 @@ ECAMPCIControllerACPI::AcpiCrsScanCallback(acpi_resource *res, void *context)
 }
 
 
+/** Convert an ACPI address resource descriptor into a pci_resource_range.
+ *
+ * This is a template because ACPI resources can be encoded using 8, 16, 32 or 64 bit values.
+ */
+template<typename T> void
+DecodeAddress(const T& resource, pci_resource_range& range)
+{
+	const auto& acpiRange = resource.address;
+	dprintf("PCI: range from ACPI [%lx(%d),%lx(%d)] with length %lx\n",
+		(unsigned long)acpiRange.minimum, resource.minAddress_fixed,
+		(unsigned long)acpiRange.maximum, resource.maxAddress_fixed,
+		(unsigned long)acpiRange.address_length);
+
+	// If address_length isn't set, compute it from minimum and maximum
+	// If maximum isn't set, compute it from minimum and length
+	auto addressLength = acpiRange.address_length;
+	phys_addr_t addressMaximum = acpiRange.maximum;
+	if (addressLength == 0)
+		addressLength = acpiRange.maximum - acpiRange.minimum + 1;
+	else if (!resource.maxAddress_fixed)
+		addressMaximum = acpiRange.minimum + addressLength - 1;
+	ASSERT((phys_addr_t)(acpiRange.minimum + addressLength - 1) == addressMaximum);
+
+	range.host_address = acpiRange.minimum + acpiRange.translation_offset;
+	range.pci_address  = acpiRange.minimum;
+	range.size = addressLength;
+}
+
+
 acpi_status
 ECAMPCIControllerACPI::AcpiCrsScanCallbackInt(acpi_resource *res)
 {
-	uint32 outType;
+	pci_resource_range range = {};
 
-	switch (res->data.address.resource_type) {
-		case 0: // ACPI_MEMORY_RANGE
-			outType = kPciRangeMmio;
-			if (res->type == ACPI_RESOURCE_TYPE_ADDRESS64)
-				outType += kPciRangeMmio64Bit;
-			if (res->data.address.info.mem.caching == 3 /*ACPI_PREFETCHABLE_MEMORY*/)
-				outType += kPciRangeMmioPrefetch;
+	switch (res->type) {
+		case ACPI_RESOURCE_TYPE_ADDRESS16: {
+			const auto& address = res->data.address16;
+			DecodeAddress(address, range);
 			break;
-		case 1: // ACPI_IO_RANGE
-			outType = kPciRangeIoPort;
+		}
+		case ACPI_RESOURCE_TYPE_ADDRESS32: {
+			const auto& address = res->data.address32;
+			DecodeAddress(address, range);
+			range.address_type |= PCI_address_type_32;
 			break;
+		}
+		case ACPI_RESOURCE_TYPE_ADDRESS64: {
+			const auto& address = res->data.address64;
+			DecodeAddress(address, range);
+			range.address_type |= PCI_address_type_64;
+			break;
+		}
+
 		default:
 			return B_OK;
 	}
 
-	pci_resource_range& range = fResourceRanges[outType];
-	range.type = outType;
+	switch (res->data.address.resource_type) {
+		case 0: // ACPI_MEMORY_RANGE
+			range.type = B_IO_MEMORY;
+			if (res->data.address.info.mem.caching == 3 /*ACPI_PREFETCHABLE_MEMORY*/)
+				range.address_type |= PCI_address_prefetchable;
+			break;
+		case 1: // ACPI_IO_RANGE
+			range.type = B_IO_PORT;
+			break;
 
-	switch (res->type) {
-		case ACPI_RESOURCE_TYPE_ADDRESS16: {
-			const auto &address = res->data.address16.address;
-			// If address_length isn't set, compute it from minimum and maximum
-			auto address_length = address.address_length;
-			if (address_length == 0)
-				address_length = address.maximum - address.minimum + 1;
-			ASSERT(address.minimum + address_length - 1 == address.maximum);
-			range.host_addr = address.minimum + address.translation_offset;
-			range.pci_addr  = address.minimum;
-			range.size = address_length;
-			break;
-		}
-		case ACPI_RESOURCE_TYPE_ADDRESS32: {
-			const auto &address = res->data.address32.address;
-			// If address_length isn't set, compute it from minimum and maximum
-			auto address_length = address.address_length;
-			if (address_length == 0)
-				address_length = address.maximum - address.minimum + 1;
-			ASSERT(address.minimum + address_length - 1 == address.maximum);
-			range.host_addr = address.minimum + address.translation_offset;
-			range.pci_addr  = address.minimum;
-			range.size = address_length;
-			break;
-		}
-		case ACPI_RESOURCE_TYPE_ADDRESS64: {
-			const auto &address = res->data.address64.address;
-			// If address_length isn't set, compute it from minimum and maximum
-			auto address_length = address.address_length;
-			if (address_length == 0)
-				address_length = address.maximum - address.minimum + 1;
-			ASSERT(address.minimum + address_length - 1 == address.maximum);
-			range.host_addr = address.minimum + address.translation_offset;
-			range.pci_addr  = address.minimum;
-			range.size = address_length;
-			break;
-		}
+		default:
+			return B_OK;
 	}
 
+	fResourceRanges.Add(range);
 	return B_OK;
 }
 

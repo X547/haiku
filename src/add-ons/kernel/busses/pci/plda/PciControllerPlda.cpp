@@ -244,10 +244,10 @@ PciControllerPlda::Init()
 	int32 atrIndex = 0;
 	SetAtrEntry(atrIndex++, fConfigPhysBase, 0, 1 << 28, PciPldaAtrTrslParam{.type = PciPldaAtrTrslId::config});
 
-	for (uint32 i = 0; i < B_COUNT_OF(fResourceRanges); i++) {
-		const pci_resource_range& range = fResourceRanges[i];
-		if (range.type >= kPciRangeMmio && range.type < kPciRangeMmioEnd)
-			SetAtrEntry(atrIndex++, range.host_addr, range.pci_addr, range.size, PciPldaAtrTrslParam{.type = PciPldaAtrTrslId::memory});
+	for (int32 i = 0; i < fResourceRanges.Count(); i++) {
+		const resource_range& range = fResourceRanges[i];
+		if (range.def.type == B_IO_MEMORY)
+			SetAtrEntry(atrIndex++, range.def.host_address, range.def.pci_address, range.def.size, PciPldaAtrTrslParam{.type = PciPldaAtrTrslId::memory});
 	}
 
 	snooze(300000);
@@ -343,29 +343,33 @@ PciControllerPlda::ReadResourceInfo()
 		uint64_t parentAdr = B_BENDIAN_TO_HOST_INT64(*(uint64_t*)(it + 3));
 		uint64_t len       = B_BENDIAN_TO_HOST_INT64(*(uint64_t*)(it + 5));
 
-		uint32 outType = kPciRangeInvalid;
+		resource_range range {
+			.def = {
+				.host_address = parentAdr,
+				.pci_address = childAdr,
+				.size = len
+			},
+			.free = (childAdr != 0) ? childAdr : 1
+		};
+
 		switch (type & fdtPciRangeTypeMask) {
 		case fdtPciRangeIoPort:
-			outType = kPciRangeIoPort;
+			range.def.type = B_IO_PORT;
 			break;
 		case fdtPciRangeMmio32Bit:
-			outType = kPciRangeMmio;
+			range.def.type = B_IO_MEMORY;
+			range.def.address_type |= PCI_address_type_32;
 			break;
 		case fdtPciRangeMmio64Bit:
-			outType = kPciRangeMmio + kPciRangeMmio64Bit;
+			range.def.type = B_IO_MEMORY;
+			range.def.address_type |= PCI_address_type_64;
 			break;
 		}
-		if (outType >= kPciRangeMmio && outType < kPciRangeMmioEnd
-			&& (fdtPciRangePrefechable & type) != 0)
-			outType += kPciRangeMmioPrefetch;
+		if ((type & fdtPciRangePrefechable) != 0)
+			range.def.address_type |= PCI_address_prefetchable;
 
-		if (outType != kPciRangeInvalid) {
-			fResourceRanges[outType].type = outType;
-			fResourceRanges[outType].host_addr = parentAdr;
-			fResourceRanges[outType].pci_addr = childAdr;
-			fResourceRanges[outType].size = len;
-			fResourceFree[outType] = (childAdr != 0) ? childAdr : 1;
-		}
+		if (range.def.type != 0)
+			fResourceRanges.Add(range);
 
 		switch (type & fdtPciRangeTypeMask) {
 		case fdtPciRangeConfig:    dprintf("CONFIG"); break;
@@ -418,21 +422,25 @@ PciControllerPlda::ConfigAddress(uint8 bus, uint8 device, uint8 function, uint16
 // #pragma mark - PCI resource allocator
 
 phys_addr_t
-PciControllerPlda::AllocRegister(uint32 kind, size_t size)
+PciControllerPlda::AllocRegister(PciBarKind kind, size_t size)
 {
-	if (kind == kPciRangeMmio + kPciRangeMmio64Bit) {
-		kind += kPciRangeMmioPrefetch;
+	if ((kind.address_type & PCI_address_type_64) != 0)
+		kind.address_type |= PCI_address_prefetchable;
+
+	for (int32 i = 0; i < fResourceRanges.Count(); i++) {
+		resource_range& range = fResourceRanges[i];
+		if (range.def.type != kind.type || range.def.address_type != kind.address_type)
+			continue;
+
+		phys_addr_t adr = ROUNDUP(range.free, size);
+		if (adr - range.def.pci_address + size > range.def.size)
+			continue;
+
+		range.free = adr + size;
+		return adr;
 	}
 
-	auto& range = fResourceRanges[kind];
-
-	phys_addr_t adr = ROUNDUP(fResourceFree[kind], size);
-	if (adr - range.pci_addr + size > range.size)
-		return 0;
-
-	fResourceFree[kind] = adr + size;
-
-	return adr;
+	return 0;
 }
 
 
@@ -450,20 +458,20 @@ PciControllerPlda::LookupInterruptMap(uint32 childAdr, uint32 childIrq)
 }
 
 
-uint32
+PciBarKind
 PciControllerPlda::GetPciBarKind(uint32 val)
 {
 	if (val % 2 == 1)
-		return kPciRangeIoPort;
+		return {.type = B_IO_PORT};
 	if (val / 2 % 4 == 0)
-		return kPciRangeMmio;
+		return {.type = B_IO_MEMORY, .address_type = PCI_address_type_32};
 /*
 	if (val / 2 % 4 == 1)
 		return kRegMmio1MB;
 */
 	if (val / 2 % 4 == 2)
-		return kPciRangeMmio + kPciRangeMmio64Bit;
-	return kPciRangeInvalid;
+		return {.type = B_IO_MEMORY, .address_type = PCI_address_type_64};
+	return {};
 }
 
 
@@ -480,14 +488,14 @@ PciControllerPlda::GetBarValMask(uint32& val, uint32& mask, uint8 bus, uint8 dev
 
 
 void
-PciControllerPlda::GetBarKindValSize(uint32& barKind, uint64& val, uint64& size, uint8 bus, uint8 device, uint8 function, uint16 offset)
+PciControllerPlda::GetBarKindValSize(PciBarKind& barKind, uint64& val, uint64& size, uint8 bus, uint8 device, uint8 function, uint16 offset)
 {
 	uint32 oldValLo = 0, oldValHi = 0, sizeLo = 0, sizeHi = 0;
 	GetBarValMask(oldValLo, sizeLo, bus, device, function, offset);
 	barKind = GetPciBarKind(oldValLo);
 	val = oldValLo;
 	size = sizeLo;
-	if (barKind == kPciRangeMmio + kPciRangeMmio64Bit) {
+	if (barKind.type == B_IO_MEMORY && (barKind.address_type & PCI_address_type_64) != 0) {
 		GetBarValMask(oldValHi, sizeHi, bus, device, function, offset + 4);
 		val  += ((uint64)oldValHi) << 32;
 		size += ((uint64)sizeHi  ) << 32;
@@ -495,7 +503,7 @@ PciControllerPlda::GetBarKindValSize(uint32& barKind, uint64& val, uint64& size,
 		if (sizeLo != 0)
 			size += ((uint64)0xffffffff) << 32;
 	}
-	if (barKind == kPciRangeIoPort)
+	if (barKind.type == B_IO_PORT)
 		val &= ~(uint64)0x3;
 	else
 		val &= ~(uint64)0xf;
@@ -508,13 +516,13 @@ PciControllerPlda::GetBarVal(uint8 bus, uint8 device, uint8 function, uint16 off
 {
 	uint32 oldValLo = 0, oldValHi = 0;
 	fPciCtrl.ReadPciConfig(bus, device, function, offset, 4, &oldValLo);
-	uint32 barKind = GetPciBarKind(oldValLo);
+	PciBarKind barKind = GetPciBarKind(oldValLo);
 	uint64 val = oldValLo;
-	if (barKind == kPciRangeMmio + kPciRangeMmio64Bit) {
+	if (barKind.type == B_IO_MEMORY && (barKind.address_type & PCI_address_type_64) != 0) {
 		fPciCtrl.ReadPciConfig(bus, device, function, offset + 4, 4, &oldValHi);
 		val += ((uint64)oldValHi) << 32;
 	}
-	if (barKind == kPciRangeIoPort)
+	if (barKind.type == B_IO_PORT)
 		val &= ~(uint64)0x3;
 	else
 		val &= ~(uint64)0xf;
@@ -523,10 +531,10 @@ PciControllerPlda::GetBarVal(uint8 bus, uint8 device, uint8 function, uint16 off
 
 
 void
-PciControllerPlda::SetBarVal(uint8 bus, uint8 device, uint8 function, uint16 offset, uint32 barKind, uint64 val)
+PciControllerPlda::SetBarVal(uint8 bus, uint8 device, uint8 function, uint16 offset, PciBarKind barKind, uint64 val)
 {
 	fPciCtrl.WritePciConfig(bus, device, function, offset, 4, (uint32)val);
-	if (barKind == kPciRangeMmio + kPciRangeMmio64Bit)
+	if (barKind.type == B_IO_MEMORY && (barKind.address_type & PCI_address_type_64) != 0)
 		fPciCtrl.WritePciConfig(bus, device, function, offset + 4, 4, (uint32)(val >> 32));
 }
 
@@ -536,13 +544,12 @@ PciControllerPlda::AllocBar(uint8 bus, uint8 device, uint8 function, uint16 offs
 {
 	bool allocBars = true;
 
-	uint32 regKind;
+	PciBarKind regKind;
 	uint64 val, size;
 	GetBarKindValSize(regKind, val, size, bus, device, function, offset);
-	switch (regKind) {
-		case kPciRangeIoPort:                    dprintf("IOPORT"); break;
-		case kPciRangeMmio:                      dprintf("MMIO32"); break;
-		case kPciRangeMmio + kPciRangeMmio64Bit: dprintf("MMIO64"); break;
+	switch (regKind.type) {
+		case B_IO_PORT:   dprintf("IOPORT"); break;
+		case B_IO_MEMORY: dprintf("MMIO"); break;
 		default:
 			dprintf("?(%#x)", (unsigned)(val%16));
 			dprintf("\n");
@@ -559,7 +566,7 @@ PciControllerPlda::AllocBar(uint8 bus, uint8 device, uint8 function, uint16 offs
 
 	dprintf("\n");
 
-	return regKind == kPciRangeMmio + kPciRangeMmio64Bit;
+	return regKind.type == B_IO_MEMORY && (regKind.address_type & PCI_address_type_64) != 0;
 }
 
 
@@ -722,10 +729,10 @@ PciControllerPlda::PciControllerImpl::WritePciIrq(uint8 bus, uint8 device, uint8
 status_t
 PciControllerPlda::PciControllerImpl::GetRange(uint32 index, pci_resource_range* range)
 {
-	if (index >= kPciRangeEnd)
+	if (index >= (uint32)fBase.fResourceRanges.Count())
 		return B_BAD_INDEX;
 
-	*range = fBase.fResourceRanges[index];
+	*range = fBase.fResourceRanges[index].def;
 	return B_OK;
 }
 

@@ -31,7 +31,7 @@ struct PCIBus {
 	uint8				domain;
 	uint8				bus;
 
-	PCIResourceAllocator resources;
+	//PCIResourceAllocator resources;
 };
 
 struct PCIDev {
@@ -51,6 +51,14 @@ struct PCIDev {
 
 
 struct domain_data {
+	~domain_data()
+	{
+#if !(defined(__i386__) || defined(__x86_64__))
+		if (io_port_area >= 0)
+			delete_area(io_port_area);
+#endif
+	}
+
 	// These two are set in PCI::AddController:
 	PciController *		controller;
 	DeviceNode *		root_node;
@@ -58,11 +66,11 @@ struct domain_data {
 
 	// All the rest is set in PCI::InitDomainData
 	int					max_bus_devices;
-	pci_resource_range 	ranges[kPciRangeEnd];
+	Vector<pci_resource_range> ranges;
 
 #if !(defined(__i386__) || defined(__x86_64__))
-	area_id				io_port_area;
-	uint8 *				io_port_adr;
+	area_id				io_port_area = -1;
+	uint8 *				io_port_adr = NULL;
 #endif
 };
 

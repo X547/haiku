@@ -39,6 +39,13 @@ class DevFsNodeHandle;
 #define B_DMA_MAX_SEGMENT_BLOCKS	"dma/max_segment_blocks"
 #define B_DMA_MAX_SEGMENT_COUNT		"dma/max_segment_count"
 
+/* type of I/O resource */
+enum {
+	B_IO_MEMORY			= 1,
+	B_IO_PORT			= 2,
+	B_ISA_DMA_CHANNEL	= 3
+};
+
 
 /* attribute of a device node */
 typedef struct {

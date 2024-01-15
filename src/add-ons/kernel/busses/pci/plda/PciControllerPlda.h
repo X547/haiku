@@ -7,6 +7,7 @@
 
 #include <AutoDeleter.h>
 #include <AutoDeleterOS.h>
+#include <util/Vector.h>
 
 #include "PldaRegs.h"
 
@@ -75,6 +76,11 @@ struct InterruptMap {
 	uint32 parentIrq;
 };
 
+struct PciBarKind {
+	uint8 type;
+	uint8 address_type;
+};
+
 
 class MsiInterruptCtrlPlda: public InterruptSource, public MSIInterface {
 public:
@@ -125,15 +131,21 @@ private:
 
 	inline addr_t ConfigAddress(uint8 bus, uint8 device, uint8 function, uint16 offset);
 
-	phys_addr_t AllocRegister(uint32 kind, size_t size);
+	phys_addr_t AllocRegister(PciBarKind kind, size_t size);
 	InterruptMap* LookupInterruptMap(uint32 childAdr, uint32 childIrq);
-	uint32 GetPciBarKind(uint32 val);
+	PciBarKind GetPciBarKind(uint32 val);
 	void GetBarValMask(uint32& val, uint32& mask, uint8 bus, uint8 device, uint8 function, uint16 offset);
-	void GetBarKindValSize(uint32& barKind, uint64& val, uint64& size, uint8 bus, uint8 device, uint8 function, uint16 offset);
+	void GetBarKindValSize(PciBarKind& barKind, uint64& val, uint64& size, uint8 bus, uint8 device, uint8 function, uint16 offset);
 	uint64 GetBarVal(uint8 bus, uint8 device, uint8 function, uint16 offset);
-	void SetBarVal(uint8 bus, uint8 device, uint8 function, uint16 offset, uint32 barKind, uint64 val);
+	void SetBarVal(uint8 bus, uint8 device, uint8 function, uint16 offset, PciBarKind barKind, uint64 val);
 	bool AllocBar(uint8 bus, uint8 device, uint8 function, uint16 offset);
 	void AllocRegsForDevice(uint8 bus, uint8 device, uint8 function);
+
+private:
+	struct resource_range {
+		pci_resource_range def;
+		phys_addr_t free;
+	};
 
 private:
 	DeviceNode* fNode;
@@ -144,8 +156,7 @@ private:
 	addr_t fConfigBase {};
 	size_t fConfigSize {};
 
-	pci_resource_range fResourceRanges[kPciRangeEnd] {};
-	phys_addr_t fResourceFree[kPciRangeEnd] {};
+	Vector<resource_range> fResourceRanges;
 	InterruptMapMask fInterruptMapMask {};
 	uint32 fInterruptMapLen {};
 	ArrayDeleter<InterruptMap> fInterruptMap;
