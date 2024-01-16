@@ -1,10 +1,13 @@
 #pragma once
 
+#include <optional>
 
 #include <dm2/bus/USB.h>
 #include <dm2/bus/PCI.h>
 
+#include <AutoDeleterOS.h>
 #include <util/AutoLock.h>
+#include <util/DoublyLinkedList.h>
 #include <util/iovec_support.h>
 
 #include "usbspec_private.h"
@@ -38,9 +41,9 @@
 #define TRACE_MODULE_ERROR(x...)	dprintf("usb " USB_MODULE_NAME ": " x)
 
 
-struct xhci_td;
-struct xhci_device;
-struct xhci_endpoint;
+class XhciTransferDesc;
+class XhciDevice;
+class XhciEndpoint;
 class XHCI;
 
 
@@ -50,61 +53,93 @@ class XHCI;
 #define XHCI_ENDPOINT_RING_SIZE	(XHCI_MAX_TRANSFERS * 2 + 1)
 
 
-typedef struct xhci_td {
-	xhci_trb*	trbs;
-	phys_addr_t	trb_addr;
-	uint32		trb_count;
-	uint32		trb_used;
+class XhciTransferDesc {
+public:
+	XhciTransferDesc(UsbStack* stack): fStack(stack) {}
+	~XhciTransferDesc();
 
-	void**		buffers;
-	phys_addr_t* buffer_addrs;
-	size_t		buffer_size;
-	uint32		buffer_count;
+	size_t Read(generic_io_vec *vector, size_t vectorCount, bool physical);
+	size_t Write(generic_io_vec *vector, size_t vectorCount, bool physical);
 
-	UsbBusTransfer*	transfer;
-	uint8		trb_completion_code;
-	int32		td_transferred;
-	int32		trb_left;
+public:
+	UsbStack*	fStack;
 
-	xhci_td*	next;
-} xhci_td;
+	xhci_trb*	fTrbs {};
+	phys_addr_t	fTrbAddr {};
+	uint32		fTrbCount {};
+	uint32		fTrbUsed {};
+
+	void**		fBuffers {};
+	phys_addr_t* fBufferAddrs {};
+	size_t		fBufferSize {};
+	uint32		fBufferCount {};
+
+	UsbBusTransfer*	fTransfer {};
+	uint8		fTrbCompletionCode {};
+	int32		fTdTransferred {};
+	int32		fTrbLeft {};
+
+	DoublyLinkedListLink<XhciTransferDesc>
+				fLink;
+
+public:
+	typedef DoublyLinkedList<
+		XhciTransferDesc,
+		DoublyLinkedListMemberGetLink<XhciTransferDesc, &XhciTransferDesc::fLink>
+	> List;
+};
 
 
-typedef struct xhci_endpoint {
-	mutex 			lock;
+class XhciEndpoint {
+public:
+	XhciEndpoint(XhciDevice* device, uint8 id): fDevice(device), fId(id) {}
 
-	xhci_device*	device;
-	uint8			id;
+	status_t LinkDescriptor(XhciTransferDesc *descriptor);
+	status_t UnlinkDescriptor(XhciTransferDesc *descriptor);
 
-	uint16			max_burst_payload;
+public:
+	mutex 			fLock = MUTEX_INITIALIZER("xhci endpoint lock");
 
-	xhci_td*		td_head;
-	uint8			used;
-	uint8			current;
+	XhciDevice*		fDevice {};
+	uint8			fId {};
 
-	xhci_trb*		trbs; // [XHCI_ENDPOINT_RING_SIZE]
-	phys_addr_t 	trb_addr;
-} xhci_endpoint;
+	uint16			fMaxBurstPayload {};
+
+	XhciTransferDesc::List
+					fTransferDescs;
+	uint8			fUsed {};
+	uint8			fCurrent {};
+
+	xhci_trb*		fTrbs {}; // [XHCI_ENDPOINT_RING_SIZE]
+	phys_addr_t 	fTrbAddr {};
+};
 
 
-typedef struct xhci_device {
-	uint8 slot;
-	uint8 address;
-	bool is_multi_tt;
-	area_id trb_area;
-	phys_addr_t trb_addr;
-	struct xhci_trb *trbs; // [XHCI_MAX_ENDPOINTS - 1][XHCI_ENDPOINT_RING_SIZE]
+class XhciDevice {
+public:
+	XhciDevice(XHCI* base): fBase(base) {}
+	~XhciDevice();
 
-	area_id input_ctx_area;
-	phys_addr_t input_ctx_addr;
-	struct xhci_input_device_ctx *input_ctx;
+public:
+	XHCI* fBase;
 
-	area_id device_ctx_area;
-	phys_addr_t device_ctx_addr;
-	struct xhci_device_ctx *device_ctx;
+	uint8 fSlot {};
+	uint8 fAddress {};
+	bool fIsMultiTt {};
+	AreaDeleter fTrbArea;
+	phys_addr_t fTrbAddr {};
+	struct xhci_trb* fTrbs {}; // [XHCI_MAX_ENDPOINTS - 1][XHCI_ENDPOINT_RING_SIZE]
 
-	xhci_endpoint endpoints[XHCI_MAX_ENDPOINTS - 1];
-} xhci_device;
+	AreaDeleter fInputCtxArea;
+	phys_addr_t fInputCtxAddr {};
+	struct xhci_input_device_ctx* fInputCtx {};
+
+	AreaDeleter fDeviceCtxArea;
+	phys_addr_t fDeviceCtxAddr {};
+	struct xhci_device_ctx* fDeviceCtx {};
+
+	std::optional<XhciEndpoint> fEndpoints[XHCI_MAX_ENDPOINTS - 1];
+};
 
 
 class XHCIRootHub {
@@ -228,16 +263,13 @@ private:
 	static	int32				InterruptHandler(void *data);
 			int32				Interrupt();
 
-			// Device management
-			void				CleanupDevice(xhci_device *device);
-
 			// Endpoint management
-			status_t			ConfigureEndpoint(xhci_endpoint* ep, uint8 slot,
+			status_t			ConfigureEndpoint(XhciEndpoint* ep, uint8 slot,
 									uint8 number, uint8 type, bool directionIn,
 									uint16 interval, uint16 maxPacketSize,
 									usb_speed speed, uint8 maxBurst,
 									uint16 bytesPerInterval);
-			uint8				_GetEndpointState(xhci_endpoint* ep);
+			uint8				_GetEndpointState(XhciEndpoint* ep);
 
 			status_t			_InsertEndpointForPipe(UsbBusPipe *pipe);
 			status_t			_RemoveEndpointForPipe(UsbBusPipe *pipe);
@@ -252,19 +284,8 @@ private:
 			void				FinishTransfers();
 
 			// Descriptor management
-			xhci_td *			CreateDescriptor(uint32 trbCount,
+			XhciTransferDesc *			CreateDescriptor(uint32 trbCount,
 									uint32 bufferCount, size_t bufferSize);
-			void				FreeDescriptor(xhci_td *descriptor);
-
-			size_t				WriteDescriptor(xhci_td *descriptor,
-									generic_io_vec *vector, size_t vectorCount, bool physical);
-			size_t				ReadDescriptor(xhci_td *descriptor,
-									generic_io_vec *vector, size_t vectorCount, bool physical);
-
-			status_t			_LinkDescriptorForPipe(xhci_td *descriptor,
-									xhci_endpoint *endpoint);
-			status_t			_UnlinkDescriptorForPipe(xhci_td *descriptor,
-									xhci_endpoint *endpoint);
 
 			// Command
 			void				DumpRing(xhci_trb *trb, uint32 size);
@@ -286,8 +307,8 @@ private:
 									bool deconfigure, uint8 slot);
 			status_t			EvaluateContext(uint64 inputContext,
 									uint8 slot);
-			status_t			ResetEndpoint(bool preserve, xhci_endpoint* endpoint);
-			status_t			StopEndpoint(bool suspend, xhci_endpoint* endpoint);
+			status_t			ResetEndpoint(bool preserve, XhciEndpoint* endpoint);
+			status_t			StopEndpoint(bool suspend, XhciEndpoint* endpoint);
 			status_t			SetTRDequeue(uint64 dequeue, uint16 stream,
 									uint8 endpoint, uint8 slot);
 			status_t			ResetDevice(uint8 slot);
@@ -320,6 +341,9 @@ private:
 
 
 private:
+			friend class XhciDevice;
+			friend class XhciEndpoint;
+
 			DeviceNode*			fNode;
 			UsbBusManager*		fBusManager {};
 
@@ -368,12 +392,14 @@ private:
 			void*				fScratchpad[XHCI_MAX_SCRATCHPADS] {};
 
 			// Devices
-			struct xhci_device	fDevices[XHCI_MAX_DEVICES] {};
+			std::optional<XhciDevice>
+								fDevices[XHCI_MAX_DEVICES] {};
 			int32				fContextSizeShift {}; // 0/1 for 32/64 bytes
 
 			// Transfers
 			mutex				fFinishedLock {};
-			xhci_td*			fFinishedHead {};
+			XhciTransferDesc::List
+								fFinishedList;
 			sem_id				fFinishTransfersSem = -1;
 			thread_id			fFinishThread = -1;
 
