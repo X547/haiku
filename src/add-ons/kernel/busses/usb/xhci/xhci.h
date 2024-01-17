@@ -93,6 +93,9 @@ public:
 class XhciEndpoint {
 public:
 	XhciEndpoint(XhciDevice* device, uint8 id): fDevice(device), fId(id) {}
+	status_t Configure(uint8 type,
+		bool directionIn, uint16 interval, uint16 maxPacketSize, usb_speed speed,
+		uint8 maxBurst, uint16 bytesPerInterval);
 
 	status_t LinkDescriptor(XhciTransferDesc *descriptor);
 	status_t UnlinkDescriptor(XhciTransferDesc *descriptor);
@@ -117,13 +120,13 @@ public:
 
 class XhciDevice {
 public:
-	XhciDevice(XHCI* base): fBase(base) {}
+	XhciDevice(XHCI* base, uint8 slot): fBase(base), fSlot(slot) {}
 	~XhciDevice();
 
 public:
 	XHCI* fBase;
 
-	uint8 fSlot {};
+	uint8 fSlot;
 	uint8 fAddress {};
 	bool fIsMultiTt {};
 	AreaDeleter fTrbArea;
