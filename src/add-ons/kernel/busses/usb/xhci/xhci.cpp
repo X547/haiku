@@ -548,11 +548,10 @@ XHCI::Start()
 	Virt        Phys                       Size
 	fErst       XHCI_ERSTBA                sizeof(xhci_erst_element)
 	fEventRing  XHCI_ERDP, fErst->rs_addr  XHCI_MAX_EVENTS * sizeof(xhci_trb)
-	fCmdRing    XHCI_CRCR                  XHCI_MAX_COMMANDS * sizeof(xhci_trb)
 */
 	uint8 *addr;
 	fErstArea = fStack->AllocateArea((void **)&addr, &dmaAddress,
-		(XHCI_MAX_COMMANDS + XHCI_MAX_EVENTS) * sizeof(xhci_trb)
+		(XHCI_MAX_EVENTS) * sizeof(xhci_trb)
 		+ sizeof(xhci_erst_element),
 		"USB XHCI ERST CMD_RING and EVENT_RING Area");
 
@@ -562,7 +561,7 @@ XHCI::Start()
 		return B_ERROR;
 	}
 	fErst = (xhci_erst_element *)addr;
-	memset(fErst, 0, (XHCI_MAX_COMMANDS + XHCI_MAX_EVENTS) * sizeof(xhci_trb)
+	memset(fErst, 0, XHCI_MAX_EVENTS * sizeof(xhci_trb)
 		+ sizeof(xhci_erst_element));
 
 	// fill with Event Ring Segment Base Address and Event Ring Segment Size
@@ -573,7 +572,7 @@ XHCI::Start()
 	addr += sizeof(xhci_erst_element);
 	fEventRing = (xhci_trb *)addr;
 	addr += XHCI_MAX_EVENTS * sizeof(xhci_trb);
-	fCmdRing = (xhci_trb *)addr;
+	//fCmdRing = (xhci_trb *)addr;
 
 	TRACE("setting ERST size\n");
 	WriteRunReg32(XHCI_ERSTSZ(0), XHCI_ERSTS_SET(1));
@@ -585,9 +584,6 @@ XHCI::Start()
 	TRACE("setting ERST base addr = 0x%" B_PRIxPHYSADDR "\n", dmaAddress);
 	WriteRunReg32(XHCI_ERSTBA_LO(0), (uint32)dmaAddress);
 	WriteRunReg32(XHCI_ERSTBA_HI(0), (uint32)(dmaAddress >> 32));
-
-	dmaAddress += sizeof(xhci_erst_element) + XHCI_MAX_EVENTS
-		* sizeof(xhci_trb);
 
 	// Make sure the Command Ring is stopped
 	if ((ReadOpReg(XHCI_CRCR_LO) & CRCR_CRR) != 0) {
@@ -601,11 +597,11 @@ XHCI::Start()
 			TRACE_ERROR("Command Ring still running after stop/cancel\n");
 		}
 	}
+	CHECK_RET(fCmdRing.Init(1));
+	dmaAddress = fCmdRing.EnqueueRd().seg->fTrbAddr;
 	TRACE("setting CRCR addr = 0x%" B_PRIxPHYSADDR "\n", dmaAddress);
 	WriteOpReg(XHCI_CRCR_LO, (uint32)dmaAddress | CRCR_RCS);
 	WriteOpReg(XHCI_CRCR_HI, (uint32)(dmaAddress >> 32));
-	// link trb
-	fCmdRing[XHCI_MAX_COMMANDS - 1].address = dmaAddress;
 
 	TRACE("setting interrupt rate\n");
 
@@ -666,10 +662,8 @@ XHCI::SubmitTransfer(UsbBusTransfer* transfer)
 	if (pipe->GetDevice() == fRootHub3.GetDevice())
 		return fRootHub3.ProcessTransfer(transfer);
 
-	if (pipe->Type() == USB_PIPE_CONTROL)
-		return SubmitControlRequest(transfer);
-
-	return SubmitNormalRequest(transfer);
+	XhciEndpoint* endpoint = (XhciEndpoint*)pipe->ControllerCookie();
+	return endpoint->fRing.SubmitTransfer(*this, transfer);
 }
 
 
@@ -1016,8 +1010,6 @@ XHCI::CancelQueuedTransfers(UsbBusPipe* pipe, bool force)
 		transfers[i]->Free();
 	}
 
-	// This loop looks a bit strange because we need to store the "next"
-	// pointer before freeing the descriptor.
 	XhciTransferDesc* td;
 	while ((td = tdList.RemoveHead()) != NULL)
 		delete td;
@@ -1890,6 +1882,10 @@ XhciEndpoint::Configure(uint8 type,
 	bool directionIn, uint16 interval, uint16 maxPacketSize, usb_speed speed,
 	uint8 maxBurst, uint16 bytesPerInterval)
 {
+	TRACE("XhciEndpoint::Configure()\n");
+
+	CHECK_RET(fRing.Init(2));
+
 	xhci_endpoint0 dwendpoint0 {};
 	xhci_endpoint1 dwendpoint1 {};
 	uint64 qwendpoint2 = 0;
@@ -1960,7 +1956,7 @@ XhciEndpoint::Configure(uint8 type,
 	// Assign maximum packet size, set the ring address, and set the
 	// "Dequeue Cycle State" bit. (XHCI 1.2 § 6.2.3 Table 6-10 p453.)
 	dwendpoint1.max_packet_size = maxPacketSize;
-	qwendpoint2 |= ENDPOINT_2_DCS_BIT | fTrbAddr;
+	qwendpoint2 |= ENDPOINT_2_DCS_BIT | fRing.EnqueueRd().PhysAddr();
 
 	// The Max Burst Payload is the number of bytes moved by a
 	// maximum sized burst. (XHCI 1.2 § 4.11.7.1 p236.)
@@ -2296,56 +2292,52 @@ XHCI::Ring(uint8 slot, uint8 endpoint)
 void
 XHCI::QueueCommand(xhci_trb* trb)
 {
-	uint8 i, j;
-	uint32 temp;
-
-	i = fCmdIdx;
-	j = fCmdCcs;
-
-	TRACE("command[%u] = %" B_PRId32 " (0x%016" B_PRIx64 ", 0x%08" B_PRIx32
-		", 0x%08" B_PRIx32 ")\n", i, TRB_3_TYPE_GET(trb->flags), trb->address,
+	TRACE("command = %" B_PRId32 " (0x%016" B_PRIx64 ", 0x%08" B_PRIx32
+		", 0x%08" B_PRIx32 ")\n", TRB_3_TYPE_GET(trb->flags), trb->address,
 		trb->status, trb->flags);
 
-	fCmdRing[i].address = trb->address;
-	fCmdRing[i].status = trb->status;
-	temp = trb->flags;
+	XhciRingRider rd = fCmdRing.EnqueueRd();
 
-	if (j)
-		temp |= TRB_3_CYCLE_BIT;
-	else
-		temp &= ~TRB_3_CYCLE_BIT;
-	temp &= ~TRB_3_TC_BIT;
-	fCmdRing[i].flags = B_HOST_TO_LENDIAN_INT32(temp);
+	rd.trb->address = trb->address;
+	rd.trb->status = trb->status;
+	rd.trb->flags = trb->flags | (rd.cycleBit ? 0 : TRB_3_CYCLE_BIT);
 
-	fCmdAddr = fErst->rs_addr + (XHCI_MAX_EVENTS + i) * sizeof(xhci_trb);
+	rd.IncSkipLinks();
 
-	i++;
-
-	if (i == (XHCI_MAX_COMMANDS - 1)) {
-		temp = TRB_3_TYPE(TRB_TYPE_LINK) | TRB_3_TC_BIT;
-		if (j)
-			temp |= TRB_3_CYCLE_BIT;
-		fCmdRing[i].flags = B_HOST_TO_LENDIAN_INT32(temp);
-
-		i = 0;
-		j ^= 1;
-	}
-
-	fCmdIdx = i;
-	fCmdCcs = j;
+	fCmdRing.Commit(rd);
 }
 
 
 void
 XHCI::HandleCmdComplete(xhci_trb* trb)
 {
-	if (fCmdAddr == trb->address) {
+	if (fCmdRing.DequeueRd().PhysAddr() == trb->address) {
 		TRACE("Received command event\n");
+
+		XhciRingRider rd = fCmdRing.DequeueRd();
+		rd.IncSkipLinks();
+		fCmdRing.Complete(rd);
+
 		fCmdResult[0] = trb->status;
 		fCmdResult[1] = B_LENDIAN_TO_HOST_INT32(trb->flags);
 		release_sem_etc(fCmdCompSem, 1, B_DO_NOT_RESCHEDULE);
 	} else
 		TRACE_ERROR("received command event for unknown command!\n");
+}
+
+
+void
+XHCI::CompleteTransferDesc(XhciTransferDesc* td)
+{
+	// add descriptor to finished list
+	if (mutex_trylock(&fFinishedLock) != B_OK)
+		mutex_lock(&fFinishedLock);
+
+	fFinishedList.Insert(td, false);
+	mutex_unlock(&fFinishedLock);
+
+	release_sem_etc(fFinishTransfersSem, 1, B_DO_NOT_RESCHEDULE);
+	TRACE("HandleTransferComplete td %p done\n", td);
 }
 
 
@@ -2366,11 +2358,6 @@ XHCI::HandleTransferComplete(xhci_trb* trb)
 	XhciDevice *device = &(*fDevices[slot]);
 	XhciEndpoint *endpoint = &(*device->fEndpoints[endpointNumber - 1]);
 
-	if (endpoint->fTrbs == NULL) {
-		TRACE_ERROR("got TRB but endpoint is not allocated!\n");
-		return;
-	}
-
 	// Use mutex_trylock first, in case we are in KDL.
 	MutexLocker endpointLocker(endpoint->fLock, mutex_trylock(&endpoint->fLock) == B_OK);
 	if (!endpointLocker.IsLocked()) {
@@ -2379,68 +2366,7 @@ XHCI::HandleTransferComplete(xhci_trb* trb)
 		return;
 	}
 
-	// In the case of an Event Data TRB, the "transferred" field refers
-	// to the actual number of bytes transferred across the whole TD.
-	// (XHCI 1.2 § 6.4.2.1 Table 6-38 p478.)
-	const uint8 completionCode = TRB_2_COMP_CODE_GET(trb->status);
-	int32 transferred = TRB_2_REM_GET(trb->status), remainder = -1;
-
-	TRACE("HandleTransferComplete: ed %" B_PRIu32 ", code %" B_PRIu8 ", transferred %" B_PRId32 "\n",
-		  (flags & TRB_3_EVENT_DATA_BIT), completionCode, transferred);
-
-	if ((flags & TRB_3_EVENT_DATA_BIT) == 0) {
-		// This should only occur under error conditions.
-		TRACE("got an interrupt for a non-Event Data TRB!\n");
-		remainder = transferred;
-		transferred = -1;
-	}
-
-	if (completionCode != COMP_SUCCESS && completionCode != COMP_SHORT_PACKET
-			&& completionCode != COMP_STOPPED) {
-		TRACE_ALWAYS("transfer error on slot %" B_PRId8 " endpoint %" B_PRId8
-			": %s\n", slot, endpointNumber, xhci_error_string(completionCode));
-	}
-
-	const phys_addr_t source = B_LENDIAN_TO_HOST_INT64(trb->address);
-	for (XhciTransferDesc *td = endpoint->fTransferDescs.First(); td != NULL; td = endpoint->fTransferDescs.GetNext(td)) {
-		int64 offset = (source - td->fTrbAddr) / sizeof(xhci_trb);
-		if (offset < 0 || offset >= td->fTrbCount)
-			continue;
-
-		TRACE("HandleTransferComplete td %p trb %" B_PRId64 " found\n",
-			td, offset);
-
-		// The TRB at offset fTrbUsed will be the link TRB, which we do not
-		// care about (and should not generate an interrupt at all.) We really
-		// care about the properly last TRB, at index "count - 1", which the
-		// Event Data TRB that _LinkDescriptorForPipe creates points to.
-		//
-		// But if we have an unsuccessful completion code, the transfer
-		// likely failed midway; so just accept it anyway.
-		if (offset == (td->fTrbUsed - 1) || completionCode != COMP_SUCCESS) {
-			endpoint->UnlinkDescriptor(td);
-			endpointLocker.Unlock();
-
-			td->fTrbCompletionCode = completionCode;
-			td->fTdTransferred = transferred;
-			td->fTrbLeft = remainder;
-
-			// add descriptor to finished list
-			if (mutex_trylock(&fFinishedLock) != B_OK)
-				mutex_lock(&fFinishedLock);
-
-			fFinishedList.Insert(td, false);
-			mutex_unlock(&fFinishedLock);
-
-			release_sem_etc(fFinishTransfersSem, 1, B_DO_NOT_RESCHEDULE);
-			TRACE("HandleTransferComplete td %p done\n", td);
-		} else {
-			TRACE_ERROR("successful TRB 0x%" B_PRIxPHYSADDR " was found, but it wasn't "
-				"the last in the TD!\n", source);
-		}
-		return;
-	}
-	TRACE_ERROR("TRB 0x%" B_PRIxPHYSADDR " was not found in the endpoint!\n", source);
+	endpoint->fRing.CompleteTransfer(*this, endpointLocker, *trb);
 }
 
 
@@ -2484,7 +2410,6 @@ XHCI::DoCommand(xhci_trb* trb)
 		if (acquire_sem_etc(fCmdCompSem, 1, B_RELATIVE_TIMEOUT,
 				750 * 1000) != B_OK) {
 			TRACE("Unable to obtain fCmdCompSem!\n");
-			fCmdAddr = 0;
 			Unlock();
 			return B_TIMED_OUT;
 		}
@@ -2509,7 +2434,6 @@ XHCI::DoCommand(xhci_trb* trb)
 	trb->status = fCmdResult[0];
 	trb->flags = fCmdResult[1];
 
-	fCmdAddr = 0;
 	Unlock();
 	return status;
 }
@@ -2905,130 +2829,6 @@ XHCI::FinishTransfers()
 		}
 		mutex_unlock(&fFinishedLock);
 	}
-}
-
-
-// #pragma mark - Register access
-
-inline void
-XHCI::WriteOpReg(uint32 reg, uint32 value)
-{
-	*(volatile uint32 *)(fRegisters + fOperationalRegisterOffset + reg) = value;
-}
-
-
-inline uint32
-XHCI::ReadOpReg(uint32 reg)
-{
-	return *(volatile uint32 *)(fRegisters + fOperationalRegisterOffset + reg);
-}
-
-
-inline status_t
-XHCI::WaitOpBits(uint32 reg, uint32 mask, uint32 expected)
-{
-	int loops = 0;
-	uint32 value = ReadOpReg(reg);
-	while ((value & mask) != expected) {
-		snooze(1000);
-		value = ReadOpReg(reg);
-		if (loops == 100) {
-			TRACE("delay waiting on reg 0x%" B_PRIX32 " match 0x%" B_PRIX32
-				" (0x%" B_PRIX32 ")\n",	reg, expected, mask);
-		} else if (loops > 250) {
-			TRACE_ERROR("timeout waiting on reg 0x%" B_PRIX32
-				" match 0x%" B_PRIX32 " (0x%" B_PRIX32 ")\n", reg, expected,
-				mask);
-			return B_ERROR;
-		}
-		loops++;
-	}
-	return B_OK;
-}
-
-
-inline uint32
-XHCI::ReadCapReg32(uint32 reg)
-{
-	return *(volatile uint32 *)(fRegisters + fCapabilityRegisterOffset + reg);
-}
-
-
-inline void
-XHCI::WriteCapReg32(uint32 reg, uint32 value)
-{
-	*(volatile uint32 *)(fRegisters + fCapabilityRegisterOffset + reg) = value;
-}
-
-
-inline uint32
-XHCI::ReadRunReg32(uint32 reg)
-{
-	return *(volatile uint32 *)(fRegisters + fRuntimeRegisterOffset + reg);
-}
-
-
-inline void
-XHCI::WriteRunReg32(uint32 reg, uint32 value)
-{
-	*(volatile uint32 *)(fRegisters + fRuntimeRegisterOffset + reg) = value;
-}
-
-
-inline uint32
-XHCI::ReadDoorReg32(uint32 reg)
-{
-	return *(volatile uint32 *)(fRegisters + fDoorbellRegisterOffset + reg);
-}
-
-
-inline void
-XHCI::WriteDoorReg32(uint32 reg, uint32 value)
-{
-	*(volatile uint32 *)(fRegisters + fDoorbellRegisterOffset + reg) = value;
-}
-
-
-inline addr_t
-XHCI::_OffsetContextAddr(addr_t p)
-{
-	if (fContextSizeShift == 1) {
-		// each structure is page aligned, each pointer is 32 bits aligned
-		uint32 offset = p & ((B_PAGE_SIZE - 1) & ~31U);
-		p += offset;
-	}
-	return p;
-}
-
-inline uint32
-XHCI::_ReadContext(uint32* p)
-{
-	p = (uint32*)_OffsetContextAddr((addr_t)p);
-	return *p;
-}
-
-
-inline void
-XHCI::_WriteContext(uint32* p, uint32 value)
-{
-	p = (uint32*)_OffsetContextAddr((addr_t)p);
-	*p = value;
-}
-
-
-inline uint64
-XHCI::_ReadContext(uint64* p)
-{
-	p = (uint64*)_OffsetContextAddr((addr_t)p);
-	return *p;
-}
-
-
-inline void
-XHCI::_WriteContext(uint64* p, uint64 value)
-{
-	p = (uint64*)_OffsetContextAddr((addr_t)p);
-	*p = value;
 }
 
 

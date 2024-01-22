@@ -41,6 +41,7 @@
 #define TRACE_MODULE_ERROR(x...)	dprintf("usb " USB_MODULE_NAME ": " x)
 
 
+class XhciRing;
 class XhciTransferDesc;
 class XhciDevice;
 class XhciEndpoint;
@@ -53,16 +54,116 @@ class XHCI;
 #define XHCI_ENDPOINT_RING_SIZE	(XHCI_MAX_TRANSFERS * 2 + 1)
 
 
+class XhciRingSegment {
+public:
+	status_t Init(bool cycleBit);
+	~XhciRingSegment();
+
+	xhci_trb* LinkTrb() const {return fTrbs + kMaxUsableLength;}
+
+	void SetNext(XhciRingSegment* nextSeg)
+	{
+		fNext = nextSeg;
+		LinkTrb()->address = nextSeg->fTrbAddr;
+	}
+
+public:
+	static const uint32 kMaxLength = (B_PAGE_SIZE / sizeof(xhci_trb));
+	static const uint32 kMaxUsableLength = kMaxLength - 1;
+
+	XhciRingSegment* fNext {};
+	xhci_trb* fTrbs {};
+	phys_addr_t fTrbAddr {};
+};
+
+
+struct XhciRingRider {
+	XhciRingSegment* seg;
+	xhci_trb* trb;
+	bool cycleBit;
+
+	XhciRingRider(): seg(NULL), trb(NULL), cycleBit(true) {}
+	XhciRingRider(XhciRingSegment* seg): seg(seg), trb(seg->fTrbs), cycleBit(true) {}
+	XhciRingRider(XhciRingSegment* seg, xhci_trb* trb): seg(seg), trb(trb), cycleBit(true) {}
+
+	phys_addr_t PhysAddr() const
+	{
+		return seg->fTrbAddr + ((uint8*)trb - (uint8*)seg->fTrbs);
+	}
+
+	bool operator==(const XhciRingRider& other) const
+	{
+		return trb == other.trb;
+	}
+
+	bool operator!=(const XhciRingRider& other) const
+	{
+		return trb != other.trb;
+	}
+
+	bool IsLink() const
+	{
+		return (trb == seg->fTrbs + XhciRingSegment::kMaxLength - 1);
+	}
+
+	void Inc()
+	{
+		if (IsLink()) {
+			if ((seg->LinkTrb()->flags & TRB_3_TC_BIT) != 0)
+				cycleBit = !cycleBit;
+
+			seg = seg->fNext;
+			trb = seg->fTrbs;
+		} else {
+			trb++;
+		}
+	}
+
+	void IncSkipLinks()
+	{
+		Inc();
+		if (IsLink())
+			Inc();
+	}
+
+	int32 Substract(XhciRingRider rd, bool skipLinks) const
+	{
+		int32 res = 0;
+		while (rd.seg != seg) {
+			res += XhciRingSegment::kMaxLength - (rd.trb - seg->fTrbs);
+			if (skipLinks)
+				res -= 1;
+
+			rd.seg = rd.seg->fNext;
+		}
+		res += rd.trb - rd.seg->fTrbs;
+		if (skipLinks && res != 0 && rd.IsLink())
+			res -= 1;
+
+		return res;
+	}
+};
+
+
 class XhciTransferDesc {
 public:
 	XhciTransferDesc(UsbStack* stack): fStack(stack) {}
 	~XhciTransferDesc();
 
-	size_t Read(generic_io_vec *vector, size_t vectorCount, bool physical);
-	size_t Write(generic_io_vec *vector, size_t vectorCount, bool physical);
+	size_t Read(generic_io_vec* vector, size_t vectorCount, bool physical);
+	size_t Write(generic_io_vec* vector, size_t vectorCount, bool physical);
+
+	status_t AllocBuffer(uint32 bufferCount, size_t bufferSize);
+
+	status_t FillTransfer(XHCI& xhci, XhciRing& ring);
+	status_t FillControlTransfer(XHCI& xhci, XhciRing& ring);
+	status_t FillNormalTransfer(XHCI& xhci, XhciRing& ring);
 
 public:
 	UsbStack*	fStack;
+
+	XhciRingRider fBegin;
+	XhciRingRider fEnd;
 
 	xhci_trb*	fTrbs {};
 	phys_addr_t	fTrbAddr {};
@@ -90,6 +191,34 @@ public:
 };
 
 
+class XhciRing {
+public:
+	~XhciRing();
+	status_t Init(uint32 segmentCount);
+
+	status_t Alloc(XhciRingRider& rd, bool chain);
+	void Commit(const XhciRingRider& newEnqueue);
+	void Complete(const XhciRingRider& newDequeue) {fDequeue = newDequeue;}
+
+	const XhciRingRider& EnqueueRd() const {return fEnqueue;}
+	const XhciRingRider& DequeueRd() const {return fDequeue;}
+
+	status_t SubmitTransfer(XHCI& xhci, UsbBusTransfer* transfer);
+	void CompleteTransfer(XHCI& xhci, MutexLocker& locker, const xhci_trb& eventTrb);
+
+	static void DumpTrb(xhci_trb& trb);
+
+private:
+	XhciTransferDesc* LookupTransferDesc(phys_addr_t addr);
+
+private:
+	XhciRingRider fEnqueue;
+	XhciRingRider fDequeue;
+
+	XhciTransferDesc::List fTransferDescs;
+};
+
+
 class XhciEndpoint {
 public:
 	XhciEndpoint(XhciDevice* device, uint8 id): fDevice(device), fId(id) {}
@@ -107,6 +236,8 @@ public:
 	uint8			fId {};
 
 	uint16			fMaxBurstPayload {};
+
+	XhciRing		fRing;
 
 	XhciTransferDesc::List
 					fTransferDescs;
@@ -294,6 +425,7 @@ private:
 			void				DumpRing(xhci_trb *trb, uint32 size);
 			void				QueueCommand(xhci_trb *trb);
 			void				HandleCmdComplete(xhci_trb *trb);
+			void				CompleteTransferDesc(XhciTransferDesc* td);
 			void				HandleTransferComplete(xhci_trb *trb);
 			status_t			DoCommand(xhci_trb *trb);
 
@@ -346,6 +478,8 @@ private:
 private:
 			friend class XhciDevice;
 			friend class XhciEndpoint;
+			friend class XhciRing;
+			friend class XhciTransferDesc;
 
 			DeviceNode*			fNode;
 			UsbBusManager*		fBusManager {};
@@ -367,8 +501,7 @@ private:
 			area_id				fErstArea = -1;
 			xhci_erst_element*	fErst {};
 			xhci_trb*			fEventRing {};
-			xhci_trb*			fCmdRing {};
-			uint64				fCmdAddr {};
+			XhciRing			fCmdRing;
 			uint32				fCmdResult[2] {};
 
 			area_id				fDcbaArea = -1;
@@ -411,9 +544,7 @@ private:
 			thread_id			fEventThread = -1;
 			mutex				fEventLock {};
 			uint16				fEventIdx {};
-			uint16				fCmdIdx {};
 			uint8				fEventCcs = 1;
-			uint8				fCmdCcs = 1;
 
 			uint32				fExitLatMax {};
 
@@ -428,3 +559,127 @@ private:
 		XHCI& fBase;
 	} fBusManagerDriver;
 };
+
+
+// #pragma mark - Register access
+
+inline void
+XHCI::WriteOpReg(uint32 reg, uint32 value)
+{
+	*(volatile uint32 *)(fRegisters + fOperationalRegisterOffset + reg) = value;
+}
+
+
+inline uint32
+XHCI::ReadOpReg(uint32 reg)
+{
+	return *(volatile uint32 *)(fRegisters + fOperationalRegisterOffset + reg);
+}
+
+
+inline status_t
+XHCI::WaitOpBits(uint32 reg, uint32 mask, uint32 expected)
+{
+	int loops = 0;
+	uint32 value = ReadOpReg(reg);
+	while ((value & mask) != expected) {
+		snooze(1000);
+		value = ReadOpReg(reg);
+		if (loops == 100) {
+			TRACE("delay waiting on reg 0x%" B_PRIX32 " match 0x%" B_PRIX32
+				" (0x%" B_PRIX32 ")\n",	reg, expected, mask);
+		} else if (loops > 250) {
+			TRACE_ERROR("timeout waiting on reg 0x%" B_PRIX32
+				" match 0x%" B_PRIX32 " (0x%" B_PRIX32 ")\n", reg, expected,
+				mask);
+			return B_ERROR;
+		}
+		loops++;
+	}
+	return B_OK;
+}
+
+
+inline uint32
+XHCI::ReadCapReg32(uint32 reg)
+{
+	return *(volatile uint32 *)(fRegisters + fCapabilityRegisterOffset + reg);
+}
+
+
+inline void
+XHCI::WriteCapReg32(uint32 reg, uint32 value)
+{
+	*(volatile uint32 *)(fRegisters + fCapabilityRegisterOffset + reg) = value;
+}
+
+
+inline uint32
+XHCI::ReadRunReg32(uint32 reg)
+{
+	return *(volatile uint32 *)(fRegisters + fRuntimeRegisterOffset + reg);
+}
+
+
+inline void
+XHCI::WriteRunReg32(uint32 reg, uint32 value)
+{
+	*(volatile uint32 *)(fRegisters + fRuntimeRegisterOffset + reg) = value;
+}
+
+
+inline uint32
+XHCI::ReadDoorReg32(uint32 reg)
+{
+	return *(volatile uint32 *)(fRegisters + fDoorbellRegisterOffset + reg);
+}
+
+
+inline void
+XHCI::WriteDoorReg32(uint32 reg, uint32 value)
+{
+	*(volatile uint32 *)(fRegisters + fDoorbellRegisterOffset + reg) = value;
+}
+
+
+inline addr_t
+XHCI::_OffsetContextAddr(addr_t p)
+{
+	if (fContextSizeShift == 1) {
+		// each structure is page aligned, each pointer is 32 bits aligned
+		uint32 offset = p & ((B_PAGE_SIZE - 1) & ~31U);
+		p += offset;
+	}
+	return p;
+}
+
+inline uint32
+XHCI::_ReadContext(uint32* p)
+{
+	p = (uint32*)_OffsetContextAddr((addr_t)p);
+	return *p;
+}
+
+
+inline void
+XHCI::_WriteContext(uint32* p, uint32 value)
+{
+	p = (uint32*)_OffsetContextAddr((addr_t)p);
+	*p = value;
+}
+
+
+inline uint64
+XHCI::_ReadContext(uint64* p)
+{
+	p = (uint64*)_OffsetContextAddr((addr_t)p);
+	return *p;
+}
+
+
+inline void
+XHCI::_WriteContext(uint64* p, uint64 value)
+{
+	p = (uint64*)_OffsetContextAddr((addr_t)p);
+	*p = value;
+}
