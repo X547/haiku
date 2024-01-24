@@ -15,7 +15,7 @@
 #include "Settings.h"
 
 
-Device::Device(usb_device device)
+Device::Device(UsbDevice* device)
 	:
 	fStatus(B_ERROR),
 	fOpen(false),
@@ -26,7 +26,7 @@ Device::Device(usb_device device)
 	fBuffersReadySem(-1)
 {
 	const usb_device_descriptor* deviceDescriptor
-		= gUSBModule->get_device_descriptor(device);
+		= device->GetDeviceDescriptor();
 
 	if (deviceDescriptor == NULL) {
 		TRACE(ERR, "Error of getting USB device descriptor.\n");
@@ -415,10 +415,10 @@ Device::SetupDevice(bool deviceReplugged)
 
 
 status_t
-Device::CompareAndReattach(usb_device device)
+Device::CompareAndReattach(UsbDevice* device)
 {
 	const usb_device_descriptor* deviceDescriptor
-		= gUSBModule->get_device_descriptor(device);
+		= device->GetDeviceDescriptor();
 
 	if (deviceDescriptor == NULL) {
 		TRACE(ERR, "Error of getting USB device descriptor.\n");
@@ -700,7 +700,7 @@ Device::_MultiBufferExchange(multi_buffer_info* multiInfo)
 	}
 
 	status_t status = acquire_sem_etc(fBuffersReadySem, 1,
-		B_RELATIVE_TIMEOUT | B_CAN_INTERRUPT, 50000);
+		/*B_RELATIVE_TIMEOUT |*/ B_CAN_INTERRUPT, B_INFINITE_TIMEOUT /*50000*/);
 	if (status == B_TIMED_OUT) {
 		TRACE(ERR, "Timeout during buffers exchange.\n");
 		return status;
@@ -781,7 +781,7 @@ status_t
 Device::_SetupEndpoints()
 {
 	const usb_configuration_info* config
-		= gUSBModule->get_nth_configuration(fDevice, 0);
+		= fDevice->GetNthConfiguration(0);
 
 	if (config == NULL) {
 		TRACE(ERR, "Error of getting USB device configuration.\n");
@@ -829,7 +829,7 @@ Device::_SetupEndpoints()
 	if (fAudioControl.InitCheck() == B_OK && fStreams.Count() > 0) {
 		TRACE(INF, "Found device %#06x:%#06x\n", fVendorID, fProductID);
 
-		status_t status = gUSBModule->set_configuration(fDevice, config);
+		status_t status = fDevice->SetConfiguration(config);
 		if (status != B_OK)
 			return status;
 

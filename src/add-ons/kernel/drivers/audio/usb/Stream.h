@@ -30,7 +30,7 @@ public:
 
 			status_t		GetBuffers(multi_buffer_list* List);
 
-			status_t		OnSetConfiguration(usb_device device,
+			status_t		OnSetConfiguration(UsbDevice* device,
 							const usb_configuration_info* config);
 
 			bool			ExchangeBuffer(multi_buffer_info* Info);
@@ -46,7 +46,7 @@ protected:
 			status_t		fStatus;
 
 			uint8			fTerminalID;
-			usb_pipe		fStreamEndpoint;
+			UsbPipe*		fStreamEndpoint;
 
 			bool			fIsRunning;
 			area_id			fArea, fKernelArea;

@@ -1255,7 +1255,7 @@ AudioControlInterface::_InitGainLimits(multi_mix_control& Control)
 
 	size_t actualLength = 0;
 	for (size_t i = 0; i < B_COUNT_OF(gainInfos); i++) {
-		status_t status = gUSBModule->send_request(fDevice->USBDevice(),
+		status_t status = fDevice->USBDevice()->SendRequest(
 			USB_REQTYPE_INTERFACE_IN | USB_REQTYPE_CLASS,
 			gainInfos[i].request, REQ_VALUE(Control.id),
 			REQ_INDEX(Control.id), sizeof(gainInfos[i].data),
@@ -1927,7 +1927,7 @@ AudioControlInterface::GetMix(multi_mix_value_info* Info)
 		}
 
 		size_t actualLength = 0;
-		status_t status = gUSBModule->send_request(fDevice->USBDevice(),
+		status_t status = fDevice->USBDevice()->SendRequest(
 			USB_REQTYPE_INTERFACE_IN | USB_REQTYPE_CLASS, USB_AUDIO_GET_CUR,
 			REQ_VALUE(Info->values[i].id), REQ_INDEX(Info->values[i].id),
 			length, &data, &actualLength);
@@ -2063,7 +2063,7 @@ AudioControlInterface::SetMix(multi_mix_value_info* Info)
 		}
 
 		size_t actualLength = 0;
-		status_t status = gUSBModule->send_request(fDevice->USBDevice(),
+		status_t status = fDevice->USBDevice()->SendRequest(
 			USB_REQTYPE_INTERFACE_OUT | USB_REQTYPE_CLASS, USB_AUDIO_SET_CUR,
 			REQ_VALUE(Info->values[i].id), REQ_INDEX(Info->values[i].id),
 			length, &data, &actualLength);

@@ -205,7 +205,7 @@ SYSTEM_ADD_ONS_DRIVERS_AUDIO +=
 ;
 
 SYSTEM_ADD_ONS_DRIVERS_AUDIO_OLD +=
-	#cmedia usb_audio
+	#cmedia
 ;
 
 SYSTEM_ADD_ONS_DRIVERS_GRAPHICS += [ FFilterByBuildFeatures

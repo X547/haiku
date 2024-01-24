@@ -97,6 +97,7 @@ AddNewDriversToPackage :
 	;
 AddNewDriversToPackage audio :
 	hda
+	usb_audio
 	;
 AddNewDriversToPackage disk :
 	nvme_disk
@@ -310,6 +311,7 @@ AddBootModuleSymlinksToPackage
 	<driver>fu740_cache@riscv64
 	ati # !!!
 	hda # !!!
+	usb_audio # !!!
 	i2c_hid # !!!
 	usb_hid # !!!
 	hid_input # !!!

@@ -149,7 +149,7 @@ Stream::OnRemove()
 	while (atomic_get(&fInsideNotify) != 0)
 		snooze(100);
 
-	gUSBModule->cancel_queued_transfers(fStreamEndpoint);
+	fStreamEndpoint->CancelQueuedTransfers();
 }
 
 
@@ -232,7 +232,7 @@ Stream::_SetupBuffers()
 
 
 status_t
-Stream::OnSetConfiguration(usb_device device,
+Stream::OnSetConfiguration(UsbDevice* device,
 		const usb_configuration_info* config)
 {
 	if (config == NULL) {
@@ -247,7 +247,7 @@ Stream::OnSetConfiguration(usb_device device,
 		return B_ERROR;
 	}
 
-	status_t status = gUSBModule->set_alt_interface(device, interface);
+	status_t status = device->SetAltInterface(interface);
 	uint8 address = fAlternates[fActiveAlternate]->Endpoint()->fEndpointAddress;
 
 	TRACE(INF, "set_alt_interface %x\n", status);
@@ -289,7 +289,7 @@ Stream::Stop()
 			snooze(100);
 		fIsRunning = false;
 	}
-	gUSBModule->cancel_queued_transfers(fStreamEndpoint);
+	fStreamEndpoint->CancelQueuedTransfers();
 
 	return B_OK;
 }
@@ -310,7 +310,7 @@ Stream::_QueueNextTransfer(size_t queuedBuffer, bool start)
 		fKernelBuffers + bufferSize * queuedBuffer, bufferSize,
 		fDescriptors + queuedBuffer * packetsCount, packetsCount);
 
-	status_t status = gUSBModule->queue_isochronous(fStreamEndpoint,
+	status_t status = fStreamEndpoint->QueueIsochronous(
 		fKernelBuffers + bufferSize * queuedBuffer, bufferSize,
 		fDescriptors + queuedBuffer * packetsCount, packetsCount,
 		&fStartingFrame, start ? USB_ISO_ASAP : 0,
@@ -442,7 +442,7 @@ Stream::SetGlobalFormat(multi_format_info* Format)
 	usb_audio_sampling_freq freq = _ASFormatDescriptor::GetSamFreq(samplingRate);
 	uint8 address = fAlternates[fActiveAlternate]->Endpoint()->fEndpointAddress;
 
-	status = gUSBModule->send_request(fDevice->fDevice,
+	status = fDevice->fDevice->SendRequest(
 		USB_REQTYPE_CLASS | USB_REQTYPE_ENDPOINT_OUT,
 		USB_AUDIO_SET_CUR, USB_AUDIO_SAMPLING_FREQ_CONTROL << 8,
 		address, sizeof(freq), &freq, &actualLength);
