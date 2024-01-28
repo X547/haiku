@@ -688,6 +688,9 @@ BListView::MouseDown(BPoint where)
 void
 BListView::MouseUp(BPoint where)
 {
+	if (fTrack->buttons == 0)
+		return BView::MouseUp(where);
+
 	// drag is over
 	fTrack->buttons = 0;
 	fTrack->try_drag = false;
