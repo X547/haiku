@@ -12,6 +12,7 @@
 #include <util/iovec_support.h>
 
 #include <DPC.h>
+#include <condition_variable.h>
 
 #include "usbspec_private.h"
 #include "xhci_hardware.h"
@@ -112,7 +113,7 @@ struct XhciRingRider {
 	void Inc()
 	{
 		if (IsLink()) {
-			if ((seg->LinkTrb()->flags & TRB_3_TC_BIT) != 0)
+			if ((seg->LinkTrb()->flags & (1U << TRB_3_TC_BIT)) != 0)
 				cycleBit = !cycleBit;
 
 			seg = seg->fNext;
@@ -503,8 +504,7 @@ private:
 
 			spinlock			fSpinlock {};
 
-			sem_id				fCmdCompSem = -1;
-			bool				fStopThreads {};
+			ConditionVariable	fCmdCompCond;
 
 			// Root Hubs
 			XHCI2RootHub		fRootHub2;
@@ -530,14 +530,21 @@ private:
 			DPCQueue			fCallbackQueue;
 
 			// Events
-			sem_id				fEventSem = -1;
-			thread_id			fEventThread = -1;
 			mutex				fEventLock {};
+			DPCQueue			fEventQueue;
+
 			uint16				fEventIdx {};
 			uint8				fEventCcs = 1;
 
 			uint32				fExitLatMax {};
 
+
+	class EventDPCCallback: public ::DPCCallback {
+	public:
+		XHCI& Base() {return ContainerOf(*this, &XHCI::fEventDpcCallback);}
+
+		void DoDPC(DPCQueue* queue) final;
+	} fEventDpcCallback;
 
 	class BusManager: public BusDriver {
 	public:

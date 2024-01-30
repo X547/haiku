@@ -280,25 +280,25 @@
 #define TRB_TYPE_NEC_COMMAND_COMPLETION	48
 #define TRB_TYPE_NEC_GET_FIRMWARE_REV	49
 
-#define TRB_3_CYCLE_BIT				(1U << 0)
-#define TRB_3_TC_BIT				(1U << 1)
-#define TRB_3_ENT_BIT				(1U << 1)
-#define TRB_3_ISP_BIT				(1U << 2)
-#define TRB_3_EVENT_DATA_BIT		(1U << 2)
-#define TRB_3_NSNOOP_BIT			(1U << 3)
-#define TRB_3_CHAIN_BIT				(1U << 4)
-#define TRB_3_IOC_BIT				(1U << 5)
-#define TRB_3_IDT_BIT				(1U << 6)
-#define TRB_3_BEI_BIT				(1U << 9)
-#define TRB_3_DCEP_BIT				(1U << 9)
-#define TRB_3_PRSV_BIT				(1U << 9)
-#define TRB_3_BSR_BIT				(1U << 9)
+#define TRB_3_CYCLE_BIT				0
+#define TRB_3_TC_BIT				1
+#define TRB_3_ENT_BIT				1
+#define TRB_3_ISP_BIT				2
+#define TRB_3_EVENT_DATA_BIT		2
+#define TRB_3_NSNOOP_BIT			3
+#define TRB_3_CHAIN_BIT				4
+#define TRB_3_IOC_BIT				5
+#define TRB_3_IDT_BIT				6
+#define TRB_3_BEI_BIT				9
+#define TRB_3_DCEP_BIT				9
+#define TRB_3_PRSV_BIT				9
+#define TRB_3_BSR_BIT				9
 #define TRB_3_TRT_MASK				(3U << 16)
 #define TRB_3_DIR_IN				(1U << 16)
 #define TRB_3_TRT_OUT				(2U << 16)
 #define TRB_3_TRT_IN				(3U << 16)
-#define TRB_3_SUSPEND_ENDPOINT_BIT	(1U << 23)
-#define TRB_3_ISO_SIA_BIT			(1U << 31)
+#define TRB_3_SUSPEND_ENDPOINT_BIT	23
+#define TRB_3_ISO_SIA_BIT			31
 
 #define TRB_3_TBC(x)			(((x) & 0x3) << 7)
 #define TRB_3_TBC_GET(x)		(((x) >> 7) & 0x3)

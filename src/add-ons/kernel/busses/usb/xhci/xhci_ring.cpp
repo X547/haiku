@@ -21,14 +21,14 @@ XhciRingSegment::Init(bool cycleBit)
 
 	for (xhci_trb* trb = fTrbs; trb != fTrbs + kMaxUsableLength; trb++) {
 		*trb = {
-			.flags = cycleBit ? TRB_3_CYCLE_BIT : 0
+			.flags = (uint32)cycleBit << TRB_3_CYCLE_BIT
 		};
 	}
 	xhci_trb* linkTrb = fTrbs + kMaxUsableLength;
 	*linkTrb = {
 		.flags
 			= TRB_3_TYPE(TRB_TYPE_LINK)
-			| (cycleBit ? TRB_3_CYCLE_BIT : 0)
+			| ((uint32)cycleBit << TRB_3_CYCLE_BIT)
 	};
 
 	return B_OK;
@@ -87,7 +87,7 @@ XhciRing::Init(uint32 segmentCount)
 	}
 
 	// Set cycle toggle bit for last segment link TRB
-	lastSegment->LinkTrb()->flags |= TRB_3_TC_BIT;
+	lastSegment->LinkTrb()->flags |= (1U << TRB_3_TC_BIT);
 
 	return B_OK;
 }
@@ -101,9 +101,9 @@ XhciRing::Alloc(XhciRingRider& rd, bool chain)
 		return B_OK;
 
 	rd.seg->LinkTrb()->flags
-		= (rd.seg->LinkTrb()->flags & ~(uint32)(TRB_3_CYCLE_BIT | TRB_3_CHAIN_BIT))
-		| (rd.cycleBit ? TRB_3_CYCLE_BIT : 0)
-		| (chain ? TRB_3_CHAIN_BIT : 0);
+		= (rd.seg->LinkTrb()->flags & ~(uint32)((1U << TRB_3_CYCLE_BIT) | (1U << TRB_3_CHAIN_BIT)))
+		| ((uint32)rd.cycleBit << TRB_3_CYCLE_BIT)
+		| ((uint32)chain << TRB_3_CHAIN_BIT);
 
 	XhciRingRider prevRd = rd;
 	rd.Inc();
@@ -137,7 +137,7 @@ XhciRing::Commit(const XhciRingRider& newEnqueue)
 	}
 #endif
 
-	fEnqueue.trb->flags ^= TRB_3_CYCLE_BIT;
+	fEnqueue.trb->flags ^= (1U << TRB_3_CYCLE_BIT);
 	fEnqueue = newEnqueue;
 }
 
@@ -180,7 +180,7 @@ XhciRing::CompleteTransfer(XHCI& xhci, MutexLocker& locker, const xhci_trb& even
 	XhciTransferDesc* td;
 	uint32 trbIndex = 0;
 
-	if ((eventTrb.flags & TRB_3_EVENT_DATA_BIT) == 0) {
+	if ((eventTrb.flags & (1U << TRB_3_EVENT_DATA_BIT)) == 0) {
 		td = LookupTransferDescTrb(source, trbIndex);
 	} else {
 		transferred = TRB_2_REM_GET(eventTrb.status);
@@ -246,7 +246,7 @@ XhciRing::CancelAllTransfers(XHCI& xhci, MutexLocker& locker, XhciEndpoint* endp
 		delete td;
 	}
 
-	fDequeue.trb->flags ^= TRB_3_CYCLE_BIT;
+	fDequeue.trb->flags ^= (1U << TRB_3_CYCLE_BIT);
 	fEnqueue = fDequeue;
 
 	phys_addr_t dequeuePhysAddr
@@ -406,9 +406,9 @@ XhciRing::DumpTrb(const xhci_trb& trb)
 				requestData.Length,
 				TRB_2_BYTES_GET(trb.status),
 				TRB_2_IRQ_GET(trb.status),
-				(TRB_3_CYCLE_BIT & trb.flags) != 0,
-				(TRB_3_IOC_BIT & trb.flags) != 0,
-				(TRB_3_IDT_BIT & trb.flags) != 0,
+				((1U << TRB_3_CYCLE_BIT) & trb.flags) != 0,
+				((1U << TRB_3_IOC_BIT) & trb.flags) != 0,
+				((1U << TRB_3_IDT_BIT) & trb.flags) != 0,
 				(trb.flags >> 16) & 0x3);
 			break;
 		}
@@ -417,59 +417,59 @@ XhciRing::DumpTrb(const xhci_trb& trb)
 				typeStr,
 				trb.address,
 				TRB_2_IRQ_GET(trb.status),
-				(TRB_3_CYCLE_BIT & trb.flags) != 0,
-				(TRB_3_TC_BIT & trb.flags) != 0,
-				(TRB_3_CHAIN_BIT & trb.flags) != 0,
-				(TRB_3_IOC_BIT & trb.flags) != 0);
+				((1U << TRB_3_CYCLE_BIT) & trb.flags) != 0,
+				((1U << TRB_3_TC_BIT) & trb.flags) != 0,
+				((1U << TRB_3_CHAIN_BIT) & trb.flags) != 0,
+				((1U << TRB_3_IOC_BIT) & trb.flags) != 0);
 			break;
 		case TRB_TYPE_CMD_NOOP:
 		case TRB_TYPE_ENABLE_SLOT:
 			dprintf("%s(c: %d)\n",
 				typeStr,
-				(TRB_3_CYCLE_BIT & trb.flags) != 0);
+				((1U << TRB_3_CYCLE_BIT) & trb.flags) != 0);
 			break;
 		case TRB_TYPE_DISABLE_SLOT:
 		case TRB_TYPE_RESET_DEVICE:
 			dprintf("%s(c: %d, slot: %" B_PRIu32 ")\n",
 				typeStr,
-				(TRB_3_CYCLE_BIT & trb.flags) != 0,
+				((1U << TRB_3_CYCLE_BIT) & trb.flags) != 0,
 				TRB_3_SLOT_GET(trb.flags));
 			break;
 		case TRB_TYPE_ADDRESS_DEVICE:
 			dprintf("%s(c: %d, bsr: %d, slot: %" B_PRIu32 ")\n",
 				typeStr,
-				(TRB_3_CYCLE_BIT & trb.flags) != 0,
-				(TRB_3_BSR_BIT & trb.flags) != 0,
+				((1U << TRB_3_CYCLE_BIT) & trb.flags) != 0,
+				((1U << TRB_3_BSR_BIT) & trb.flags) != 0,
 				TRB_3_SLOT_GET(trb.flags));
 			break;
 		case TRB_TYPE_CONFIGURE_ENDPOINT:
 			dprintf("%s(c: %d, dc: %d, slot: %" B_PRIu32 ")\n",
 				typeStr,
-				(TRB_3_CYCLE_BIT & trb.flags) != 0,
-				(TRB_3_DCEP_BIT & trb.flags) != 0,
+				((1U << TRB_3_CYCLE_BIT) & trb.flags) != 0,
+				((1U << TRB_3_DCEP_BIT) & trb.flags) != 0,
 				TRB_3_SLOT_GET(trb.flags));
 			break;
 		case TRB_TYPE_EVALUATE_CONTEXT:
 			dprintf("%s(inputCtx: %#" B_PRIx64 ", c: %d, slot: %" B_PRIu32 ")\n",
 				typeStr,
 				trb.address,
-				(TRB_3_CYCLE_BIT & trb.flags) != 0,
+				((1U << TRB_3_CYCLE_BIT) & trb.flags) != 0,
 				TRB_3_SLOT_GET(trb.flags));
 			break;
 		case TRB_TYPE_RESET_ENDPOINT:
 			dprintf("%s(c: %d, tsp: %d, endpoint: %" B_PRIu32 ", slot: %" B_PRIu32 ")\n",
 				typeStr,
-				(TRB_3_CYCLE_BIT & trb.flags) != 0,
-				(TRB_3_PRSV_BIT & trb.flags) != 0,
+				((1U << TRB_3_CYCLE_BIT) & trb.flags) != 0,
+				((1U << TRB_3_PRSV_BIT) & trb.flags) != 0,
 				TRB_3_ENDPOINT_GET(trb.flags),
 				TRB_3_SLOT_GET(trb.flags));
 			break;
 		case TRB_TYPE_STOP_ENDPOINT:
 			dprintf("%s(c: %d, endpoint: %" B_PRIu32 ", sp: %d, slot: %" B_PRIu32 ")\n",
 				typeStr,
-				(TRB_3_CYCLE_BIT & trb.flags) != 0,
+				((1U << TRB_3_CYCLE_BIT) & trb.flags) != 0,
 				TRB_3_ENDPOINT_GET(trb.flags),
-				(TRB_3_SUSPEND_ENDPOINT_BIT & trb.flags) != 0,
+				((1U << TRB_3_SUSPEND_ENDPOINT_BIT) & trb.flags) != 0,
 				TRB_3_SLOT_GET(trb.flags));
 			break;
 		case TRB_TYPE_SET_TR_DEQUEUE:
@@ -479,7 +479,7 @@ XhciRing::DumpTrb(const xhci_trb& trb)
 				(ENDPOINT_2_DCS_BIT & trb.address) != 0,
 				(uint32)((trb.address >> 1) & 0x7),
 				TRB_2_STREAM_GET(trb.status),
-				(TRB_3_CYCLE_BIT & trb.flags) != 0,
+				((1U << TRB_3_CYCLE_BIT) & trb.flags) != 0,
 				TRB_3_ENDPOINT_GET(trb.flags),
 				TRB_3_SLOT_GET(trb.flags));
 			break;
@@ -489,8 +489,8 @@ XhciRing::DumpTrb(const xhci_trb& trb)
 				trb.address,
 				xhci_trb_completion_string(TRB_2_COMP_CODE_GET(trb.status)),
 				TRB_2_REM_GET(trb.status),
-				(TRB_3_CYCLE_BIT & trb.flags) != 0,
-				(TRB_3_EVENT_DATA_BIT & trb.flags) != 0,
+				((1U << TRB_3_CYCLE_BIT) & trb.flags) != 0,
+				((1U << TRB_3_EVENT_DATA_BIT) & trb.flags) != 0,
 				TRB_3_ENDPOINT_GET(trb.flags),
 				TRB_3_SLOT_GET(trb.flags));
 			break;
@@ -608,8 +608,8 @@ XhciTransferDesc::FillTransfer(XHCI& xhci, XhciRing& ring)
 		rd.trb->status = TRB_2_IRQ(0);
 		rd.trb->flags
 			= TRB_3_TYPE(TRB_TYPE_EVENT_DATA)
-			| TRB_3_IOC_BIT
-			| (rd.cycleBit ? TRB_3_CYCLE_BIT : 0);
+			| (1U << TRB_3_IOC_BIT)
+			| ((uint32)rd.cycleBit << TRB_3_CYCLE_BIT);
 	}
 
 	return B_OK;
@@ -634,8 +634,8 @@ XhciTransferDesc::FillControlTransfer(XHCI& xhci, XhciRing& ring)
 		| TRB_2_BYTES(8);
 	rd.trb->flags
 		= TRB_3_TYPE(TRB_TYPE_SETUP_STAGE)
-		| TRB_3_IDT_BIT
-		| (rd.cycleBit ? 0 : TRB_3_CYCLE_BIT);
+		| (1U << TRB_3_IDT_BIT)
+		| ((uint32)(!rd.cycleBit) << TRB_3_CYCLE_BIT);
 	if (requestData->Length > 0)
 		rd.trb->flags |= directionIn ? TRB_3_TRT_IN : TRB_3_TRT_OUT;
 
@@ -653,7 +653,7 @@ XhciTransferDesc::FillControlTransfer(XHCI& xhci, XhciRing& ring)
 			.flags
 				= TRB_3_TYPE(TRB_TYPE_DATA_STAGE)
 				| (directionIn ? TRB_3_DIR_IN : 0)
-				| (rd.cycleBit ? TRB_3_CYCLE_BIT : 0)
+				| ((uint32)rd.cycleBit << TRB_3_CYCLE_BIT)
 		};
 
 		if (!directionIn) {
@@ -670,9 +670,9 @@ XhciTransferDesc::FillControlTransfer(XHCI& xhci, XhciRing& ring)
 	rd.trb->status = TRB_2_IRQ(0);
 	rd.trb->flags
 		= TRB_3_TYPE(TRB_TYPE_STATUS_STAGE)
-		| TRB_3_CHAIN_BIT
-		| TRB_3_ENT_BIT
-		| (rd.cycleBit ? TRB_3_CYCLE_BIT : 0);
+		| (1U << TRB_3_CHAIN_BIT)
+		| (1U << TRB_3_ENT_BIT)
+		| ((uint32)rd.cycleBit << TRB_3_CYCLE_BIT);
 		// The CHAIN bit must be set when using an Event Data TRB
 		// (XHCI 1.2 § 6.4.1.2.3 Table 6-31 p472).
 
@@ -732,9 +732,9 @@ XhciTransferDesc::FillNormalTransfer(XHCI& xhci, XhciRing& ring)
 				.status = TRB_2_IRQ(0),
 				.flags
 					= TRB_3_TYPE(TRB_TYPE_ISOCH)
-					| ((rd.cycleBit != (i == 0)) ? TRB_3_CYCLE_BIT : 0)
+					| ((uint32)(rd.cycleBit != (i == 0)) << TRB_3_CYCLE_BIT)
 					| TRB_3_FRID(frame)
-					| TRB_3_ENT_BIT
+					| (1U << TRB_3_ENT_BIT)
 			};
 
 			frame = (frame + 1) % 2048;
@@ -747,8 +747,8 @@ XhciTransferDesc::FillNormalTransfer(XHCI& xhci, XhciRing& ring)
 				.status = TRB_2_IRQ(0),
 				.flags
 					= TRB_3_TYPE(TRB_TYPE_EVENT_DATA)
-					| TRB_3_IOC_BIT
-					| (rd.cycleBit ? TRB_3_CYCLE_BIT : 0)
+					| (1U << TRB_3_IOC_BIT)
+					| ((uint32)rd.cycleBit << TRB_3_CYCLE_BIT)
 			};
 		}
 		if (isochronousData->starting_frame_number != NULL)
@@ -797,12 +797,12 @@ XhciTransferDesc::FillNormalTransfer(XHCI& xhci, XhciRing& ring)
 					| TRB_2_IRQ(0),
 				.flags
 					= TRB_3_TYPE(TRB_TYPE_NORMAL)
-					| TRB_3_CHAIN_BIT
-					| ((rd.cycleBit != (i == 0)) ? TRB_3_CYCLE_BIT : 0)
+					| (1U << TRB_3_CHAIN_BIT)
+					| ((uint32)(rd.cycleBit != (i == 0)) << TRB_3_CYCLE_BIT)
 			};
 		}
 
-		rd.trb->flags |= TRB_3_ENT_BIT;
+		rd.trb->flags |= (1U << TRB_3_ENT_BIT);
 	}
 
 	if (direction == UsbBusPipe::Out) {

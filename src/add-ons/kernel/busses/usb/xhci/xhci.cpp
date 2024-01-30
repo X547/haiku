@@ -316,17 +316,10 @@ XHCI::Init()
 		return B_ERROR;
 	}
 
-	fCmdCompSem = create_sem(0, "XHCI Command Complete");
-	fEventSem = create_sem(0, "XHCI Event");
-	if (fCmdCompSem < B_OK || fEventSem < B_OK) {
-		TRACE_ERROR("failed to create semaphores\n");
-		return B_ERROR;
-	}
+	fCmdCompCond.Init(this, "XHCI Command Complete");
 
-	// create event handler thread
-	fEventThread = spawn_kernel_thread(EventThread, "xhci event thread",
-		B_URGENT_PRIORITY, (void *)this);
-	resume_thread(fEventThread);
+	// create event handler DPC queue
+	fEventQueue.Init("XHCI event DPC", B_URGENT_PRIORITY, 0);
 
 	// create finisher service DPC queue
 	fCallbackQueue.Init("XHCI callback DPC", B_URGENT_PRIORITY, 0);
@@ -382,13 +375,8 @@ XHCI::~XHCI()
 
 	WriteOpReg(XHCI_CMD, 0);
 
-	int32 result = 0;
-	fStopThreads = true;
-	delete_sem(fCmdCompSem);
-	delete_sem(fEventSem);
 	fCallbackQueue.Close(true);
-	wait_for_thread(fEventThread, &result);
-
+	fEventQueue.Close(true);
 	mutex_destroy(&fEventLock);
 
 	remove_io_interrupt_handler(fIRQ, InterruptHandler, (void *)this);
@@ -1573,7 +1561,7 @@ XHCI::Interrupt()
 	}
 
 	TRACE("Event Interrupt\n");
-	release_sem_etc(fEventSem, 1, B_DO_NOT_RESCHEDULE);
+	fEventQueue.Add(&fEventDpcCallback);
 	return B_INVOKE_SCHEDULER;
 }
 
@@ -1605,7 +1593,7 @@ XHCI::QueueCommand(xhci_trb* trb)
 
 	rd.trb->address = trb->address;
 	rd.trb->status = trb->status;
-	rd.trb->flags = trb->flags | (rd.cycleBit ? 0 : TRB_3_CYCLE_BIT);
+	rd.trb->flags = trb->flags | (rd.cycleBit ? 0 : (1U << TRB_3_CYCLE_BIT));
 
 	rd.IncSkipLinks();
 
@@ -1625,7 +1613,7 @@ XHCI::HandleCmdComplete(xhci_trb* trb)
 
 		fCmdResult[0] = trb->status;
 		fCmdResult[1] = B_LENDIAN_TO_HOST_INT32(trb->flags);
-		release_sem_etc(fCmdCompSem, 1, B_DO_NOT_RESCHEDULE);
+		fCmdCompCond.NotifyOne();
 	} else
 		TRACE_ERROR("received command event for unknown command!\n");
 }
@@ -1687,29 +1675,25 @@ XHCI::DoCommand(xhci_trb* trb)
 		return B_ERROR;
 	}
 
+	ConditionVariableEntry cvEntry;
+	fCmdCompCond.Add(&cvEntry);
+
 	QueueCommand(trb);
 	Ring(0, 0);
 
 	// Begin with a 50ms timeout.
-	if (acquire_sem_etc(fCmdCompSem, 1, B_RELATIVE_TIMEOUT, 50 * 1000) != B_OK) {
+	if (cvEntry.Wait(B_RELATIVE_TIMEOUT, 50 * 1000) < B_OK) {
 		// We've hit the timeout. In some error cases, interrupts are not
 		// generated; so here we force the event ring to be polled once.
-		release_sem(fEventSem);
+		fEventQueue.Add(&fEventDpcCallback);
 
 		// Now try again, this time with a 750ms timeout.
-		if (acquire_sem_etc(fCmdCompSem, 1, B_RELATIVE_TIMEOUT,
-				750 * 1000) != B_OK) {
-			TRACE("Unable to obtain fCmdCompSem!\n");
+		if (cvEntry.Wait(B_RELATIVE_TIMEOUT, 750 * 1000) < B_OK) {
+			TRACE("Unable to obtain cvEntry!\n");
 			Unlock();
 			return B_TIMED_OUT;
 		}
 	}
-
-	// eat up sems that have been released by multiple interrupts
-	int32 semCount = 0;
-	get_sem_count(fCmdCompSem, &semCount);
-	if (semCount > 0)
-		acquire_sem_etc(fCmdCompSem, semCount, B_RELATIVE_TIMEOUT, 0);
 
 	status_t status = B_OK;
 	uint32 completionCode = TRB_2_COMP_CODE_GET(fCmdResult[0]);
@@ -1780,7 +1764,7 @@ XHCI::SetAddress(uint64 inputContext, bool bsr, uint8 slot)
 	};
 
 	if (bsr)
-		trb.flags |= TRB_3_BSR_BIT;
+		trb.flags |= (1U << TRB_3_BSR_BIT);
 
 	return DoCommand(&trb);
 }
@@ -1796,7 +1780,7 @@ XHCI::ConfigureEndpoint(uint64 inputContext, bool deconfigure, uint8 slot)
 	};
 
 	if (deconfigure)
-		trb.flags |= TRB_3_DCEP_BIT;
+		trb.flags |= (1U << TRB_3_DCEP_BIT);
 
 	return DoCommand(&trb);
 }
@@ -1837,7 +1821,7 @@ XHCI::ResetEndpoint(bool preserve, XhciEndpoint* endpoint)
 			TRB_3_ENDPOINT(endpoint->fId + 1))
 	};
 	if (preserve)
-		trb.flags |= TRB_3_PRSV_BIT;
+		trb.flags |= (1U << TRB_3_PRSV_BIT);
 
 	return DoCommand(&trb);
 }
@@ -1866,7 +1850,7 @@ XHCI::StopEndpoint(bool suspend, XhciEndpoint* endpoint)
 			TRB_3_ENDPOINT(endpoint->fId + 1))
 	};
 	if (suspend)
-		trb.flags |= TRB_3_SUSPEND_ENDPOINT_BIT;
+		trb.flags |= (1U << TRB_3_SUSPEND_ENDPOINT_BIT);
 
 	return DoCommand(&trb);
 }
@@ -1905,29 +1889,10 @@ XHCI::ResetDevice(uint8 slot)
 
 // #pragma mark -
 
-int32
-XHCI::EventThread(void* data)
-{
-	((XHCI *)data)->CompleteEvents();
-	return B_OK;
-}
-
-
 void
-XHCI::CompleteEvents()
+XHCI::EventDPCCallback::DoDPC(DPCQueue* queue)
 {
-	while (!fStopThreads) {
-		if (acquire_sem(fEventSem) < B_OK)
-			continue;
-
-		// eat up sems that have been released by multiple interrupts
-		int32 semCount = 0;
-		get_sem_count(fEventSem, &semCount);
-		if (semCount > 0)
-			acquire_sem_etc(fEventSem, semCount, B_RELATIVE_TIMEOUT, 0);
-
-		ProcessEvents();
-	}
+	Base().ProcessEvents();
 }
 
 
@@ -1952,7 +1917,7 @@ XHCI::ProcessEvents()
 		TRACE("event[%u] = %u (0x%016" B_PRIx64 " 0x%08" B_PRIx32 " 0x%08"
 			B_PRIx32 ")\n", i, event, fEventRing[i].address,
 			fEventRing[i].status, B_LENDIAN_TO_HOST_INT32(fEventRing[i].flags));
-		uint8 k = (temp & TRB_3_CYCLE_BIT) ? 1 : 0;
+		uint8 k = (temp & (1U << TRB_3_CYCLE_BIT)) ? 1 : 0;
 		if (j != k)
 			break;
 
