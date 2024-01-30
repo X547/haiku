@@ -6,9 +6,12 @@
 #include <dm2/bus/PCI.h>
 
 #include <AutoDeleterOS.h>
+#include <ContainerOf.h>
 #include <util/AutoLock.h>
 #include <util/DoublyLinkedList.h>
 #include <util/iovec_support.h>
+
+#include <DPC.h>
 
 #include "usbspec_private.h"
 #include "xhci_hardware.h"
@@ -183,6 +186,13 @@ public:
 	DoublyLinkedListLink<XhciTransferDesc>
 				fLink;
 
+	class DPCCallback: public ::DPCCallback {
+	public:
+		XhciTransferDesc& Base() {return ContainerOf(*this, &XhciTransferDesc::fDpcCallback);}
+
+		void DoDPC(DPCQueue* queue) final;
+	} fDpcCallback;
+
 public:
 	typedef DoublyLinkedList<
 		XhciTransferDesc,
@@ -205,11 +215,13 @@ public:
 
 	status_t SubmitTransfer(XHCI& xhci, UsbBusTransfer* transfer);
 	void CompleteTransfer(XHCI& xhci, MutexLocker& locker, const xhci_trb& eventTrb);
+	status_t CancelAllTransfers(XHCI& xhci, MutexLocker& locker, XhciEndpoint* endpoint);
 
-	static void DumpTrb(xhci_trb& trb);
+	static void DumpTrb(const xhci_trb& trb);
 
 private:
 	XhciTransferDesc* LookupTransferDesc(phys_addr_t addr);
+	XhciTransferDesc* LookupTransferDescTrb(phys_addr_t addr, uint32& trbIndex);
 
 private:
 	XhciRingRider fEnqueue;
@@ -226,9 +238,6 @@ public:
 		bool directionIn, uint16 interval, uint16 maxPacketSize, usb_speed speed,
 		uint8 maxBurst, uint16 bytesPerInterval);
 
-	status_t LinkDescriptor(XhciTransferDesc *descriptor);
-	status_t UnlinkDescriptor(XhciTransferDesc *descriptor);
-
 public:
 	mutex 			fLock = MUTEX_INITIALIZER("xhci endpoint lock");
 
@@ -238,14 +247,6 @@ public:
 	uint16			fMaxBurstPayload {};
 
 	XhciRing		fRing;
-
-	XhciTransferDesc::List
-					fTransferDescs;
-	uint8			fUsed {};
-	uint8			fCurrent {};
-
-	xhci_trb*		fTrbs {}; // [XHCI_ENDPOINT_RING_SIZE]
-	phys_addr_t 	fTrbAddr {};
 };
 
 
@@ -260,9 +261,6 @@ public:
 	uint8 fSlot;
 	uint8 fAddress {};
 	bool fIsMultiTt {};
-	AreaDeleter fTrbArea;
-	phys_addr_t fTrbAddr {};
-	struct xhci_trb* fTrbs {}; // [XHCI_MAX_ENDPOINTS - 1][XHCI_ENDPOINT_RING_SIZE]
 
 	AreaDeleter fInputCtxArea;
 	phys_addr_t fInputCtxAddr {};
@@ -413,10 +411,6 @@ private:
 			void				CompleteEvents();
 			void				ProcessEvents();
 
-			// Transfer management
-	static	int32				FinishThread(void *data);
-			void				FinishTransfers();
-
 			// Descriptor management
 			XhciTransferDesc *			CreateDescriptor(uint32 trbCount,
 									uint32 bufferCount, size_t bufferSize);
@@ -533,11 +527,7 @@ private:
 			int32				fContextSizeShift {}; // 0/1 for 32/64 bytes
 
 			// Transfers
-			mutex				fFinishedLock {};
-			XhciTransferDesc::List
-								fFinishedList;
-			sem_id				fFinishTransfersSem = -1;
-			thread_id			fFinishThread = -1;
+			DPCQueue			fCallbackQueue;
 
 			// Events
 			sem_id				fEventSem = -1;

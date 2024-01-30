@@ -183,7 +183,6 @@ XHCI::Init()
 	fPciDevice->GetPciInfo(&fPCIInfo);
 
 	B_INITIALIZE_SPINLOCK(&fSpinlock);
-	mutex_init(&fFinishedLock, "XHCI finished transfers");
 	mutex_init(&fEventLock, "XHCI event handler");
 
 	TRACE("constructing new XHCI host controller driver\n");
@@ -318,9 +317,8 @@ XHCI::Init()
 	}
 
 	fCmdCompSem = create_sem(0, "XHCI Command Complete");
-	fFinishTransfersSem = create_sem(0, "XHCI Finish Transfers");
 	fEventSem = create_sem(0, "XHCI Event");
-	if (fFinishTransfersSem < B_OK || fCmdCompSem < B_OK || fEventSem < B_OK) {
+	if (fCmdCompSem < B_OK || fEventSem < B_OK) {
 		TRACE_ERROR("failed to create semaphores\n");
 		return B_ERROR;
 	}
@@ -330,10 +328,8 @@ XHCI::Init()
 		B_URGENT_PRIORITY, (void *)this);
 	resume_thread(fEventThread);
 
-	// create finisher service thread
-	fFinishThread = spawn_kernel_thread(FinishThread, "xhci finish thread",
-		B_URGENT_PRIORITY - 1, (void *)this);
-	resume_thread(fFinishThread);
+	// create finisher service DPC queue
+	fCallbackQueue.Init("XHCI callback DPC", B_URGENT_PRIORITY, 0);
 
 	// Find the right interrupt vector, using MSIs if available.
 	fIRQ = fPCIInfo.u.h0.interrupt_line;
@@ -389,12 +385,10 @@ XHCI::~XHCI()
 	int32 result = 0;
 	fStopThreads = true;
 	delete_sem(fCmdCompSem);
-	delete_sem(fFinishTransfersSem);
 	delete_sem(fEventSem);
-	wait_for_thread(fFinishThread, &result);
+	fCallbackQueue.Close(true);
 	wait_for_thread(fEventThread, &result);
 
-	mutex_destroy(&fFinishedLock);
 	mutex_destroy(&fEventLock);
 
 	remove_io_interrupt_handler(fIRQ, InterruptHandler, (void *)this);
@@ -598,7 +592,7 @@ XHCI::Start()
 		}
 	}
 	CHECK_RET(fCmdRing.Init(1));
-	dmaAddress = fCmdRing.EnqueueRd().seg->fTrbAddr;
+	dmaAddress = fCmdRing.EnqueueRd().PhysAddr();
 	TRACE("setting CRCR addr = 0x%" B_PRIxPHYSADDR "\n", dmaAddress);
 	WriteOpReg(XHCI_CRCR_LO, (uint32)dmaAddress | CRCR_RCS);
 	WriteOpReg(XHCI_CRCR_HI, (uint32)(dmaAddress >> 32));
@@ -668,433 +662,34 @@ XHCI::SubmitTransfer(UsbBusTransfer* transfer)
 
 
 status_t
-XHCI::SubmitControlRequest(UsbBusTransfer *transfer)
-{
-	UsbBusPipe *pipe = transfer->TransferPipe();
-	usb_request_data *requestData = transfer->RequestData();
-	bool directionIn = (requestData->RequestType & USB_REQTYPE_DEVICE_IN) != 0;
-
-	TRACE("SubmitControlRequest() length %d\n", requestData->Length);
-
-	XhciEndpoint *endpoint = (XhciEndpoint *)pipe->ControllerCookie();
-	if (endpoint == NULL) {
-		TRACE_ERROR("control pipe has no endpoint!\n");
-		return B_BAD_VALUE;
-	}
-	if (endpoint->fDevice == NULL) {
-		panic("endpoint is not initialized!");
-		return B_NO_INIT;
-	}
-
-	status_t status = transfer->InitKernelAccess();
-	if (status != B_OK)
-		return status;
-
-	XhciTransferDesc *descriptor = CreateDescriptor(3, 1, requestData->Length);
-	if (descriptor == NULL)
-		return B_NO_MEMORY;
-	descriptor->fTransfer = transfer;
-
-	// Setup Stage
-	uint8 index = 0;
-	memcpy(&descriptor->fTrbs[index].address, requestData,
-		sizeof(usb_request_data));
-	descriptor->fTrbs[index].status = TRB_2_IRQ(0) | TRB_2_BYTES(8);
-	descriptor->fTrbs[index].flags
-		= TRB_3_TYPE(TRB_TYPE_SETUP_STAGE) | TRB_3_IDT_BIT | TRB_3_CYCLE_BIT;
-	if (requestData->Length > 0) {
-		descriptor->fTrbs[index].flags |=
-			directionIn ? TRB_3_TRT_IN : TRB_3_TRT_OUT;
-	}
-
-	index++;
-
-	// Data Stage (if any)
-	if (requestData->Length > 0) {
-		descriptor->fTrbs[index].address = descriptor->fBufferAddrs[0];
-		descriptor->fTrbs[index].status = TRB_2_IRQ(0)
-			| TRB_2_BYTES(requestData->Length)
-			| TRB_2_TD_SIZE(0);
-		descriptor->fTrbs[index].flags = TRB_3_TYPE(TRB_TYPE_DATA_STAGE)
-				| (directionIn ? TRB_3_DIR_IN : 0)
-				| TRB_3_CYCLE_BIT;
-
-		if (!directionIn) {
-			transfer->PrepareKernelAccess();
-			descriptor->Write(transfer->Vector(),
-				transfer->VectorCount(), transfer->IsPhysical());
-		}
-
-		index++;
-	}
-
-	// Status Stage
-	descriptor->fTrbs[index].address = 0;
-	descriptor->fTrbs[index].status = TRB_2_IRQ(0);
-	descriptor->fTrbs[index].flags = TRB_3_TYPE(TRB_TYPE_STATUS_STAGE)
-			| TRB_3_CHAIN_BIT | TRB_3_ENT_BIT | TRB_3_CYCLE_BIT;
-		// The CHAIN bit must be set when using an Event Data TRB
-		// (XHCI 1.2 § 6.4.1.2.3 Table 6-31 p472).
-
-	// Status Stage is an OUT transfer when the device is sending data
-	// (XHCI 1.2 § 4.11.2.2 Table 4-7 p213), otherwise set the IN bit.
-	if (requestData->Length == 0 || !directionIn)
-		descriptor->fTrbs[index].flags |= TRB_3_DIR_IN;
-
-	descriptor->fTrbUsed = index + 1;
-
-	status = endpoint->LinkDescriptor(descriptor);
-	if (status != B_OK) {
-		delete descriptor;
-		return status;
-	}
-
-	return B_OK;
-}
-
-
-status_t
-XHCI::SubmitNormalRequest(UsbBusTransfer *transfer)
-{
-	TRACE("SubmitNormalRequest() length %" B_PRIuSIZE "\n", transfer->FragmentLength());
-
-	UsbBusPipe *pipe = transfer->TransferPipe();
-	usb_isochronous_data *isochronousData = transfer->IsochronousData();
-	bool directionIn = (pipe->Direction() == UsbBusPipe::In);
-
-	XhciEndpoint *endpoint = (XhciEndpoint *)pipe->ControllerCookie();
-	if (endpoint == NULL) {
-		TRACE_ERROR("pipe has no endpoint!\n");
-		return B_BAD_VALUE;
-	}
-	if (endpoint->fDevice == NULL) {
-		panic("endpoint is not initialized!");
-		return B_NO_INIT;
-	}
-
-	status_t status = transfer->InitKernelAccess();
-	if (status != B_OK)
-		return status;
-
-	// TRBs within a TD must be "grouped" into TD Fragments, which mostly means
-	// that a max_burst_payload boundary cannot be crossed within a TRB, but
-	// only between TRBs. More than one TRB can be in a TD Fragment, but we keep
-	// things simple by setting trbSize to the MBP. (XHCI 1.2 § 4.11.7.1 p235.)
-	size_t trbSize = endpoint->fMaxBurstPayload;
-
-	if (isochronousData != NULL) {
-		if (isochronousData->packet_count == 0)
-			return B_BAD_VALUE;
-
-		// Isochronous transfers use more specifically sized packets.
-		trbSize = transfer->DataLength() / isochronousData->packet_count;
-		if (trbSize == 0 || trbSize > pipe->MaxPacketSize() || trbSize
-				!= (size_t)isochronousData->packet_descriptors[0].request_length)
-			return B_BAD_VALUE;
-	}
-
-	// Now that we know trbSize, compute the count.
-	const int32 trbCount = (transfer->FragmentLength() + trbSize - 1) / trbSize;
-
-	XhciTransferDesc *td = CreateDescriptor(trbCount, trbCount, trbSize);
-	if (td == NULL)
-		return B_NO_MEMORY;
-
-	// Normal Stage
-	const size_t maxPacketSize = pipe->MaxPacketSize();
-	size_t remaining = transfer->FragmentLength();
-	for (int32 i = 0; i < trbCount; i++) {
-		int32 trbLength = (remaining < trbSize) ? remaining : trbSize;
-		remaining -= trbLength;
-
-		// The "TD Size" field of a transfer TRB indicates the number of
-		// remaining maximum-size *packets* in this TD, *not* including the
-		// packets in the current TRB, and capped at 31 if there are more
-		// than 31 packets remaining in the TD. (XHCI 1.2 § 4.11.2.4 p218.)
-		int32 tdSize = (remaining + maxPacketSize - 1) / maxPacketSize;
-		if (tdSize > 31)
-			tdSize = 31;
-
-		td->fTrbs[i].address = td->fBufferAddrs[i];
-		td->fTrbs[i].status = xhci_trb_status{
-			.transfer_length = (uint32)trbLength,
-			.td_size = (uint32)tdSize,
-			.irq_target = 0
-		}.value;
-		td->fTrbs[i].flags = xhci_trb_flags{
-			.cycle = true,
-			.chain = true,
-			.trb_type = TRB_TYPE_NORMAL
-		}.value;
-
-		td->fTrbUsed++;
-	}
-
-	// Isochronous-specific
-	if (isochronousData != NULL) {
-		// This is an isochronous transfer; we need to make the first TRB
-		// an isochronous TRB.
-		td->fTrbs[0].flags &= ~(TRB_3_TYPE(TRB_TYPE_NORMAL));
-		td->fTrbs[0].flags |= TRB_3_TYPE(TRB_TYPE_ISOCH);
-
-		// Isochronous pipes are scheduled by microframes, one of which
-		// is 125us for USB 2 and above. But for USB 1 it was 1ms, so
-		// we need to use a different frame delta for that case.
-		uint8 frameDelta = 1;
-		if (transfer->TransferPipe()->Speed() == USB_SPEED_FULLSPEED)
-			frameDelta = 8;
-
-		// TODO: We do not currently take Mult into account at all!
-		// How are we supposed to do that here?
-
-		// Determine the (starting) frame number: if ISO_ASAP is set,
-		// we are queueing this "right away", and so want to reset
-		// the starting_frame_number. Otherwise we use the passed one.
-		uint32 frame;
-		if ((isochronousData->flags & USB_ISO_ASAP) != 0
-				|| isochronousData->starting_frame_number == NULL) {
-			// All reads from the microframe index register must be
-			// incremented by 1. (XHCI 1.2 § 4.14.2.1.4 p265.)
-			frame = ReadRunReg32(XHCI_MFINDEX) + 1;
-			td->fTrbs[0].flags |= TRB_3_ISO_SIA_BIT;
-		} else {
-			frame = *isochronousData->starting_frame_number;
-			td->fTrbs[0].flags |= TRB_3_FRID(frame);
-		}
-		frame = (frame + frameDelta) % 2048;
-		if (isochronousData->starting_frame_number != NULL)
-			*isochronousData->starting_frame_number = frame;
-
-		// TODO: The OHCI bus driver seems to also do this for inbound
-		// isochronous transfers. Perhaps it should be moved into the stack?
-		if (directionIn) {
-			for (uint32 i = 0; i < isochronousData->packet_count; i++) {
-				isochronousData->packet_descriptors[i].actual_length = 0;
-				isochronousData->packet_descriptors[i].status = B_NO_INIT;
-			}
-		}
-	}
-
-	// Set the ENT (Evaluate Next TRB) bit, so that the HC will not switch
-	// contexts before evaluating the Link TRB that _LinkDescriptorForPipe
-	// will insert, as otherwise there would be a race between us freeing
-	// and unlinking the descriptor, and the controller evaluating the Link TRB
-	// and thus getting back onto the main ring and executing the Event Data
-	// TRB that generates the interrupt for this transfer.
-	//
-	// Note that we *do not* unset the CHAIN bit in this TRB, thus including
-	// the Link TRB in this TD formally, which is required when using the
-	// ENT bit. (XHCI 1.2 § 4.12.3 p250.)
-	td->fTrbs[td->fTrbUsed - 1].flags |= TRB_3_ENT_BIT;
-
-	if (!directionIn) {
-		TRACE("copying out iov count %ld\n", transfer->VectorCount());
-		status_t status = transfer->PrepareKernelAccess();
-		if (status != B_OK) {
-			delete td;
-			return status;
-		}
-		td->Write(transfer->Vector(),
-			transfer->VectorCount(), transfer->IsPhysical());
-	}
-
-	td->fTransfer = transfer;
-	status = endpoint->LinkDescriptor(td);
-	if (status != B_OK) {
-		delete td;
-		return status;
-	}
-
-	return B_OK;
-}
-
-
-status_t
 XHCI::CancelQueuedTransfers(UsbBusPipe* pipe, bool force)
 {
 	XhciEndpoint* endpoint = (XhciEndpoint*)pipe->ControllerCookie();
-	if (endpoint == NULL || endpoint->fTrbs == NULL) {
-		// Someone's de-allocated this pipe or endpoint in the meantime.
-		// (Possibly AllocateDevice failed, and we were the temporary pipe.)
+	if (endpoint == NULL)
 		return B_NO_INIT;
-	}
-
-#ifndef TRACE_USB
-	if (force)
-#endif
-	{
-		TRACE_ALWAYS("cancel queued transfers (%" B_PRId8 ") for pipe %p (%d)\n",
-			endpoint->fUsed, pipe, pipe->EndpointAddress());
-	}
 
 	MutexLocker endpointLocker(endpoint->fLock);
-
-	if (endpoint->fTransferDescs.IsEmpty()) {
-		// There aren't any currently pending transfers to cancel.
-		return B_OK;
-	}
-
-	// Calling the callbacks while holding the endpoint lock could potentially
-	// cause deadlocks, so we instead store them in a pointer array. We need
-	// to do this separately from freeing the TDs, for in the case we fail
-	// to stop the endpoint, we cancel the transfers but do not free the TDs.
-	UsbBusTransfer* transfers[XHCI_MAX_TRANSFERS];
-	int32 transfersCount = 0;
-
-	for (XhciTransferDesc* td = endpoint->fTransferDescs.First(); td != NULL; td = endpoint->fTransferDescs.GetNext(td)) {
-		if (td->fTransfer == NULL)
-			continue;
-
-		// We can't cancel or delete transfers under "force", as they probably
-		// are not safe to use anymore.
-		if (!force) {
-			transfers[transfersCount] = td->fTransfer;
-			transfersCount++;
-		}
-		td->fTransfer = NULL;
-	}
-
-	// It is possible that while waiting for the stop-endpoint command to
-	// complete, one of the queued transfers posts a completion event, so in
-	// order to avoid a deadlock, we must unlock the endpoint.
-	endpointLocker.Unlock();
-	status_t status = StopEndpoint(false, endpoint);
-	if (status != B_OK && status != B_DEV_STALLED) {
-		// It is possible that the endpoint was stopped by the controller at the
-		// same time our STOP command was in progress, causing a "Context State"
-		// error. In that case, try again; if the endpoint is already stopped,
-		// StopEndpoint will notice this. (XHCI 1.2 § 4.6.9 p137.)
-		status = StopEndpoint(false, endpoint);
-	}
-	if (status == B_DEV_STALLED) {
-		// Only exit from a Halted state is a RESET. (XHCI 1.2 § 4.8.3 p163.)
-		TRACE_ERROR("cancel queued transfers: halted endpoint, reset!\n");
-		status = ResetEndpoint(false, endpoint);
-	}
-	endpointLocker.Lock();
-
-	// Detach the head TD from the endpoint.
-	XhciTransferDesc::List tdList;
-	tdList.MoveFrom(&endpoint->fTransferDescs);
-
-	if (status == B_OK) {
-		// Clear the endpoint's TRBs.
-		memset(endpoint->fTrbs, 0, sizeof(xhci_trb) * XHCI_ENDPOINT_RING_SIZE);
-		endpoint->fUsed = 0;
-		endpoint->fCurrent = 0;
-
-		// Set dequeue pointer location to the beginning of the ring.
-		SetTRDequeue(endpoint->fTrbAddr, 0, endpoint->fId + 1,
-			endpoint->fDevice->fSlot);
-
-		// We don't need to do anything else to restart the ring, as it will resume
-		// operation as normal upon the next doorbell. (XHCI 1.2 § 4.6.9 p136.)
-	} else {
-		// We couldn't stop the endpoint. Most likely the device has been
-		// removed and the endpoint was stopped by the hardware, or is
-		// for some reason busy and cannot be stopped.
-		TRACE_ERROR("cancel queued transfers: could not stop endpoint: %s!\n",
-			strerror(status));
-
-		// Instead of freeing the TDs, we want to leave them in the endpoint
-		// so that when/if the hardware returns, they can be properly unlinked,
-		// as otherwise the endpoint could get "stuck" by having the "used"
-		// slowly accumulate due to "dead" transfers.
-		endpoint->fTransferDescs.MoveFrom(&tdList);
-	}
-
-	endpointLocker.Unlock();
-
-	for (int32 i = 0; i < transfersCount; i++) {
-		transfers[i]->Finished(B_CANCELED, 0);
-		transfers[i]->Free();
-	}
-
-	XhciTransferDesc* td;
-	while ((td = tdList.RemoveHead()) != NULL)
-		delete td;
-
-	return B_OK;
+	return endpoint->fRing.CancelAllTransfers(*this, endpointLocker, endpoint);
 }
 
 
 status_t
 XHCI::StartDebugTransfer(UsbBusTransfer* transfer)
 {
-	UsbBusPipe *pipe = transfer->TransferPipe();
-	XhciEndpoint *endpoint = (XhciEndpoint *)pipe->ControllerCookie();
-	if (endpoint == NULL)
-		return B_BAD_VALUE;
-
-	// Check all locks that we are going to hit when running transfers.
-	if (mutex_trylock(&endpoint->fLock) != B_OK)
-		return B_WOULD_BLOCK;
-	if (mutex_trylock(&fFinishedLock) != B_OK) {
-		mutex_unlock(&endpoint->fLock);
-		return B_WOULD_BLOCK;
-	}
-	if (mutex_trylock(&fEventLock) != B_OK) {
-		mutex_unlock(&endpoint->fLock);
-		mutex_unlock(&fFinishedLock);
-		return B_WOULD_BLOCK;
-	}
-	mutex_unlock(&endpoint->fLock);
-	mutex_unlock(&fFinishedLock);
-	mutex_unlock(&fEventLock);
-
-	status_t status = SubmitTransfer(transfer);
-	if (status != B_OK)
-		return status;
-
-	// The endpoint's head TD is the TD of the just-submitted transfer.
-	// Just like EHCI, abuse the callback cookie to hold the TD pointer.
-	transfer->SetCallback(NULL, endpoint->fTransferDescs.First());
-
-	return B_OK;
+	return ENOSYS;
 }
 
 
 status_t
 XHCI::CheckDebugTransfer(UsbBusTransfer* transfer)
 {
-	XhciTransferDesc *transfer_td = (XhciTransferDesc *)transfer->CallbackCookie();
-	if (transfer_td == NULL)
-		return B_NO_INIT;
-
-	// Process events once, and then look for it in the finished list.
-	ProcessEvents();
-	for (XhciTransferDesc *td = fFinishedList.First(); td != NULL; td = fFinishedList.GetNext(td)) {
-		if (td != transfer_td)
-			continue;
-
-		// We've found it!
-		fFinishedList.Remove(td);
-
-		bool directionIn = (transfer->TransferPipe()->Direction() != UsbBusPipe::Out);
-		status_t status = (td->fTrbCompletionCode == COMP_SUCCESS
-			|| td->fTrbCompletionCode == COMP_SHORT_PACKET) ? B_OK : B_ERROR;
-
-		if (status == B_OK && directionIn) {
-			td->Read(transfer->Vector(), transfer->VectorCount(),
-				transfer->IsPhysical());
-		}
-
-		delete td;
-		transfer->SetCallback(NULL, NULL);
-		return status;
-	}
-
-	// We didn't find it.
-	spin(75);
-	return B_DEV_PENDING;
+	return ENOSYS;
 }
 
 
 void
 XHCI::CancelDebugTransfer(UsbBusTransfer* transfer)
 {
-	while (CheckDebugTransfer(transfer) == B_DEV_PENDING)
-		spin(100);
 }
 
 
@@ -1117,113 +712,6 @@ XHCI::NotifyPipeChange(UsbBusPipe* pipe, usb_change change)
 
 	TRACE_ERROR("unknown pipe change!\n");
 	return B_UNSUPPORTED;
-}
-
-
-XhciTransferDesc *
-XHCI::CreateDescriptor(uint32 trbCount, uint32 bufferCount, size_t bufferSize)
-{
-	XhciTransferDesc *result = new(std::nothrow) XhciTransferDesc(fStack);
-
-	if (result == NULL) {
-		TRACE_ERROR("failed to allocate a transfer descriptor\n");
-		return NULL;
-	}
-
-	// We always allocate 1 more TRB than requested, so that
-	// _LinkDescriptorForPipe() has room to insert a link TRB.
-	trbCount++;
-	if (fStack->AllocateChunk((void **)&result->fTrbs, &result->fTrbAddr,
-			(trbCount * sizeof(xhci_trb))) < B_OK) {
-		TRACE_ERROR("failed to allocate TRBs\n");
-		delete result;
-		return NULL;
-	}
-	result->fTrbCount = trbCount;
-
-	if (bufferSize > 0) {
-		// Due to how the USB stack allocates physical memory, we can't just
-		// request one large chunk the size of the transfer, and so instead we
-		// create a series of buffers as requested by our caller.
-
-		// We store the buffer pointers and addresses in one memory block.
-		result->fBuffers = (void**)calloc(bufferCount,
-			(sizeof(void*) + sizeof(phys_addr_t)));
-		if (result->fBuffers == NULL) {
-			TRACE_ERROR("unable to allocate space for buffer infos\n");
-			delete result;
-			return NULL;
-		}
-		result->fBufferAddrs = (phys_addr_t*)&result->fBuffers[bufferCount];
-		result->fBufferSize = bufferSize;
-		result->fBufferCount = bufferCount;
-
-		// Optimization: If the requested total size of all buffers is less
-		// than 32*B_PAGE_SIZE (the maximum size that the physical memory
-		// allocator can handle), we allocate only one buffer and segment it.
-		size_t totalSize = bufferSize * bufferCount;
-		if (totalSize < (32 * B_PAGE_SIZE)) {
-			if (fStack->AllocateChunk(&result->fBuffers[0],
-					&result->fBufferAddrs[0], totalSize) < B_OK) {
-				TRACE_ERROR("unable to allocate space for large buffer (size %ld)\n",
-					totalSize);
-				delete result;
-				return NULL;
-			}
-			for (uint32 i = 1; i < bufferCount; i++) {
-				result->fBuffers[i] = (void*)((addr_t)(result->fBuffers[i - 1])
-					+ bufferSize);
-				result->fBufferAddrs[i] = result->fBufferAddrs[i - 1]
-					+ bufferSize;
-			}
-		} else {
-			// Otherwise, we allocate each buffer individually.
-			for (uint32 i = 0; i < bufferCount; i++) {
-				if (fStack->AllocateChunk(&result->fBuffers[i],
-						&result->fBufferAddrs[i], bufferSize) < B_OK) {
-					TRACE_ERROR("unable to allocate space for a buffer (size "
-						"%" B_PRIuSIZE ", count %" B_PRIu32 ")\n",
-						bufferSize, bufferCount);
-					delete result;
-					return NULL;
-				}
-			}
-		}
-	} else {
-		result->fBuffers = NULL;
-		result->fBufferAddrs = NULL;
-	}
-
-	TRACE("CreateDescriptor allocated %p, buffer_size %ld, buffer_count %" B_PRIu32 "\n",
-		result, result->fBufferSize, result->fBufferCount);
-
-	return result;
-}
-
-
-XhciTransferDesc::~XhciTransferDesc()
-{
-	if (fTrbs != NULL) {
-		fStack->FreeChunk(fTrbs, fTrbAddr,
-			(fTrbCount * sizeof(xhci_trb)));
-	}
-	if (fBuffers != NULL) {
-		size_t totalSize = fBufferSize * fBufferCount;
-		if (totalSize < (32 * B_PAGE_SIZE)) {
-			// This was allocated as one contiguous buffer.
-			fStack->FreeChunk(fBuffers[0], fBufferAddrs[0],
-				totalSize);
-		} else {
-			for (uint32 i = 0; i < fBufferCount; i++) {
-				if (fBuffers[i] == NULL)
-					continue;
-				fStack->FreeChunk(fBuffers[i], fBufferAddrs[i],
-					fBufferSize);
-			}
-		}
-
-		free(fBuffers);
-	}
 }
 
 
@@ -1422,15 +910,6 @@ XHCI::AllocateDevice(UsbBusDevice* parent, int8 hubAddress, uint8 hubPort, usb_s
 	}
 	memset(device->fDeviceCtx, 0, sizeof(*device->fDeviceCtx) << fContextSizeShift);
 
-	device->fTrbArea.SetTo(fStack->AllocateArea((void **)&device->fTrbs,
-		&device->fTrbAddr, sizeof(xhci_trb) * (XHCI_MAX_ENDPOINTS - 1)
-			* XHCI_ENDPOINT_RING_SIZE, "XHCI endpoint trbs"));
-	if (!device->fTrbArea.IsSet()) {
-		TRACE_ERROR("unable to create a device trbs area\n");
-		fDevices[slot].reset();
-		return NULL;
-	}
-
 	// set up slot pointer to device context
 	fDcba->baseAddress[slot] = device->fDeviceCtxAddr;
 
@@ -1449,8 +928,6 @@ XHCI::AllocateDevice(UsbBusDevice* parent, int8 hubAddress, uint8 hubPort, usb_s
 	}
 
 	XhciEndpoint* endpoint0 = &device->fEndpoints[0].emplace(device, 0);
-	endpoint0->fTrbs = device->fTrbs;
-	endpoint0->fTrbAddr = device->fTrbAddr;
 
 	// configure the Control endpoint 0
 	if (endpoint0->Configure(USB_PIPE_CONTROL, false,
@@ -1633,18 +1110,6 @@ XHCI::_InsertEndpointForPipe(UsbBusPipe *pipe)
 		XhciEndpoint* endpoint = &device->fEndpoints[id].emplace(device, id);
 		MutexLocker endpointLocker(endpoint->fLock);
 
-		endpoint->fTrbs = device->fTrbs + id * XHCI_ENDPOINT_RING_SIZE;
-		endpoint->fTrbAddr = device->fTrbAddr
-			+ id * XHCI_ENDPOINT_RING_SIZE * sizeof(xhci_trb);
-		memset(endpoint->fTrbs, 0,
-			sizeof(xhci_trb) * XHCI_ENDPOINT_RING_SIZE);
-
-		TRACE("insert endpoint for pipe: trbs, device %p endpoint %p\n",
-			device->fTrbs, endpoint->fTrbs);
-		TRACE("insert endpoint for pipe: trb_addr, device 0x%" B_PRIxPHYSADDR
-			" endpoint 0x%" B_PRIxPHYSADDR "\n", device->fTrbAddr,
-			endpoint->fTrbAddr);
-
 		const uint8 endpointNum = id + 1;
 
 		status_t status = endpoint->Configure(pipe->Type(),
@@ -1689,7 +1154,7 @@ XHCI::_RemoveEndpointForPipe(UsbBusPipe *pipe)
 		return B_BAD_VALUE;
 
 	XhciEndpoint *endpoint = (XhciEndpoint *)pipe->ControllerCookie();
-	if (endpoint == NULL || endpoint->fTrbs == NULL)
+	if (endpoint == NULL)
 		return B_NO_INIT;
 
 	pipe->SetControllerCookie(NULL);
@@ -1700,11 +1165,6 @@ XHCI::_RemoveEndpointForPipe(UsbBusPipe *pipe)
 		StopEndpoint(true, endpoint);
 
 		mutex_lock(&endpoint->fLock);
-
-		// See comment in CancelQueuedTransfers.
-		XhciTransferDesc* td;
-		while ((td = endpoint->fTransferDescs.RemoveHead()) != NULL)
-			delete td;
 
 		device->fEndpoints[endpoint->fId].reset();
 		endpoint = NULL;
@@ -1718,161 +1178,6 @@ XHCI::_RemoveEndpointForPipe(UsbBusPipe *pipe)
 		ConfigureEndpoint(device->fInputCtxAddr, false, device->fSlot);
 	}
 
-	return B_OK;
-}
-
-
-status_t
-XhciEndpoint::LinkDescriptor(XhciTransferDesc *descriptor)
-{
-	TRACE("link descriptor for pipe\n");
-
-	// Use mutex_trylock first, in case we are in KDL.
-	MutexLocker endpointLocker(&fLock, mutex_trylock(&fLock) == B_OK);
-
-	// "used" refers to the number of currently linked TDs, not the number of
-	// used TRBs on the ring (we use 2 TRBs on the ring per transfer.)
-	if (fUsed >= (XHCI_MAX_TRANSFERS - 1)) {
-		TRACE_ERROR("link descriptor for pipe: max transfers count exceeded\n");
-		return B_BAD_VALUE;
-	}
-
-	// We do not support queuing other transfers in tandem with a fragmented one.
-	if (!fTransferDescs.IsEmpty() && fTransferDescs.First()->fTransfer != NULL
-			&& fTransferDescs.First()->fTransfer->IsFragmented()) {
-		TRACE_ERROR("cannot submit transfer: a fragmented transfer is queued\n");
-		return B_DEV_RESOURCE_CONFLICT;
-	}
-
-	fUsed++;
-	fTransferDescs.Insert(descriptor, false);
-
-	const uint32 current = fCurrent,
-		eventdata = current + 1,
-		last = XHCI_ENDPOINT_RING_SIZE - 1;
-	uint32 next = eventdata + 1;
-
-	TRACE("link descriptor for pipe: current %d, next %d\n", current, next);
-
-	// Add a Link TRB to the end of the descriptor.
-	phys_addr_t addr = fTrbAddr + eventdata * sizeof(xhci_trb);
-	descriptor->fTrbs[descriptor->fTrbUsed].address = addr;
-	descriptor->fTrbs[descriptor->fTrbUsed].status = xhci_trb_status{.irq_target = 0}.value;
-	descriptor->fTrbs[descriptor->fTrbUsed].flags = TRB_3_TYPE(TRB_TYPE_LINK)
-		| TRB_3_CHAIN_BIT | TRB_3_CYCLE_BIT;
-		// It is specified that (XHCI 1.2 § 4.12.3 Note 2 p251) if the TRB
-		// following one with the ENT bit set is a Link TRB, the Link TRB
-		// shall be evaluated *and* the subsequent TRB shall be. Thus a
-		// TRB_3_ENT_BIT is unnecessary here; and from testing seems to
-		// break all transfers on a (very) small number of controllers.
-
-#if !B_HOST_IS_LENDIAN
-	// Convert endianness.
-	for (uint32 i = 0; i <= descriptor->fTrbUsed; i++) {
-		descriptor->fTrbs[i].address =
-			B_HOST_TO_LENDIAN_INT64(descriptor->fTrbs[i].address);
-		descriptor->fTrbs[i].status =
-			B_HOST_TO_LENDIAN_INT32(descriptor->fTrbs[i].status);
-		descriptor->fTrbs[i].flags =
-			B_HOST_TO_LENDIAN_INT32(descriptor->fTrbs[i].flags);
-	}
-#endif
-
-	// Link the descriptor.
-	fTrbs[current].address =
-		B_HOST_TO_LENDIAN_INT64(descriptor->fTrbAddr);
-	fTrbs[current].status =
-		B_HOST_TO_LENDIAN_INT32(xhci_trb_status{.irq_target = 0}.value);
-	fTrbs[current].flags =
-		B_HOST_TO_LENDIAN_INT32(TRB_3_TYPE(TRB_TYPE_LINK));
-
-	// Set up the Event Data TRB (XHCI 1.2 § 4.11.5.2 p230.)
-	//
-	// We do this on the main ring for two reasons: first, to avoid a small
-	// potential race between the interrupt and the controller evaluating
-	// the link TRB to get back onto the ring; and second, because many
-	// controllers throw errors if the target of a Link TRB is not valid
-	// (i.e. does not have its Cycle Bit set.)
-	//
-	// We also set the "address" field, which the controller will copy
-	// verbatim into the TRB it posts to the event ring, to be the last
-	// "real" TRB in the TD; this will allow us to determine what transfer
-	// the resulting Transfer Event TRB refers to.
-	fTrbs[eventdata].address =
-		B_HOST_TO_LENDIAN_INT64(descriptor->fTrbAddr
-			+ (descriptor->fTrbUsed - 1) * sizeof(xhci_trb));
-	fTrbs[eventdata].status =
-		B_HOST_TO_LENDIAN_INT32(xhci_trb_status{.irq_target = 0}.value);
-	fTrbs[eventdata].flags =
-		B_HOST_TO_LENDIAN_INT32(TRB_3_TYPE(TRB_TYPE_EVENT_DATA)
-			| TRB_3_IOC_BIT | TRB_3_CYCLE_BIT);
-
-	if (next == last) {
-		// We always use 2 TRBs per _Link..() call, so if "next" is the last
-		// TRB in the ring, we need to generate a link TRB at "next", and
-		// then wrap it to 0. (We write the cycle bit later, after wrapping,
-		// for the reason noted in the previous comment.)
-		fTrbs[next].address =
-			B_HOST_TO_LENDIAN_INT64(fTrbAddr);
-		fTrbs[next].status =
-			B_HOST_TO_LENDIAN_INT32(xhci_trb_status{.irq_target = 0}.value);
-		fTrbs[next].flags =
-			B_HOST_TO_LENDIAN_INT32(TRB_3_TYPE(TRB_TYPE_LINK));
-
-		next = 0;
-	}
-
-	fTrbs[next].address = 0;
-	fTrbs[next].status = 0;
-	fTrbs[next].flags = 0;
-
-	memory_write_barrier();
-
-	// Everything is ready, so write the cycle bit(s).
-	fTrbs[current].flags |= B_HOST_TO_LENDIAN_INT32(TRB_3_CYCLE_BIT);
-	if (current == 0 && fTrbs[last].address != 0)
-		fTrbs[last].flags |= B_HOST_TO_LENDIAN_INT32(TRB_3_CYCLE_BIT);
-
-	TRACE("_LinkDescriptorForPipe pCurrent %p phys 0x%" B_PRIxPHYSADDR
-		" 0x%" B_PRIxPHYSADDR " 0x%08" B_PRIx32 "\n", &fTrbs[current],
-		fTrbAddr + current * sizeof(struct xhci_trb),
-		fTrbs[current].address,
-		B_LENDIAN_TO_HOST_INT32(fTrbs[current].flags));
-
-	fCurrent = next;
-	endpointLocker.Unlock();
-
-#ifdef TRACE_USB
-	XHCI* xhci = fDevice->fBase;
-#endif
-
-	TRACE("Endpoint status 0x%08" B_PRIx32 " 0x%08" B_PRIx32 " 0x%016" B_PRIx64 "\n",
-		xhci->_ReadContext(&fDevice->fDeviceCtx->endpoints[fId].dwendpoint0),
-		xhci->_ReadContext(&fDevice->fDeviceCtx->endpoints[fId].dwendpoint1),
-		xhci->_ReadContext(&fDevice->fDeviceCtx->endpoints[fId].qwendpoint2));
-
-	fDevice->fBase->Ring(fDevice->fSlot, fId + 1);
-
-	TRACE("Endpoint status 0x%08" B_PRIx32 " 0x%08" B_PRIx32 " 0x%016" B_PRIx64 "\n",
-		xhci->_ReadContext(&fDevice->fDeviceCtx->endpoints[fId].dwendpoint0),
-		xhci->_ReadContext(&fDevice->fDeviceCtx->endpoints[fId].dwendpoint1),
-		xhci->_ReadContext(&fDevice->fDeviceCtx->endpoints[fId].qwendpoint2));
-
-	return B_OK;
-}
-
-
-status_t
-XhciEndpoint::UnlinkDescriptor(XhciTransferDesc *descriptor)
-{
-	TRACE("unlink descriptor for pipe\n");
-	// We presume that the caller has already locked or owns the endpoint.
-
-	if (!fTransferDescs.Contains(descriptor))
-		return B_ERROR;
-
-	fUsed--;
-	fTransferDescs.Remove(descriptor);
 	return B_OK;
 }
 
@@ -2327,21 +1632,6 @@ XHCI::HandleCmdComplete(xhci_trb* trb)
 
 
 void
-XHCI::CompleteTransferDesc(XhciTransferDesc* td)
-{
-	// add descriptor to finished list
-	if (mutex_trylock(&fFinishedLock) != B_OK)
-		mutex_lock(&fFinishedLock);
-
-	fFinishedList.Insert(td, false);
-	mutex_unlock(&fFinishedLock);
-
-	release_sem_etc(fFinishTransfersSem, 1, B_DO_NOT_RESCHEDULE);
-	TRACE("HandleTransferComplete td %p done\n", td);
-}
-
-
-void
 XHCI::HandleTransferComplete(xhci_trb* trb)
 {
 	const uint32 flags = B_LENDIAN_TO_HOST_INT32(trb->flags);
@@ -2705,130 +1995,6 @@ XHCI::ProcessEvents()
 	uint64 addr = fErst->rs_addr + i * sizeof(xhci_trb);
 	WriteRunReg32(XHCI_ERDP_LO(0), (uint32)addr | ERDP_BUSY);
 	WriteRunReg32(XHCI_ERDP_HI(0), (uint32)(addr >> 32));
-}
-
-
-int32
-XHCI::FinishThread(void* data)
-{
-	((XHCI *)data)->FinishTransfers();
-	return B_OK;
-}
-
-
-void
-XHCI::FinishTransfers()
-{
-	while (!fStopThreads) {
-		if (acquire_sem(fFinishTransfersSem) < B_OK)
-			continue;
-
-		// eat up sems that have been released by multiple interrupts
-		int32 semCount = 0;
-		get_sem_count(fFinishTransfersSem, &semCount);
-		if (semCount > 0)
-			acquire_sem_etc(fFinishTransfersSem, semCount, B_RELATIVE_TIMEOUT, 0);
-
-		mutex_lock(&fFinishedLock);
-		TRACE("finishing transfers\n");
-		while (!fFinishedList.IsEmpty()) {
-			XhciTransferDesc* td = fFinishedList.RemoveHead();
-			mutex_unlock(&fFinishedLock);
-
-			TRACE("finishing transfer td %p\n", td);
-
-			UsbBusTransfer* transfer = td->fTransfer;
-			if (transfer == NULL) {
-				// No transfer? Quick way out.
-				delete td;
-				mutex_lock(&fFinishedLock);
-				continue;
-			}
-
-			bool directionIn = (transfer->TransferPipe()->Direction() != UsbBusPipe::Out);
-
-			status_t callbackStatus = B_OK;
-			const uint8 completionCode = td->fTrbCompletionCode;
-			switch (completionCode) {
-				case COMP_SHORT_PACKET:
-				case COMP_SUCCESS:
-					callbackStatus = B_OK;
-					break;
-				case COMP_DATA_BUFFER:
-					callbackStatus = directionIn ? B_DEV_DATA_OVERRUN
-						: B_DEV_DATA_UNDERRUN;
-					break;
-				case COMP_BABBLE:
-					callbackStatus = directionIn ? B_DEV_FIFO_OVERRUN
-						: B_DEV_FIFO_UNDERRUN;
-					break;
-				case COMP_USB_TRANSACTION:
-					callbackStatus = B_DEV_CRC_ERROR;
-					break;
-				case COMP_STALL:
-					callbackStatus = B_DEV_STALLED;
-					break;
-				default:
-					callbackStatus = B_DEV_STALLED;
-					break;
-			}
-
-			size_t actualLength = transfer->FragmentLength();
-			if (completionCode != COMP_SUCCESS) {
-				actualLength = td->fTdTransferred;
-				if (td->fTdTransferred == -1)
-					actualLength = transfer->FragmentLength() - td->fTrbLeft;
-				TRACE("transfer not successful, actualLength=%" B_PRIuSIZE "\n",
-					actualLength);
-			}
-
-			usb_isochronous_data* isochronousData = transfer->IsochronousData();
-			if (isochronousData != NULL) {
-				size_t packetSize = transfer->DataLength()
-						/ isochronousData->packet_count,
-					left = actualLength;
-				for (uint32 i = 0; i < isochronousData->packet_count; i++) {
-					size_t size = std::min<size_t>(packetSize, left);
-					isochronousData->packet_descriptors[i].actual_length = size;
-					isochronousData->packet_descriptors[i].status = (size > 0)
-						? B_OK : B_DEV_FIFO_UNDERRUN;
-					left -= size;
- 				}
- 			}
-
-			if (callbackStatus == B_OK && directionIn && actualLength > 0) {
-				TRACE("copying in iov count %ld\n", transfer->VectorCount());
-				status_t status = transfer->PrepareKernelAccess();
-				if (status == B_OK) {
-					td->Read(transfer->Vector(),
-						transfer->VectorCount(), transfer->IsPhysical());
-				} else {
-					callbackStatus = status;
-				}
-			}
-
-			delete td;
-
-			// this transfer may still have data left
-			bool finished = true;
-			transfer->AdvanceByFragment(actualLength);
-			if (completionCode == COMP_SUCCESS
-					&& transfer->FragmentLength() > 0) {
-				TRACE("still %" B_PRIuSIZE " bytes left on transfer\n",
-					transfer->FragmentLength());
-				callbackStatus = SubmitTransfer(transfer);
-				finished = (callbackStatus != B_OK);
-			}
-			if (finished) {
-				// The actualLength was already handled in AdvanceByFragment.
-				transfer->Finished(callbackStatus, 0);
-				transfer->Free();
-			}
-
-			mutex_lock(&fFinishedLock);
-		}
-		mutex_unlock(&fFinishedLock);
-	}
 }
 
 
