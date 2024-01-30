@@ -26,7 +26,7 @@ static mutex sRandomLock = MUTEX_INITIALIZER("RandomDriver");
 
 class RandomDriver: public DeviceDriver {
 public:
-	RandomDriver(DeviceNode* node): fNode(node), fDevFsNode(*this) {}
+	RandomDriver(DeviceNode* node): fNode(node), fDevFsNode() {}
 	virtual ~RandomDriver() = default;
 
 	static status_t Probe(DeviceNode* node, DeviceDriver** driver);
@@ -42,16 +42,12 @@ private:
 	public:
 		RandomDriver& Base() {return ContainerOf(*this, &RandomDriver::fDevFsNode);}
 
-		DevFsNode(RandomDriver& driver): fDriver(driver) {}
 		virtual ~DevFsNode() = default;
 
 		Capabilities GetCapabilities() const final {return {.read = true, .write = true};}
 		status_t Open(const char* path, int openMode, DevFsNodeHandle** outHandle) final;
 		status_t Read(off_t pos, void* buffer, size_t* _length) final;
 		status_t Write(off_t pos, const void* buffer, size_t* _length) final;
-
-	private:
-		RandomDriver& fDriver;
 	} fDevFsNode;
 };
 
