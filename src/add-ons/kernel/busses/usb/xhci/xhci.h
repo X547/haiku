@@ -52,12 +52,6 @@ class XhciEndpoint;
 class XHCI;
 
 
-/* Each transfer requires 2 TRBs on the endpoint "ring" (one for the link TRB,
- * and one for the Event Data TRB), plus one more at the end for the link TRB
- * to the start. */
-#define XHCI_ENDPOINT_RING_SIZE	(XHCI_MAX_TRANSFERS * 2 + 1)
-
-
 class XhciRingSegment {
 public:
 	status_t Init(bool cycleBit);
@@ -169,20 +163,14 @@ public:
 	XhciRingRider fBegin;
 	XhciRingRider fEnd;
 
-	xhci_trb*	fTrbs {};
-	phys_addr_t	fTrbAddr {};
-	uint32		fTrbCount {};
-	uint32		fTrbUsed {};
-
 	void**		fBuffers {};
 	phys_addr_t* fBufferAddrs {};
 	size_t		fBufferSize {};
 	uint32		fBufferCount {};
 
 	UsbBusTransfer*	fTransfer {};
-	uint8		fTrbCompletionCode {};
-	int32		fTdTransferred {};
-	int32		fTrbLeft {};
+	status_t	fCompletionStatus = B_OK;
+	int32		fTransferred {};
 
 	DoublyLinkedListLink<XhciTransferDesc>
 				fLink;
@@ -222,7 +210,7 @@ public:
 
 private:
 	XhciTransferDesc* LookupTransferDesc(phys_addr_t addr);
-	XhciTransferDesc* LookupTransferDescTrb(phys_addr_t addr, uint32& trbIndex);
+	XhciTransferDesc* LookupTransferDescTrb(phys_addr_t addr, int32& tdIndex, size_t& completedLen);
 
 private:
 	XhciRingRider fEnqueue;

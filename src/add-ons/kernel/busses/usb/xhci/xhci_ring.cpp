@@ -168,24 +168,17 @@ XhciRing::SubmitTransfer(XHCI& xhci, UsbBusTransfer* transfer)
 void
 XhciRing::CompleteTransfer(XHCI& xhci, MutexLocker& locker, const xhci_trb& eventTrb)
 {
-	TRACE_ALWAYS("XhciRing::CompleteTransfer()\n");
-	dprintf("Event TRB:\n");
-	DumpTrb(eventTrb);
+	TRACE("XhciRing::CompleteTransfer()\n");
+	TRACE("Event TRB:\n");
+	//DumpTrb(eventTrb);
 
 	const uint8 completionCode = TRB_2_COMP_CODE_GET(eventTrb.status);
-	int32 transferred = 0;
-	int32 remainder = -1;
+	const uint32 remainder = TRB_2_REM_GET(eventTrb.status);
 	const phys_addr_t source = eventTrb.address;
 
-	XhciTransferDesc* td;
-	uint32 trbIndex = 0;
-
-	if ((eventTrb.flags & (1U << TRB_3_EVENT_DATA_BIT)) == 0) {
-		td = LookupTransferDescTrb(source, trbIndex);
-	} else {
-		transferred = TRB_2_REM_GET(eventTrb.status);
-		td = LookupTransferDesc(source);
-	}
+	int32 tdIndex;
+	size_t completedLen;
+	XhciTransferDesc* td = LookupTransferDescTrb(source, tdIndex, completedLen);
 
 	if (td == NULL) {
 		dprintf("TD referenced in completion event not found in the ring\n");
@@ -203,10 +196,62 @@ XhciRing::CompleteTransfer(XHCI& xhci, MutexLocker& locker, const xhci_trb& even
 #endif
 		return;
 	}
+	size_t transferedLen = completedLen - remainder;
 
-	td->fTrbCompletionCode = completionCode;
-	td->fTdTransferred = transferred;
-	td->fTrbLeft = remainder;
+	TRACE("tdIndex: %" B_PRId32
+		", transferedLen: %" B_PRIuSIZE
+		", completedLen: %" B_PRIuSIZE
+		", remainder: %" B_PRIu32 "\n",
+		tdIndex,
+		transferedLen,
+		completedLen,
+		remainder);
+
+	UsbBusPipe* pipe = td->fTransfer->TransferPipe();
+	bool directionIn = (pipe->Direction() != UsbBusPipe::Out);
+	usb_isochronous_data* isochronousData = td->fTransfer->IsochronousData();
+
+	status_t callbackStatus = B_OK;
+	switch (completionCode) {
+		case COMP_SHORT_PACKET:
+		case COMP_SUCCESS:
+			callbackStatus = B_OK;
+			break;
+		case COMP_DATA_BUFFER:
+			callbackStatus = directionIn ? B_DEV_DATA_OVERRUN
+				: B_DEV_DATA_UNDERRUN;
+			break;
+		case COMP_BABBLE:
+			callbackStatus = directionIn ? B_DEV_FIFO_OVERRUN
+				: B_DEV_FIFO_UNDERRUN;
+			break;
+		case COMP_USB_TRANSACTION:
+			callbackStatus = B_DEV_CRC_ERROR;
+			break;
+		case COMP_STALL:
+			callbackStatus = B_DEV_STALLED;
+			break;
+		default:
+			callbackStatus = B_DEV_STALLED;
+			break;
+	}
+
+	if (isochronousData != NULL) {
+		auto& desc = isochronousData->packet_descriptors[tdIndex];
+		desc.actual_length = transferedLen;
+		desc.status = callbackStatus;
+
+		if (td->fCompletionStatus >= B_OK && callbackStatus < B_OK)
+			td->fCompletionStatus = callbackStatus;
+
+		td->fTransferred += transferedLen;
+
+		if ((uint32)tdIndex != isochronousData->packet_count - 1)
+			return;
+	} else {
+		td->fCompletionStatus = callbackStatus;
+		td->fTransferred = transferedLen;
+	}
 
 	Complete(td->fEnd);
 	fTransferDescs.Remove(td);
@@ -271,21 +316,33 @@ XhciRing::LookupTransferDesc(phys_addr_t addr)
 
 
 XhciTransferDesc*
-XhciRing::LookupTransferDescTrb(phys_addr_t addr, uint32& trbIndex)
+XhciRing::LookupTransferDescTrb(phys_addr_t addr, int32& tdIndex, size_t& completedLen)
 {
+	tdIndex = -1;
+	completedLen = 0;
 	for (XhciTransferDesc* td = fTransferDescs.First(); td != NULL; td = fTransferDescs.GetNext(td)) {
-		trbIndex = 0;
+		bool prevChainBit = false;
 		for (XhciRingRider rd = td->fBegin; rd != td->fEnd; rd.Inc()) {
+			switch (TRB_3_TYPE_GET(rd.trb->flags)) {
+				case TRB_TYPE_DATA_STAGE:
+				case TRB_TYPE_NORMAL:
+				case TRB_TYPE_ISOCH:
+					if (!prevChainBit) {
+						tdIndex++;
+						completedLen = 0;
+					}
+					prevChainBit = (rd.trb->flags & (1U << TRB_3_CHAIN_BIT)) != 0;
+
+					completedLen += TRB_2_BYTES(rd.trb->status);
+					break;
+			}
+
 			if (rd.PhysAddr() == addr)
 				return td;
 
-			switch (TRB_3_TYPE_GET(rd.trb->flags)) {
-				case TRB_TYPE_NORMAL:
-				case TRB_TYPE_ISOCH:
-					trbIndex++;
-					break;
-			}
 		}
+		tdIndex = -1;
+		completedLen = 0;
 	}
 	return NULL;
 }
@@ -586,8 +643,7 @@ XhciTransferDesc::AllocBuffer(uint32 bufferCount, size_t bufferSize)
 status_t
 XhciTransferDesc::FillTransfer(XHCI& xhci, XhciRing& ring)
 {
-	UsbBusPipe *pipe = fTransfer->TransferPipe();
-	usb_isochronous_data *isochronousData = fTransfer->IsochronousData();
+	UsbBusPipe* pipe = fTransfer->TransferPipe();
 
 	fBegin = ring.EnqueueRd();
 	fEnd = ring.EnqueueRd();
@@ -600,18 +656,6 @@ XhciTransferDesc::FillTransfer(XHCI& xhci, XhciRing& ring)
 		CHECK_RET(FillNormalTransfer(xhci, ring));
 	}
 
-	if (isochronousData == NULL) {
-		XhciRingRider rd = fEnd;
-		CHECK_RET(ring.Alloc(fEnd, false));
-
-		rd.trb->address = fBegin.PhysAddr();
-		rd.trb->status = TRB_2_IRQ(0);
-		rd.trb->flags
-			= TRB_3_TYPE(TRB_TYPE_EVENT_DATA)
-			| (1U << TRB_3_IOC_BIT)
-			| ((uint32)rd.cycleBit << TRB_3_CYCLE_BIT);
-	}
-
 	return B_OK;
 }
 
@@ -619,7 +663,7 @@ XhciTransferDesc::FillTransfer(XHCI& xhci, XhciRing& ring)
 status_t
 XhciTransferDesc::FillControlTransfer(XHCI& xhci, XhciRing& ring)
 {
-	usb_request_data *requestData = fTransfer->RequestData();
+	usb_request_data* requestData = fTransfer->RequestData();
 	bool directionIn = (requestData->RequestType & USB_REQTYPE_DEVICE_IN) != 0;
 
 	CHECK_RET(AllocBuffer(1, requestData->Length));
@@ -652,6 +696,7 @@ XhciTransferDesc::FillControlTransfer(XHCI& xhci, XhciRing& ring)
 				| TRB_2_TD_SIZE(0),
 			.flags
 				= TRB_3_TYPE(TRB_TYPE_DATA_STAGE)
+				| (1U << TRB_3_ISP_BIT)
 				| (directionIn ? TRB_3_DIR_IN : 0)
 				| ((uint32)rd.cycleBit << TRB_3_CYCLE_BIT)
 		};
@@ -663,15 +708,14 @@ XhciTransferDesc::FillControlTransfer(XHCI& xhci, XhciRing& ring)
 	}
 
 	rd = fEnd;
-	CHECK_RET(ring.Alloc(fEnd, true));
+	CHECK_RET(ring.Alloc(fEnd, false));
 
 	// Status Stage
 	rd.trb->address = 0;
 	rd.trb->status = TRB_2_IRQ(0);
 	rd.trb->flags
 		= TRB_3_TYPE(TRB_TYPE_STATUS_STAGE)
-		| (1U << TRB_3_CHAIN_BIT)
-		| (1U << TRB_3_ENT_BIT)
+		| (1U << TRB_3_IOC_BIT)
 		| ((uint32)rd.cycleBit << TRB_3_CYCLE_BIT);
 		// The CHAIN bit must be set when using an Event Data TRB
 		// (XHCI 1.2 § 6.4.1.2.3 Table 6-31 p472).
@@ -690,17 +734,14 @@ XhciTransferDesc::FillNormalTransfer(XHCI& xhci, XhciRing& ring)
 {
 	TRACE("SubmitNormalRequest() length %" B_PRIuSIZE "\n", fTransfer->FragmentLength());
 
-	UsbBusPipe *pipe = fTransfer->TransferPipe();
-	usb_isochronous_data *isochronousData = fTransfer->IsochronousData();
+	UsbBusPipe* pipe = fTransfer->TransferPipe();
+	usb_isochronous_data* isochronousData = fTransfer->IsochronousData();
 	UsbBusPipe::pipeDirection direction = pipe->Direction();
-	XhciEndpoint *endpoint = (XhciEndpoint *)pipe->ControllerCookie();
+	XhciEndpoint* endpoint = (XhciEndpoint*)pipe->ControllerCookie();
 
 	XhciRingRider rd = fEnd;
 
 	if (isochronousData != NULL) {
-		// Not fully implemented yet
-		return ENOSYS;
-
 		if (isochronousData->packet_count == 0)
 			return B_BAD_VALUE;
 
@@ -725,31 +766,19 @@ XhciTransferDesc::FillNormalTransfer(XHCI& xhci, XhciRing& ring)
 			rd = fEnd;
 			CHECK_RET(ring.Alloc(fEnd, false));
 
-			phys_addr_t transferTrbAddr = rd.PhysAddr();
-
 			*rd.trb = {
 				.address = fBufferAddrs[i],
-				.status = TRB_2_IRQ(0),
+				.status
+					= (uint32)TRB_2_REM(isochronousData->packet_descriptors[i].request_length)
+					| TRB_2_IRQ(0),
 				.flags
 					= TRB_3_TYPE(TRB_TYPE_ISOCH)
 					| ((uint32)(rd.cycleBit != (i == 0)) << TRB_3_CYCLE_BIT)
 					| TRB_3_FRID(frame)
-					| (1U << TRB_3_ENT_BIT)
+					| (1U << TRB_3_IOC_BIT)
 			};
 
 			frame = (frame + 1) % 2048;
-
-			rd = fEnd;
-			CHECK_RET(ring.Alloc(fEnd, false));
-
-			*rd.trb = {
-				.address = transferTrbAddr,
-				.status = TRB_2_IRQ(0),
-				.flags
-					= TRB_3_TYPE(TRB_TYPE_EVENT_DATA)
-					| (1U << TRB_3_IOC_BIT)
-					| ((uint32)rd.cycleBit << TRB_3_CYCLE_BIT)
-			};
 		}
 		if (isochronousData->starting_frame_number != NULL)
 			*isochronousData->starting_frame_number = frame;
@@ -798,11 +827,13 @@ XhciTransferDesc::FillNormalTransfer(XHCI& xhci, XhciRing& ring)
 				.flags
 					= TRB_3_TYPE(TRB_TYPE_NORMAL)
 					| (1U << TRB_3_CHAIN_BIT)
+					| (1U << TRB_3_ISP_BIT)
 					| ((uint32)(rd.cycleBit != (i == 0)) << TRB_3_CYCLE_BIT)
 			};
 		}
 
-		rd.trb->flags |= (1U << TRB_3_ENT_BIT);
+		rd.trb->flags &= ~(1U << TRB_3_CHAIN_BIT);
+		rd.trb->flags |= (1U << TRB_3_IOC_BIT);
 	}
 
 	if (direction == UsbBusPipe::Out) {
@@ -820,61 +851,16 @@ XhciTransferDesc::DPCCallback::DoDPC(DPCQueue* queue)
 	TRACE("finishing transfer td %p\n", &Base());
 
 	UsbBusTransfer* transfer = Base().fTransfer;
-	UsbBusPipe *pipe = transfer->TransferPipe();
-	XhciEndpoint *endpoint = (XhciEndpoint *)pipe->ControllerCookie();
+	UsbBusPipe* pipe = transfer->TransferPipe();
+	XhciEndpoint* endpoint = (XhciEndpoint *)pipe->ControllerCookie();
 	XHCI* xhci = endpoint->fDevice->fBase;
 	bool directionIn = (transfer->TransferPipe()->Direction() != UsbBusPipe::Out);
 
-	status_t callbackStatus = B_OK;
-	const uint8 completionCode = Base().fTrbCompletionCode;
-	switch (completionCode) {
-		case COMP_SHORT_PACKET:
-		case COMP_SUCCESS:
-			callbackStatus = B_OK;
-			break;
-		case COMP_DATA_BUFFER:
-			callbackStatus = directionIn ? B_DEV_DATA_OVERRUN
-				: B_DEV_DATA_UNDERRUN;
-			break;
-		case COMP_BABBLE:
-			callbackStatus = directionIn ? B_DEV_FIFO_OVERRUN
-				: B_DEV_FIFO_UNDERRUN;
-			break;
-		case COMP_USB_TRANSACTION:
-			callbackStatus = B_DEV_CRC_ERROR;
-			break;
-		case COMP_STALL:
-			callbackStatus = B_DEV_STALLED;
-			break;
-		default:
-			callbackStatus = B_DEV_STALLED;
-			break;
-	}
+	status_t callbackStatus = Base().fCompletionStatus;
+	size_t expectedLength = transfer->FragmentLength();
+	size_t actualLength = Base().fTransferred;
 
-	size_t actualLength = transfer->FragmentLength();
-	if (completionCode != COMP_SUCCESS) {
-		actualLength = Base().fTdTransferred;
-		if (Base().fTdTransferred == -1)
-			actualLength = transfer->FragmentLength() - Base().fTrbLeft;
-		TRACE("transfer not successful, actualLength=%" B_PRIuSIZE "\n",
-			actualLength);
-	}
-
-	usb_isochronous_data* isochronousData = transfer->IsochronousData();
-	if (isochronousData != NULL) {
-		size_t packetSize = transfer->DataLength()
-				/ isochronousData->packet_count,
-			left = actualLength;
-		for (uint32 i = 0; i < isochronousData->packet_count; i++) {
-			size_t size = std::min<size_t>(packetSize, left);
-			isochronousData->packet_descriptors[i].actual_length = size;
-			isochronousData->packet_descriptors[i].status = (size > 0)
-				? B_OK : B_DEV_FIFO_UNDERRUN;
-			left -= size;
-			}
-		}
-
-	if (callbackStatus == B_OK && directionIn && actualLength > 0) {
+	if (directionIn && actualLength > 0) {
 		TRACE("copying in iov count %ld\n", fTransfer->VectorCount());
 		status_t status = transfer->PrepareKernelAccess();
 		if (status == B_OK) {
@@ -890,8 +876,7 @@ XhciTransferDesc::DPCCallback::DoDPC(DPCQueue* queue)
 	// this transfer may still have data left
 	bool finished = true;
 	transfer->AdvanceByFragment(actualLength);
-	if (completionCode == COMP_SUCCESS
-			&& transfer->FragmentLength() > 0) {
+	if (expectedLength == actualLength && transfer->FragmentLength() > 0) {
 		TRACE("still %" B_PRIuSIZE " bytes left on transfer\n",
 			fTransfer->FragmentLength());
 		callbackStatus = xhci->SubmitTransfer(transfer);
