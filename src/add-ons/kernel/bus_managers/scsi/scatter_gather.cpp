@@ -23,10 +23,10 @@ static locked_pool_cookie temp_sg_pool;
 
 
 static bool
-fill_temp_sg(scsi_ccb *ccb)
+fill_temp_sg(ScsiCcb *ccb)
 {
 	status_t res;
-	scsi_bus_info *bus = ccb->bus;
+	ScsiBusImpl *bus = static_cast<ScsiBusImpl*>(ccb->bus);
 	uint32 dma_boundary = bus->dma_params.dma_boundary;
 	uint32 max_sg_block_size = bus->dma_params.max_sg_block_size;
 	uint32 max_sg_blocks = std::min(bus->dma_params.max_sg_blocks,
@@ -101,7 +101,7 @@ too_complex:
 /** create temporary SG for request */
 
 bool
-create_temp_sg(scsi_ccb *ccb)
+create_temp_sg(ScsiCcb *ccb)
 {
 	physical_entry *temp_sg;
 	status_t res;
@@ -148,7 +148,7 @@ uninit_temp_sg(void)
 /** destroy SG list buffer */
 
 void
-cleanup_tmp_sg(scsi_ccb *ccb)
+cleanup_tmp_sg(ScsiCcb *ccb)
 {
 	status_t res;
 

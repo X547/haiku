@@ -22,15 +22,20 @@
 #include <algorithm>
 
 
+static status_t
+scsi_init_device(ScsiDeviceImpl **outDevice, ScsiBusImpl *bus, uint8 target_id, uint8 target_lun,
+	uint8 is_atapi, uint8 manual_autosense, const scsi_res_inquiry *inquiry_data, uint8 path_id);
+
+
 /** free autosense request of device */
 
 static void
-scsi_free_autosense_request(scsi_device_info *device)
+scsi_free_autosense_request(ScsiDeviceImpl *device)
 {
 	SHOW_FLOW0( 3, "" );
 
 	if (device->auto_sense_request != NULL) {
-		scsi_free_ccb(device->auto_sense_request);
+		device->auto_sense_request->Free();
 		device->auto_sense_request = NULL;
 	}
 
@@ -43,9 +48,11 @@ scsi_free_autosense_request(scsi_device_info *device)
 
 /** free all data of device */
 
-static void
-scsi_free_device(scsi_device_info *device)
+void
+ScsiDeviceImpl::Free()
 {
+	ScsiDeviceImpl *device = this;
+
 	SHOW_FLOW0( 3, "" );
 
 	scsi_free_emulation_buffer(device);
@@ -58,7 +65,7 @@ scsi_free_device(scsi_device_info *device)
 	mutex_destroy(&device->dma_buffer_lock);
 	delete_sem(device->dma_buffer_owner);
 
-	free(device);
+	delete device;
 }
 
 
@@ -85,7 +92,7 @@ beautify_string(char *dst, char *src, int dst_size)
 /** register new device */
 
 status_t
-scsi_register_device(scsi_bus_info *bus, uchar target_id,
+scsi_register_device(ScsiBusImpl *bus, uchar target_id,
 	uchar target_lun, scsi_res_inquiry *inquiry_data)
 {
 	bool is_atapi, manual_autosense;
@@ -94,7 +101,7 @@ scsi_register_device(scsi_bus_info *bus, uchar target_id,
 	SHOW_FLOW0( 3, "" );
 
 	// ask for restrictions
-	bus->interface->get_restrictions(bus->sim_cookie,
+	bus->interface->GetRestrictions(
 		target_id, &is_atapi, &manual_autosense, &max_blocks);
 	if (target_lun != 0)
 		dprintf("WARNING: SCSI target %d lun %d getting restrictions without lun\n",
@@ -103,7 +110,7 @@ scsi_register_device(scsi_bus_info *bus, uchar target_id,
 	// find maximum transfer blocks
 	// set default value to max (need something like ULONG_MAX here)
 	orig_max_blocks = ~0;
-	pnp->get_attr_uint32(bus->node, B_DMA_MAX_TRANSFER_BLOCKS, &orig_max_blocks,
+	bus->node->FindAttrUint32(B_DMA_MAX_TRANSFER_BLOCKS, &orig_max_blocks,
 		true);
 
 	max_blocks = std::min(max_blocks, orig_max_blocks);
@@ -144,8 +151,13 @@ scsi_register_device(scsi_bus_info *bus, uchar target_id,
 		beautify_string(product_ident, inquiry_data->product_ident, sizeof(product_ident));
 		beautify_string(product_rev, inquiry_data->product_rev, sizeof(product_rev));
 
-		return pnp->register_node(bus->node, SCSI_DEVICE_MODULE_NAME, attrs,
-			NULL, NULL);
+		ScsiDeviceImpl *device = NULL;
+		CHECK_RET(scsi_init_device(&device, bus, target_id, target_lun, is_atapi, manual_autosense,
+			inquiry_data, (uint8)-1));
+
+		BusDriver *busDriver = static_cast<BusDriver*>(device);
+
+		return bus->node->RegisterNode(bus->node, busDriver, attrs, NULL);
 	}
 
 	return B_OK;
@@ -153,28 +165,19 @@ scsi_register_device(scsi_bus_info *bus, uchar target_id,
 
 
 // create data structure for a device
-static scsi_device_info *
-scsi_create_device(device_node *node, scsi_bus_info *bus,
-	int target_id, int target_lun)
+static ScsiDeviceImpl *
+scsi_create_device(ScsiBusImpl *bus, int target_id, int target_lun)
 {
-	scsi_device_info *device;
-
 	SHOW_FLOW0( 3, "" );
 
-	device = (scsi_device_info *)malloc(sizeof(*device));
+	ScsiDeviceImpl *device = new(std::nothrow) ScsiDeviceImpl();
 	if (device == NULL)
 		return NULL;
 
-	memset(device, 0, sizeof(*device));
-
-	device->lock_count = device->blocked[0] = device->blocked[1] = 0;
-	device->sim_overflow = 0;
-	device->queued_reqs = NULL;
 	device->bus = bus;
 	device->target_id = target_id;
 	device->target_lun = target_lun;
 	device->valid = true;
-	device->node = node;
 
 	scsi_dma_buffer_init(&device->dma_buffer);
 
@@ -190,7 +193,7 @@ scsi_create_device(device_node *node, scsi_bus_info *bus,
 
 err:
 	mutex_destroy(&device->dma_buffer_lock);
-	free(device);
+	delete device;
 	return NULL;
 }
 
@@ -201,16 +204,16 @@ err:
  */
 
 static status_t
-scsi_create_autosense_request(scsi_device_info *device)
+scsi_create_autosense_request(ScsiDeviceImpl *device)
 {
-	scsi_ccb *request;
+	ScsiCcbImpl *request;
 	unsigned char *buffer;
 	scsi_cmd_request_sense *cmd;
 	size_t total_size;
 
 	SHOW_FLOW0( 3, "" );
 
-	device->auto_sense_request = request = scsi_alloc_ccb(device);
+	device->auto_sense_request = request = static_cast<ScsiCcbImpl*>(device->AllocCcb());
 	if (device->auto_sense_request == NULL)
 		return B_NO_MEMORY;
 
@@ -251,7 +254,7 @@ scsi_create_autosense_request(scsi_device_info *device)
 	return B_OK;
 
 err:
-	scsi_free_ccb(request);
+	request->Free();
 	return B_NO_MEMORY;
 }
 
@@ -259,42 +262,22 @@ err:
 #define SET_BIT(field, bit) field[(bit) >> 3] |= 1 << ((bit) & 7)
 
 static status_t
-scsi_init_device(device_node *node, void **cookie)
+scsi_init_device(ScsiDeviceImpl **outDevice, ScsiBusImpl *bus, uint8 target_id, uint8 target_lun,
+	uint8 is_atapi, uint8 manual_autosense, const scsi_res_inquiry *inquiry_data, uint8 path_id)
 {
-	const scsi_res_inquiry *inquiry_data = NULL;
-	uint8 target_id, target_lun, path_id;
-	scsi_bus_info *bus;
-	scsi_device_info *device;
+	ScsiDeviceImpl *device;
 	status_t res;
-	size_t inquiry_data_len;
-	uint8 is_atapi, manual_autosense;
 
 	SHOW_FLOW0(3, "");
 
-	if (pnp->get_attr_uint8( node, SCSI_DEVICE_TARGET_ID_ITEM, &target_id, false) != B_OK
-		|| pnp->get_attr_uint8( node, SCSI_DEVICE_TARGET_LUN_ITEM, &target_lun, false) != B_OK
-		|| pnp->get_attr_uint8( node, SCSI_DEVICE_IS_ATAPI_ITEM, &is_atapi, false) != B_OK
-		|| pnp->get_attr_uint8( node, SCSI_DEVICE_MANUAL_AUTOSENSE_ITEM, &manual_autosense, false) != B_OK
-		|| pnp->get_attr_raw( node, SCSI_DEVICE_INQUIRY_ITEM,
-				(const void **)&inquiry_data, &inquiry_data_len, false) != B_OK
-		|| inquiry_data_len != sizeof(*inquiry_data)) {
-		return B_ERROR;
-	}
-
-	{
-		device_node *parent = pnp->get_parent_node(node);
-		pnp->get_driver(parent, NULL, (void **)&bus);
-		pnp->put_node(parent);
-	}
-
-	device = scsi_create_device(node, bus, target_id, target_lun);
+	device = scsi_create_device(bus, target_id, target_lun);
 	if (device == NULL)
 		return B_NO_MEMORY;
 
+/*
 	// never mind if there is no path - it might be an emulated controller
 	path_id = (uint8)-1;
-
-	pnp->get_attr_uint8(node, SCSI_BUS_PATH_ID_ITEM, &path_id, true);
+*/
 
 	device->inquiry_data = *inquiry_data;
 
@@ -341,31 +324,42 @@ scsi_init_device(device_node *node, void **cookie)
 		SET_BIT(device->emulation_map, SCSI_OP_INQUIRY);
 	}
 
-	*cookie = device;
+	*outDevice = device;
 	return B_OK;
 
 err:
-	scsi_free_device(device);
+	device->Free();
 	return res;
 }
 
 
-static void
-scsi_uninit_device(scsi_device_info *device)
+status_t
+ScsiDeviceImpl::InitDriver(DeviceNode *node)
 {
-	SHOW_FLOW0(3, "");
+	ScsiDeviceImpl *device = this;
 
-	scsi_free_device(device);
+	device->node = node;
+
+	return B_OK;
 }
 
 
-static void
-scsi_device_removed(scsi_device_info *device)
+void*
+ScsiDeviceImpl::QueryInterface(const char *name)
 {
-	SHOW_FLOW0(3, "");
+	if (strcmp(name, ScsiDevice::ifaceName) == 0)
+		return static_cast<ScsiDevice*>(this);
 
-	if (device == NULL)
-		return;
+	return NULL;
+}
+
+
+void
+ScsiDeviceImpl::DeviceRemoved()
+{
+	ScsiDeviceImpl *device = this;
+
+	SHOW_FLOW0(3, "");
 
 	// this must be atomic as no lock is used
 	device->valid = false;
@@ -378,18 +372,17 @@ scsi_device_removed(scsi_device_info *device)
  */
 
 status_t
-scsi_force_get_device(scsi_bus_info *bus, uchar target_id,
-	uchar target_lun, scsi_device_info **res_device)
+scsi_force_get_device(ScsiBusImpl *bus, uchar target_id,
+	uchar target_lun, ScsiDeviceImpl **res_device)
 {
 	device_attr attrs[] = {
 		{ SCSI_DEVICE_TARGET_ID_ITEM, B_UINT8_TYPE, { .ui8 = target_id }},
 		{ SCSI_DEVICE_TARGET_LUN_ITEM, B_UINT8_TYPE, { .ui8 = target_lun }},
 		{ NULL }
 	};
-	device_node *node;
+	DeviceNode *node;
 	status_t res;
-	driver_module_info *driver_interface;
-	scsi_device device;
+	ScsiDevice *device;
 
 	SHOW_FLOW0(3, "");
 
@@ -398,26 +391,27 @@ scsi_force_get_device(scsi_bus_info *bus, uchar target_id,
 
 	// check whether device registered already
 	node = NULL;
-	pnp->get_next_child_node(bus->node, attrs, &node);
+	bus->node->GetNextChildNode(attrs, &node);
 
 	SHOW_FLOW(3, "%p", node);
 
 	if (node != NULL) {
-		// TODO: have a second look a this one!
-		// there is one - get it
-		res = pnp->get_driver(node, &driver_interface, (void **)&device);
-		if (res != B_OK)
-			pnp->put_node(node);
+		device = node->QueryBusInterface<ScsiDevice>();
+		if (device == NULL) {
+			node->ReleaseReference();
+			node = NULL;
+			res = ENOENT;
+		}
 	} else {
 		// device doesn't exist yet - create a temporary one
-		device = scsi_create_device(NULL, bus, target_id, target_lun);
+		device = scsi_create_device(bus, target_id, target_lun);
 		if (device == NULL)
 			res = B_NO_MEMORY;
 		else
 			res = B_OK;
 	}
 
-	*res_device = device;
+	*res_device = static_cast<ScsiDeviceImpl*>(device);
 
 	if (res != B_OK)
 		release_sem(bus->scan_lun_lock);
@@ -431,94 +425,44 @@ scsi_force_get_device(scsi_bus_info *bus, uchar target_id,
  */
 
 void
-scsi_put_forced_device(scsi_device_info *device)
+scsi_put_forced_device(ScsiDeviceImpl *device)
 {
-	scsi_bus_info *bus = device->bus;
+	ScsiBusImpl *bus = device->bus;
 
 	SHOW_FLOW0(3, "");
 
 	if (device->node != NULL) {
-		// device is registered
-		pnp->put_node(device->node);
+		device->node->ReleaseReference();
 	} else {
 		// device is temporary
-		scsi_free_device(device);
+		device->Free();
 	}
 
 	release_sem(bus->scan_lun_lock);
 }
 
 
-static uchar
-scsi_reset_device(scsi_device_info *device)
+uchar
+ScsiDeviceImpl::ResetDevice()
 {
+	ScsiDeviceImpl *device = this;
+
 	SHOW_FLOW0(3, "");
 
 	if (device->node == NULL)
 		return SCSI_DEV_NOT_THERE;
 
-	return device->bus->interface->reset_device(device->bus->sim_cookie,
+	return device->bus->interface->ResetDevice(
 		device->target_id, device->target_lun);
 }
 
 
-static status_t
-scsi_ioctl(scsi_device_info *device, uint32 op, void *buffer, size_t length)
+status_t
+ScsiDeviceImpl::Control(uint32 op, void *buffer, size_t length)
 {
-	if (device->bus->interface->ioctl != NULL) {
-		return device->bus->interface->ioctl(device->bus->sim_cookie,
-			device->target_id, op, buffer, length);
-	}
+	ScsiDeviceImpl *device = this;
 
-	return B_DEV_INVALID_IOCTL;
+	SHOW_FLOW0(3, "");
+	return device->bus->interface->Control(
+		device->target_id, op, buffer, length);
 }
-
-
-static status_t
-std_ops(int32 op, ...)
-{
-	switch (op) {
-		case B_MODULE_INIT:
-		{
-			// Link to SCSI bus.
-			// SCSI device driver must have SCSI bus loaded, but it calls its functions
-			// directly instead via official interface, so this pointer is never read.
-			module_info *dummy;
-			return get_module(SCSI_BUS_MODULE_NAME, &dummy);
-		}
-		case B_MODULE_UNINIT:
-			return put_module(SCSI_BUS_MODULE_NAME);
-
-		default:
-			return B_ERROR;
-	}
-}
-
-
-scsi_device_interface scsi_device_module = {
-	{
-		{
-			SCSI_DEVICE_MODULE_NAME,
-			0,
-			std_ops
-		},
-
-		NULL,	// supported devices
-		NULL,	// register node
-		scsi_init_device,
-		(void (*)(void *)) scsi_uninit_device,
-		NULL,	// register child devices
-		NULL,	// rescan
-		(void (*)(void *)) scsi_device_removed
-	},
-
-	scsi_alloc_ccb,
-	scsi_free_ccb,
-
-	scsi_async_io,
-	scsi_sync_io,
-	scsi_abort,
-	scsi_reset_device,
-	scsi_term_io,
-	scsi_ioctl,
-};

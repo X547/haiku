@@ -233,7 +233,7 @@ SYSTEM_ADD_ONS_BUS_MANAGERS = [ FFilterByBuildFeatures
 #	i2c
 #	isa@x86,x86_64
 	mmc
-#	scsi
+	scsi
 	pci
 	ps2@x86,x86_64
 	fdt@riscv64,arm,arm64

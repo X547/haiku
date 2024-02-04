@@ -9,10 +9,10 @@
 
 #include <sys/cdefs.h>
 
-#include <bus/SCSI.h>
+#include <dm2/bus/SCSI.h>
 #include <scsi_cmds.h>
 #include <locked_pool.h>
-#include <device_manager.h>
+#include <dm2/device_manager.h>
 #include <lock.h>
 
 #define debug_level_error 4
@@ -23,6 +23,9 @@
 
 #include "wrapper.h"
 #include "scsi_lock.h"
+
+
+#define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
 
 #define MAX_PATH_ID 255
@@ -59,17 +62,41 @@
 // true, if device requires auto-sense emulation (ui8)
 #define SCSI_DEVICE_MANUAL_AUTOSENSE_ITEM "scsi/manual_autosense"
 
+#define SCSI_BUS_MODULE_NAME "bus_managers/scsi/device/v1"
 // name of internal scsi_bus_raw device driver
 #define SCSI_BUS_RAW_MODULE_NAME "bus_managers/scsi/bus/raw/device_v1"
 
 // info about DPC
-typedef struct scsi_dpc_info {
-	struct scsi_dpc_info *next;
-	bool registered;			// true, if already/still in dpc list
+class ScsiDpcImpl final: public ScsiBusDpc {
+public:
+	void Free() final;
 
-	void (*func)( void * );
-	void *arg;
-} scsi_dpc_info;
+public:
+	struct ScsiDpcImpl *next {};
+	bool registered {};			// true, if already/still in dpc list
+
+	void (*func)( void * ) {};
+	void *arg {};
+};
+
+
+class ScsiCcbImpl final: public ScsiCcb, public ScsiBusCcb  {
+public:
+	// ScsiCcb
+	void Free() final;
+
+	// ScsiBusCcb
+	void Requeue(bool bus_overflow) final;
+	void Resubmit() final;
+	void Finished(uint num_requests) final;
+
+public:
+	ScsiCcbImpl *next {}, *prev {};
+
+	bool ordered : 1;		// request cannot overtake/be overtaken by others
+	bool buffered : 1;		// data is buffered to make it DMA safe
+	bool emulated : 1;		// command is executed as part of emulation
+};
 
 
 // controller restrictions (see blkman.h)
@@ -83,40 +110,62 @@ typedef struct dma_params {
 
 
 // SCSI bus
-typedef struct scsi_bus_info {
-	int lock_count;				// sum of blocked[0..1] and sim_overflow
-	int blocked[2];				// depth of nested locks by bus manager (0) and SIM (1)
-	int left_slots;				// left command queuing slots on HBA
-	bool sim_overflow;			// 1, if SIM refused req because of bus queue overflow
+class ScsiBusImpl final: public DeviceDriver, public ScsiBus, public ScsiBusBus {
+public:
+	// DeviceDriver
+	static status_t Probe(DeviceNode* node, DeviceDriver** outDriver);
+	virtual void Free();
+	virtual void* QueryInterface(const char* name);
 
-	uchar path_id;				// SCSI path id
-	uint32 max_target_count;	// maximum count of target_ids on the bus
-	uint32 max_lun_count;		// maximum count of lun_ids on the bus
+	// ScsiBus
+	uchar PathInquiry(scsi_path_inquiry* inquiry_data) final;
+	uchar ResetBus() final;
 
-	thread_id service_thread;	// service thread
-	sem_id start_service;		// released whenever service thread has work to do
-	bool shutting_down;			// set to true to tell service thread to shut down
+	// ScsiBusBus
+	virtual ScsiBusBus* ToBusBus(ScsiBus* bus) final;
+	virtual ScsiBusDevice* ToBusDevice(ScsiDevice* device) final;
 
-	struct mutex mutex;			// used to synchronize changes in queueing and blocking
+	virtual status_t AllocDpc(ScsiBusDpc** dpc) final;
+	virtual status_t ScheduleDpc(ScsiBusDpc* dpc, /*int flags,*/
+		void (*func)( void * ), void *arg) final;
 
-	sem_id scan_lun_lock;		// allocated whenever a lun is scanned
+	virtual void Block() final;
+	virtual void Unblock() final;
+	virtual void ContSend() final;
 
-	scsi_sim_interface *interface;	// SIM interface
-	scsi_sim_cookie sim_cookie;	// internal SIM cookie
+public:
+	int lock_count {};				// sum of blocked[0..1] and sim_overflow
+	int blocked[2] {};				// depth of nested locks by bus manager (0) and SIM (1)
+	int left_slots {};				// left command queuing slots on HBA
+	bool sim_overflow {};			// 1, if SIM refused req because of bus queue overflow
 
-	spinlock_irq dpc_lock;		// synchronizer for dpc list
-	scsi_dpc_info *dpc_list;	// list of dpcs to execute
+	uchar path_id {};				// SCSI path id
+	uint32 max_target_count {};		// maximum count of target_ids on the bus
+	uint32 max_lun_count {};		// maximum count of lun_ids on the bus
 
-	struct scsi_device_info *waiting_devices;	// devices ready to receive requests
+	thread_id service_thread {};	// service thread
+	sem_id start_service {};		// released whenever service thread has work to do
+	bool shutting_down {};			// set to true to tell service thread to shut down
 
-	locked_pool_cookie ccb_pool;	// ccb pool (one per bus)
+	struct mutex mutex {};			// used to synchronize changes in queueing and blocking
 
-	device_node *node;		// pnp node of bus
+	sem_id scan_lun_lock {};		// allocated whenever a lun is scanned
 
-	struct dma_params dma_params;	// dma restrictions of controller
+	ScsiHostController *interface {};	// SIM interface
 
-	scsi_path_inquiry inquiry_data;	// inquiry data as read on init
-} scsi_bus_info;
+	spinlock_irq dpc_lock {};		// synchronizer for dpc list
+	ScsiDpcImpl *dpc_list {};	// list of dpcs to execute
+
+	struct ScsiDeviceImpl *waiting_devices {};	// devices ready to receive requests
+
+	locked_pool_cookie ccb_pool {};	// ccb pool (one per bus)
+
+	DeviceNode *node {};		// pnp node of bus
+
+	struct dma_params dma_params {};	// dma restrictions of controller
+
+	scsi_path_inquiry inquiry_data {};	// inquiry data as read on init
+};
 
 
 // DMA buffer
@@ -142,53 +191,75 @@ typedef struct dma_buffer {
 
 
 // SCSI device
-typedef struct scsi_device_info {
-	struct scsi_device_info *waiting_next;
-	struct scsi_device_info *waiting_prev;
+class ScsiDeviceImpl final: public BusDriver, public ScsiDevice, public ScsiBusDevice {
+public:
+	// BusDriver
+	void Free() final;
+	status_t InitDriver(DeviceNode* node) final;
+	void* QueryInterface(const char* name) final;
+	void DeviceRemoved(); // !!! never used
 
-	bool manual_autosense : 1;	// no autosense support
-	bool is_atapi : 1;			// ATAPI device - needs some commands emulated
+	// ScsiDevice
+	ScsiCcb* AllocCcb() final;
+	void AsyncIo(ScsiCcb* ccb) final;
+	void SyncIo(ScsiCcb* ccb) final;
+	uchar Abort(ScsiCcb* ccb_to_abort) final;
+	uchar ResetDevice() final;
+	uchar TermIo(ScsiCcb* ccb_to_terminate) final;
+	status_t Control(uint32 op, void* buffer, size_t length) final;
 
-	int lock_count;				// sum of blocked[0..1] and sim_overflow
-	int blocked[2];				// depth of nested locks by bus manager (0) and SIM (1)
-	int sim_overflow;			// 1, if SIM returned a request because of device queue overflow
-	int left_slots;				// left command queuing slots for device
-	int total_slots;			// total number of command queuing slots for device
+	// ScsiBusDevice
+	void Block() final;
+	void Unblock() final;
+	void ContSend() final;
 
-	scsi_ccb *queued_reqs;		// queued requests, circularly doubly linked
-								// (scsi_insert_new_request depends on circular)
+public:
+	struct ScsiDeviceImpl *waiting_next {};
+	struct ScsiDeviceImpl *waiting_prev {};
 
-	int64 last_sort;			// last sort value (for elevator sort)
-	int32 valid;				// access must be atomic!
+	bool manual_autosense : 1 {};	// no autosense support
+	bool is_atapi : 1 {};			// ATAPI device - needs some commands emulated
 
-	scsi_bus_info *bus;
-	uchar target_id;
-	uchar target_lun;
+	int lock_count {};				// sum of blocked[0..1] and sim_overflow
+	int blocked[2] {};				// depth of nested locks by bus manager (0) and SIM (1)
+	int sim_overflow {};			// 1, if SIM returned a request because of device queue overflow
+	int left_slots {};				// left command queuing slots for device
+	int total_slots {};				// total number of command queuing slots for device
 
-	scsi_ccb *auto_sense_request;		// auto-sense request
-	scsi_ccb *auto_sense_originator;	// request that auto-sense is
+	ScsiCcbImpl *queued_reqs {};	// queued requests, circularly doubly linked
+									// (scsi_insert_new_request depends on circular)
+
+	int64 last_sort {};				// last sort value (for elevator sort)
+	int32 valid {};					// access must be atomic!
+
+	ScsiBusImpl *bus {};
+	uchar target_id {};
+	uchar target_lun {};
+
+	ScsiCcbImpl *auto_sense_request {};		// auto-sense request
+	ScsiCcbImpl *auto_sense_originator {};	// request that auto-sense is
 										// currently requested for
-	area_id auto_sense_area;			// area of auto-sense data and S/G list
+	area_id auto_sense_area {};			// area of auto-sense data and S/G list
 
-	uint8 emulation_map[256/8];		// bit field with index being command code:
+	uint8 emulation_map[256/8] {};		// bit field with index being command code:
 								// 1 indicates that this command is not supported
 								// and thus must be emulated
 
-	scsi_res_inquiry inquiry_data;
-	device_node *node;	// device node
+	scsi_res_inquiry inquiry_data {};
+	DeviceNode *node {};	// device node
 
-	struct mutex dma_buffer_lock;	// lock between DMA buffer user and clean-up daemon
-	sem_id dma_buffer_owner;	// to be acquired before using DMA buffer
-	struct dma_buffer dma_buffer;	// DMA buffer
+	struct mutex dma_buffer_lock {};	// lock between DMA buffer user and clean-up daemon
+	sem_id dma_buffer_owner {};	// to be acquired before using DMA buffer
+	struct dma_buffer dma_buffer {};	// DMA buffer
 
 	// buffer used for emulating SCSI commands
-	char *buffer;
-	physical_entry *buffer_sg_list;
-	size_t buffer_sg_count;
-	size_t buffer_size;
-	area_id buffer_area;
-	sem_id buffer_sem;
-} scsi_device_info;
+	char *buffer {};
+	physical_entry *buffer_sg_list {};
+	size_t buffer_sg_count {};
+	size_t buffer_size {};
+	area_id buffer_area {};
+	sem_id buffer_sem {};
+};
 
 enum {
 	ev_scsi_requeue_request = 1,
@@ -218,69 +289,45 @@ enum {
 
 
 extern locked_pool_interface *locked_pool;
-extern device_manager_info *pnp;
 
-extern scsi_for_sim_interface scsi_for_sim_module;
-extern scsi_bus_interface scsi_bus_module;
-extern scsi_device_interface scsi_device_module;
-extern struct device_module_info gSCSIBusRawModule;
+extern driver_module_info scsi_bus_module;
 
 
 __BEGIN_DECLS
 
 
-// busses.c
-uchar scsi_inquiry_path(scsi_bus bus, scsi_path_inquiry *inquiry_data);
-
-
 // ccb.c
-scsi_ccb *scsi_alloc_ccb(scsi_device_info *device);
-void scsi_free_ccb(scsi_ccb *ccb);
-
-status_t scsi_init_ccb_alloc(scsi_bus_info *bus);
-void scsi_uninit_ccb_alloc(scsi_bus_info *bus);
+status_t scsi_init_ccb_alloc(ScsiBusImpl *bus);
+void scsi_uninit_ccb_alloc(ScsiBusImpl *bus);
 
 
 // devices.c
-status_t scsi_force_get_device(scsi_bus_info *bus,
-	uchar target_id, uchar target_lun, scsi_device_info **res_device);
-void scsi_put_forced_device(scsi_device_info *device);
-status_t scsi_register_device(scsi_bus_info *bus, uchar target_id,
+status_t scsi_force_get_device(ScsiBusImpl *bus,
+	uchar target_id, uchar target_lun, ScsiDeviceImpl **res_device);
+void scsi_put_forced_device(ScsiDeviceImpl *device);
+status_t scsi_register_device(ScsiBusImpl *bus, uchar target_id,
 	uchar target_lun, scsi_res_inquiry *inquiry_data);
 
 
 // device_scan.c
-status_t scsi_scan_bus(scsi_bus_info *bus);
-status_t scsi_scan_lun(scsi_bus_info *bus, uchar target_id, uchar target_lun);
+status_t scsi_scan_bus(ScsiBusImpl *bus);
+status_t scsi_scan_lun(ScsiBusImpl *bus, uchar target_id, uchar target_lun);
 
 
 // dpc.c
-status_t scsi_alloc_dpc(scsi_dpc_info **dpc);
-status_t scsi_free_dpc(scsi_dpc_info *dpc);
-bool scsi_check_exec_dpc(scsi_bus_info *bus);
-
-status_t scsi_schedule_dpc(scsi_bus_info *bus, scsi_dpc_info *dpc, /*int flags,*/
-	void (*func)( void *arg ), void *arg);
-
+bool scsi_check_exec_dpc(ScsiBusImpl *bus);
 
 // scsi_io.c
-void scsi_async_io(scsi_ccb *request);
-void scsi_sync_io(scsi_ccb *request);
-uchar scsi_term_io(scsi_ccb *ccb_to_terminate);
-uchar scsi_abort(scsi_ccb *ccb_to_abort);
+bool scsi_check_exec_service(ScsiBusImpl *bus);
 
-bool scsi_check_exec_service(scsi_bus_info *bus);
-
-void scsi_done_io(scsi_ccb *ccb);
-
-void scsi_requeue_request(scsi_ccb *request, bool bus_overflow);
-void scsi_resubmit_request(scsi_ccb *request);
-void scsi_request_finished(scsi_ccb *request, uint num_requests);
+void scsi_requeue_request(ScsiCcb *request, bool bus_overflow);
+void scsi_resubmit_request(ScsiCcb *request);
+void scsi_request_finished(ScsiCcb *request, uint num_requests);
 
 
 // scatter_gather.c
-bool create_temp_sg(scsi_ccb *ccb);
-void cleanup_tmp_sg(scsi_ccb *ccb);
+bool create_temp_sg(ScsiCcb *ccb);
+void cleanup_tmp_sg(ScsiCcb *ccb);
 
 int init_temp_sg(void);
 void uninit_temp_sg(void);
@@ -288,20 +335,17 @@ void uninit_temp_sg(void);
 
 // dma_buffer.c
 void scsi_dma_buffer_daemon(void *dev, int counter);
-void scsi_release_dma_buffer(scsi_ccb *request);
-bool scsi_get_dma_buffer(scsi_ccb *request);
+void scsi_release_dma_buffer(ScsiCcbImpl *request);
+bool scsi_get_dma_buffer(ScsiCcbImpl *request);
 void scsi_dma_buffer_free(dma_buffer *buffer);
 void scsi_dma_buffer_init(dma_buffer *buffer);
 
 
-// queuing.c
-
-
 // emulation.c
-bool scsi_start_emulation(scsi_ccb *request);
-void scsi_finish_emulation(scsi_ccb *request);
-void scsi_free_emulation_buffer(scsi_device_info *device);
-status_t scsi_init_emulation_buffer(scsi_device_info *device, size_t buffer_size);
+bool scsi_start_emulation(ScsiCcb *request);
+void scsi_finish_emulation(ScsiCcb *request);
+void scsi_free_emulation_buffer(ScsiDeviceImpl *device);
+status_t scsi_init_emulation_buffer(ScsiDeviceImpl *device, size_t buffer_size);
 
 
 __END_DECLS

@@ -21,18 +21,18 @@
 
 
 // move some function to end of file to avoid inlining
-static void set_sense(scsi_ccb *request, int sense_key, int sense_asc);
-static bool copy_sg_data(scsi_ccb *request, uint offset, uint allocation_length,
+static void set_sense(ScsiCcb *request, int sense_key, int sense_asc);
+static bool copy_sg_data(ScsiCcb *request, uint offset, uint allocation_length,
 	void *buffer, int size, bool to_buffer);
-static void get_emulation_buffer(scsi_ccb *request);
-static void replace_request_data(scsi_ccb *request);
-static void release_emulation_buffer(scsi_ccb *request);
-static void restore_request_data(scsi_ccb *request);
+static void get_emulation_buffer(ScsiCcb *request);
+static void replace_request_data(ScsiCcb *request);
+static void release_emulation_buffer(ScsiCcb *request);
+static void restore_request_data(ScsiCcb *request);
 
 
 /*! Free emulation buffer */
 void
-scsi_free_emulation_buffer(scsi_device_info *device)
+scsi_free_emulation_buffer(ScsiDeviceImpl *device)
 {
 	if (device->buffer_area)
 		delete_area(device->buffer_area);
@@ -51,7 +51,7 @@ scsi_free_emulation_buffer(scsi_device_info *device)
 	buffer_size must be power of two
 */
 status_t
-scsi_init_emulation_buffer(scsi_device_info *device, size_t buffer_size)
+scsi_init_emulation_buffer(ScsiDeviceImpl *device, size_t buffer_size)
 {
 	physical_entry map[1];
 	size_t total_size;
@@ -110,7 +110,7 @@ scsi_init_emulation_buffer(scsi_device_info *device, size_t buffer_size)
 	USB devices usually don't like 10 bytes either
 */
 static bool
-scsi_read_write_6(scsi_ccb *request)
+scsi_read_write_6(ScsiCcb *request)
 {
 	scsi_cmd_rw_6 *cmd = (scsi_cmd_rw_6 *)request->orig_cdb;
 	scsi_cmd_rw_10 *cdb = (scsi_cmd_rw_10 *)request->cdb;
@@ -163,7 +163,7 @@ scsi_read_write_6(scsi_ccb *request)
 	that to 10 byte MODE SENSE
 */
 static bool
-scsi_start_mode_sense_6(scsi_ccb *request)
+scsi_start_mode_sense_6(ScsiCcb *request)
 {
 	scsi_cmd_mode_sense_6 *cmd = (scsi_cmd_mode_sense_6 *)request->orig_cdb;
 	scsi_cmd_mode_sense_10 *cdb = (scsi_cmd_mode_sense_10 *)request->cdb;
@@ -202,9 +202,9 @@ scsi_start_mode_sense_6(scsi_ccb *request)
 	that to 10 byte MODE SELECT
 */
 static bool
-scsi_start_mode_select_6(scsi_ccb *request)
+scsi_start_mode_select_6(ScsiCcb *request)
 {
-	scsi_device_info *device = request->device;
+	ScsiDeviceImpl *device = static_cast<ScsiDeviceImpl*>(request->device);
 	scsi_cmd_mode_select_6 *cmd = (scsi_cmd_mode_select_6 *)request->orig_cdb;
 	scsi_cmd_mode_select_10 *cdb = (scsi_cmd_mode_select_10 *)request->cdb;
 	scsi_mode_param_header_6 header_6;
@@ -274,7 +274,7 @@ err:
 	returns false if command is to be finished without further execution
 */
 bool
-scsi_start_emulation(scsi_ccb *request)
+scsi_start_emulation(ScsiCcb *request)
 {
 	//snooze( 1000000 );
 
@@ -301,9 +301,9 @@ scsi_start_emulation(scsi_ccb *request)
 
 /*! Back-translate MODE SENSE 10 to MODE SENSE 6 */
 static void
-scsi_finish_mode_sense_10_6(scsi_ccb *request)
+scsi_finish_mode_sense_10_6(ScsiCcb *request)
 {
-	scsi_device_info *device = request->device;
+	ScsiDeviceImpl *device = static_cast<ScsiDeviceImpl*>(request->device);
 	scsi_mode_param_header_6 header_6;
 	scsi_mode_param_header_10 *header_10 = (scsi_mode_param_header_10 *)device->buffer;
 	int transfer_size_6, transfer_size_10;
@@ -354,7 +354,7 @@ scsi_finish_mode_sense_10_6(scsi_ccb *request)
 
 /*! Back-translate MODE SELECT 10 to MODE SELECT 6 */
 static void
-scsi_finish_mode_select_10_6(scsi_ccb *request)
+scsi_finish_mode_select_10_6(ScsiCcb *request)
 {
 	SHOW_FLOW0(3, "fixing MODE SELECT(6)");
 
@@ -370,7 +370,7 @@ scsi_finish_mode_select_10_6(scsi_ccb *request)
 
 /*! Fix inquiry data; some ATAPI devices return wrong version */
 static void
-scsi_finish_inquiry(scsi_ccb *request)
+scsi_finish_inquiry(ScsiCcb *request)
 {
 	int transferSize;
 	scsi_res_inquiry res;
@@ -397,7 +397,7 @@ scsi_finish_inquiry(scsi_ccb *request)
 
 /*! Adjust result of emulated request */
 void
-scsi_finish_emulation(scsi_ccb *request)
+scsi_finish_emulation(ScsiCcb *request)
 {
 	SHOW_FLOW0(3, "");
 
@@ -423,7 +423,7 @@ scsi_finish_emulation(scsi_ccb *request)
 
 /*! Set sense of request */
 static void
-set_sense(scsi_ccb *request, int sense_key, int sense_asc)
+set_sense(ScsiCcb *request, int sense_key, int sense_asc)
 {
 	scsi_sense *sense = (scsi_sense *)request->sense;
 
@@ -462,7 +462,7 @@ set_sense(scsi_ccb *request, int sense_key, int sense_asc)
 	return: true, if data of request was large enough
 */
 static bool
-copy_sg_data(scsi_ccb *request, uint offset, uint allocation_length,
+copy_sg_data(ScsiCcb *request, uint offset, uint allocation_length,
 	void *buffer, int size, bool to_buffer)
 {
 	const physical_entry *sg_list = request->sg_list;
@@ -515,9 +515,9 @@ copy_sg_data(scsi_ccb *request, uint offset, uint allocation_length,
 
 /*! Allocate emulation buffer */
 static void
-get_emulation_buffer(scsi_ccb *request)
+get_emulation_buffer(ScsiCcb *request)
 {
-	scsi_device_info *device = request->device;
+	ScsiDeviceImpl *device = static_cast<ScsiDeviceImpl*>(request->device);
 
 	SHOW_FLOW0(3, "");
 
@@ -529,9 +529,9 @@ get_emulation_buffer(scsi_ccb *request)
 	you must have called get_emulation_buffer() first
 */
 static void
-replace_request_data(scsi_ccb *request)
+replace_request_data(ScsiCcb *request)
 {
-	scsi_device_info *device = request->device;
+	ScsiDeviceImpl *device = static_cast<ScsiDeviceImpl*>(request->device);
 
 	SHOW_FLOW0(3, "");
 
@@ -547,17 +547,17 @@ replace_request_data(scsi_ccb *request)
 
 /*! Release emulation buffer */
 static void
-release_emulation_buffer(scsi_ccb *request)
+release_emulation_buffer(ScsiCcb *request)
 {
 	SHOW_FLOW0(3, "");
 
-	release_sem(request->device->buffer_sem);
+	release_sem(static_cast<ScsiDeviceImpl*>(request->device)->buffer_sem);
 }
 
 
 /*! Restore original request data pointers */
 static void
-restore_request_data(scsi_ccb *request)
+restore_request_data(ScsiCcb *request)
 {
 	SHOW_FLOW0(3, "");
 

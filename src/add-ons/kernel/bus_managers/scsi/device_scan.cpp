@@ -26,7 +26,7 @@
 		false, if there is no device
 */
 static bool
-scsi_scan_send_tur(scsi_ccb *worker_req)
+scsi_scan_send_tur(ScsiCcbImpl *worker_req)
 {
 	scsi_cmd_tur *cmd = (scsi_cmd_tur *)worker_req->cdb;
 
@@ -43,7 +43,7 @@ scsi_scan_send_tur(scsi_ccb *worker_req)
 	worker_req->sort = -1;
 	worker_req->flags = SCSI_DIR_NONE;
 
-	scsi_sync_io( worker_req );
+	worker_req->device->SyncIo( worker_req );
 
 	SHOW_FLOW( 3, "status=%x", worker_req->subsys_status );
 
@@ -63,10 +63,10 @@ scsi_scan_send_tur(scsi_ccb *worker_req)
 	returns true on success
 */
 static bool
-scsi_scan_get_inquiry(scsi_ccb *worker_req, scsi_res_inquiry *new_inquiry_data)
+scsi_scan_get_inquiry(ScsiCcbImpl *worker_req, scsi_res_inquiry *new_inquiry_data)
 {
 	scsi_cmd_inquiry *cmd = (scsi_cmd_inquiry *)worker_req->cdb;
-	scsi_device_info *device = worker_req->device;
+	ScsiDeviceImpl *device = static_cast<ScsiDeviceImpl*>(worker_req->device);
 
 	SHOW_FLOW0(3, "");
 
@@ -87,7 +87,7 @@ scsi_scan_get_inquiry(scsi_ccb *worker_req, scsi_res_inquiry *new_inquiry_data)
 	worker_req->sort = -1;
 	worker_req->flags = SCSI_DIR_IN;
 
-	scsi_sync_io(worker_req);
+	worker_req->device->SyncIo(worker_req);
 
 	switch (worker_req->subsys_status) {
 		case SCSI_REQ_CMP: {
@@ -154,12 +154,12 @@ scsi_scan_get_inquiry(scsi_ccb *worker_req, scsi_res_inquiry *new_inquiry_data)
 
 
 status_t
-scsi_scan_lun(scsi_bus_info *bus, uchar target_id, uchar target_lun)
+scsi_scan_lun(ScsiBusImpl *bus, uchar target_id, uchar target_lun)
 {
-	scsi_ccb *worker_req;
+	ScsiCcbImpl *worker_req;
 	scsi_res_inquiry new_inquiry_data;
 	status_t res;
-	scsi_device_info *device;
+	ScsiDeviceImpl *device;
 	bool found;
 
 	//snooze(1000000);
@@ -172,7 +172,7 @@ scsi_scan_lun(scsi_bus_info *bus, uchar target_id, uchar target_lun)
 
 	//SHOW_FLOW(3, "temp_device: %d", (int)temp_device);
 
-	worker_req = scsi_alloc_ccb(device);
+	worker_req = static_cast<ScsiCcbImpl*>(device->AllocCcb());
 	if (worker_req == NULL) {
 		// there is no out-of-mem code
 		res = B_NO_MEMORY;
@@ -202,7 +202,7 @@ scsi_scan_lun(scsi_bus_info *bus, uchar target_id, uchar target_lun)
 	// get rid of temporary device - as soon as the device is
 	// registered, it can be loaded, and we don't want two data
 	// structures for one device (the temporary and the official one)
-	scsi_free_ccb(worker_req);
+	worker_req->Free();
 	scsi_put_forced_device(device);
 
 	if (!found) {
@@ -229,18 +229,18 @@ scsi_scan_lun(scsi_bus_info *bus, uchar target_id, uchar target_lun)
 		if (scsi_force_get_device(bus, target_id, target_lun, &device) != B_OK)
 			return B_OK;
 		// the device was already registered, let's tell our child to rescan it
-		device_node *childNode = NULL;
+		DeviceNode *childNode = NULL;
 		const device_attr attrs[] = { { NULL } };
-		if (pnp->get_next_child_node(bus->node, attrs, &childNode) == B_OK) {
-			pnp->rescan_node(childNode);
-			pnp->put_node(childNode);
+		if (bus->node->GetNextChildNode(attrs, &childNode) == B_OK) {
+			// childNode->RescanNode(); // TODO
+			childNode->ReleaseReference();
 		}
 		scsi_put_forced_device(device);
 	}
 	return B_OK;
 
 err3:
-	scsi_free_ccb(worker_req);
+	worker_req->Free();
 err2:
 	scsi_put_forced_device(device);
 err:
@@ -249,14 +249,14 @@ err:
 
 
 status_t
-scsi_scan_bus(scsi_bus_info *bus)
+scsi_scan_bus(ScsiBusImpl *bus)
 {
 	scsi_path_inquiry inquiry;
 
 	SHOW_FLOW0( 3, "" );
 
 	// get ID of initiator (i.e. controller)
-	uchar res = scsi_inquiry_path(bus, &inquiry);
+	uchar res = bus->PathInquiry(&inquiry);
 	if (res != SCSI_REQ_CMP)
 		return B_ERROR;
 
@@ -266,7 +266,7 @@ scsi_scan_bus(scsi_bus_info *bus)
 
 	// tell SIM to rescan bus (needed at least by IDE translator)
 	// as this function is optional for SIM, we ignore its result
-	bus->interface->scan_bus(bus->sim_cookie);
+	bus->interface->ScanBus();
 
 	for (uint target_id = 0; target_id < bus->max_target_count; ++target_id) {
 		SHOW_FLOW(3, "target: %d", target_id);
