@@ -159,6 +159,8 @@ class DeviceDriver {
 public:
 	virtual void Free() {}
 	virtual void* QueryInterface(const char* name) {return NULL;}
+	// Called after BusDriver::DriverAttached(true)
+	virtual void BusReady() {}
 	virtual void DeviceRemoved() {}
 	virtual status_t Suspend(int32 state) {return ENOSYS;}
 	virtual status_t Resume() {return ENOSYS;}

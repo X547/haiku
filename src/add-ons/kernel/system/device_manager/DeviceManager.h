@@ -91,6 +91,7 @@ private:
 		bool probePending: 1;
 		bool probed: 1;
 		bool inProbe: 1;
+		bool driverAttached: 1;
 	};
 
 	mutable mutex fLock = MUTEX_INITIALIZER("DeviceNode");

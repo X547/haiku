@@ -505,6 +505,15 @@ DeviceNodeImpl::Probe()
 		lock.Lock();
 		fState.inProbe = false;
 		fProbeCompletedCond.NotifyAll();
+		if (!fState.driverAttached && fDeviceDriver != NULL) {
+			fState.driverAttached = true;
+			BusDriver* busDriver = fBusDriver;
+			DeviceDriver* deviceDriver = fDeviceDriver;
+			lock.Unlock();
+			busDriver->DriverAttached(true);
+			deviceDriver->BusReady();
+			lock.Lock();
+		}
 	});
 
 	if (fState.probed)
@@ -582,7 +591,6 @@ DeviceNodeImpl::ProbeDriver(const char* moduleName, bool isChild)
 		fDeviceDriver = driver;
 		fDriverModuleName.SetTo(driverModuleName.Detach());
 	}
-	fBusDriver->DriverAttached(true);
 
 	return B_OK;
 }
@@ -592,31 +600,33 @@ void
 DeviceNodeImpl::UnsetDeviceDriver()
 {
 	MutexLocker lock(&fLock);
-	if (fDeviceDriver != NULL) {
-		lock.Unlock();
-		DeviceManager::Instance().GetRootNodeNoRef()->UnregisterOwnedNodes(this);
-		fDeviceDriver->DeviceRemoved();
-		lock.Lock();
-		dprintf("UnsetDeviceDriver(\"%s\", \"%s\")\n", GetName(), fDriverModuleName.Get());
-		while (!fDevFsNodes.IsEmpty()) {
-			DevFsNodeWrapper* wrapper = fDevFsNodes.RemoveHead();
-			lock.Unlock();
-			devfs_unpublish_device(wrapper, true);
-			lock.Lock();
-			wrapper->Finalize();
-		}
-		BusDriver* busDriver = fBusDriver;
-		DeviceDriver* deviceDriver = fDeviceDriver;
+	if (fDeviceDriver == NULL)
+		return;
 
+	lock.Unlock();
+	DeviceManager::Instance().GetRootNodeNoRef()->UnregisterOwnedNodes(this);
+	fDeviceDriver->DeviceRemoved();
+	lock.Lock();
+	dprintf("UnsetDeviceDriver(\"%s\", \"%s\")\n", GetName(), fDriverModuleName.Get());
+	while (!fDevFsNodes.IsEmpty()) {
+		DevFsNodeWrapper* wrapper = fDevFsNodes.RemoveHead();
 		lock.Unlock();
-		busDriver->DriverAttached(false);
-		deviceDriver->Free();
-		put_module(fDriverModuleName.Get());
-
+		devfs_unpublish_device(wrapper, true);
 		lock.Lock();
-		fDeviceDriver = NULL;
-		fDriverModuleName.Unset();
+		wrapper->Finalize();
 	}
+	BusDriver* busDriver = fBusDriver;
+	DeviceDriver* deviceDriver = fDeviceDriver;
+
+	lock.Unlock();
+	busDriver->DriverAttached(false);
+	deviceDriver->Free();
+	put_module(fDriverModuleName.Get());
+
+	lock.Lock();
+	fState.driverAttached = false;
+	fDeviceDriver = NULL;
+	fDriverModuleName.Unset();
 }
 
 
