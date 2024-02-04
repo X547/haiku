@@ -29,6 +29,9 @@ BusManager::BusManager(UsbHostController* hostCtrl, DeviceNode* node)
 
 BusManager::~BusManager()
 {
+	if (fIsStarted)
+		Stop();
+
 	Lock();
 	mutex_destroy(&fLock);
 }
@@ -122,6 +125,8 @@ BusManager::Start()
 
 	CHECK_RET(fHostController->Start());
 
+	fIsStarted = true;
+
 	return B_OK;
 }
 
@@ -130,5 +135,6 @@ status_t
 BusManager::Stop()
 {
 	// TODO: Stack::Instance().RemoveBusManager(this);
+	fIsStarted = false;
 	return fHostController->Stop();
 }

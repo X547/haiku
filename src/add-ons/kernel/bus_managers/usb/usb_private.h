@@ -231,6 +231,8 @@ private:
 		DeviceNode*						fNode;
 
 		UsbBusManagerImpl				fBusManagerIface;
+
+		bool							fIsStarted = false;
 };
 
 

@@ -95,15 +95,16 @@ private:
 };
 
 
-class UsbBusManagerImpl: public UsbBusManager {
+class UsbBusManagerImpl: public UsbBusManager, public DeviceDriver {
 public:
 							UsbBusManagerImpl(BusManager& base): fBase(base) {}
-	void					Free() final;
 
 	bool					Lock() final;
 	void					Unlock() final;
 
 	int32					ID() final;
+
+	UsbStack*				GetStack() final;
 
 	int8					AllocateAddress() final;
 	void					FreeAddress(int8 address) final;
@@ -113,6 +114,12 @@ public:
 								int8 deviceAddress,
 								usb_speed speed,
 								void *controllerCookie) final;
+
+	// DeviceDriver
+	static status_t			Probe(DeviceNode* node, DeviceDriver** driver);
+	void					Free() final;
+	void					BusReady() final;
+	void*					QueryInterface(const char* name) final;
 
 private:
 	BusManager& fBase;

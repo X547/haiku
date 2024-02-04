@@ -359,13 +359,6 @@ UsbBusTransferImpl::Finished(uint32 status, size_t actualLength)
 
 // #pragma mark - UsbBusManagerImpl
 
-void
-UsbBusManagerImpl::Free()
-{
-	delete &fBase;
-}
-
-
 bool
 UsbBusManagerImpl::Lock()
 {
@@ -384,6 +377,13 @@ int32
 UsbBusManagerImpl::ID()
 {
 	return Stack::Instance().IndexOfBusManager(&fBase);
+}
+
+
+UsbStack*
+UsbBusManagerImpl::GetStack()
+{
+	return Stack::Instance().GetStackIface();
 }
 
 
@@ -432,6 +432,46 @@ UsbBusManagerImpl::CreateDevice(UsbBusDevice*& outDevice, UsbBusDevice* parentIf
 	device.Detach();
 
 	return B_OK;
+}
+
+
+status_t
+UsbBusManagerImpl::Probe(DeviceNode* node, DeviceDriver** outDriver)
+{
+	UsbHostController* hostCtrl = node->QueryBusInterface<UsbHostController>();
+
+	ObjectDeleter<BusManager> busManager(new(std::nothrow) BusManager(hostCtrl, node));
+	if (!busManager.IsSet())
+		return B_NO_MEMORY;
+
+	*outDriver = static_cast<DeviceDriver*>(
+		static_cast<UsbBusManagerImpl*>((busManager.Detach()->GetBusManagerIface())));
+	return B_OK;
+}
+
+
+void
+UsbBusManagerImpl::Free()
+{
+	delete &fBase;
+}
+
+
+void
+UsbBusManagerImpl::BusReady()
+{
+	if (fBase.Start() < B_OK)
+		return;
+}
+
+
+void*
+UsbBusManagerImpl::QueryInterface(const char* name)
+{
+	if (strcmp(name, UsbBusManager::ifaceName) == 0)
+		return static_cast<UsbBusManager*>(this);
+
+	return NULL;
 }
 
 

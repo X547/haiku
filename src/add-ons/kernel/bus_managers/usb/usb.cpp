@@ -18,67 +18,6 @@
 #define USB_DRIVER_MODULE_NAME "bus_managers/usb/driver/v1"
 
 
-// TODO: better class naming
-class UsbBusManagerImpl2: public DeviceDriver {
-public:
-	UsbBusManagerImpl2(DeviceNode* node): fNode(node) {}
-	virtual ~UsbBusManagerImpl2();
-
-	// DeviceDriver
-	static status_t Probe(DeviceNode* node, DeviceDriver** driver);
-	void Free() final {delete this;}
-
-private:
-	status_t Init();
-
-private:
-	DeviceNode* fNode;
-	UsbHostController* fHostCtrl {};
-	ObjectDeleter<BusManager> fBusManager {};
-	bool fIsStarted = false;
-};
-
-
-UsbBusManagerImpl2::~UsbBusManagerImpl2()
-{
-	if (fIsStarted)
-		fBusManager->Stop();
-}
-
-
-status_t
-UsbBusManagerImpl2::Probe(DeviceNode* node, DeviceDriver** outDriver)
-{
-	ObjectDeleter<UsbBusManagerImpl2> driver(new(std::nothrow) UsbBusManagerImpl2(node));
-	if (!driver.IsSet())
-		return B_NO_MEMORY;
-
-	CHECK_RET(driver->Init());
-	*outDriver = driver.Detach();
-	return B_OK;
-}
-
-
-status_t
-UsbBusManagerImpl2::Init()
-{
-	fHostCtrl = fNode->QueryBusInterface<UsbHostController>();
-
-	fBusManager.SetTo(new(std::nothrow) BusManager(fHostCtrl, fNode));
-	if (!fBusManager.IsSet())
-		return B_NO_MEMORY;
-
-	fHostCtrl->SetBusManager(Stack::Instance().GetStackIface(), fBusManager->GetBusManagerIface());
-
-	CHECK_RET(fBusManager->Start());
-	fIsStarted = true;
-
-	return B_OK;
-}
-
-
-// #pragma mark -
-
 static status_t
 usb_std_ops(int32 op, ...)
 {
@@ -112,7 +51,7 @@ static driver_module_info sUsbDriverModule = {
 		.name = USB_DRIVER_MODULE_NAME,
 		.std_ops = usb_std_ops,
 	},
-	.probe = UsbBusManagerImpl2::Probe
+	.probe = UsbBusManagerImpl::Probe
 };
 
 

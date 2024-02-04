@@ -155,6 +155,19 @@ XHCI::BusManager::QueryInterface(const char* name)
 }
 
 
+void
+XHCI::BusManager::DriverAttached(bool isAttached)
+{
+	if (isAttached) {
+		fBase.fBusManager = fBase.fBusManagerNode->QueryDriverInterface<UsbBusManager>();
+		fBase.fStack = fBase.fBusManager->GetStack();
+	} else {
+		fBase.fBusManager = NULL;
+		fBase.fStack = NULL;
+	}
+}
+
+
 status_t
 XHCI::Probe(DeviceNode* node, DeviceDriver** outDriver)
 {
@@ -165,14 +178,6 @@ XHCI::Probe(DeviceNode* node, DeviceDriver** outDriver)
 	CHECK_RET(driver->Init());
 	*outDriver = driver.Detach();
 	return B_OK;
-}
-
-
-void
-XHCI::SetBusManager(UsbStack* stack, UsbBusManager* busManager)
-{
-	fStack = stack;
-	fBusManager = busManager;
 }
 
 
@@ -362,7 +367,7 @@ XHCI::Init()
 		{B_DEVICE_FIXED_CHILD, B_STRING_TYPE, {.string = "bus_managers/usb/driver/v1"}},
 		{}
 	};
-	CHECK_RET(fNode->RegisterNode(fNode, static_cast<BusDriver*>(&fBusManagerDriver), attrs, NULL));
+	CHECK_RET(fNode->RegisterNode(fNode, static_cast<BusDriver*>(&fBusManagerDriver), attrs, &fBusManagerNode));
 
 	TRACE("driver construction successful\n");
 	return B_OK;
@@ -372,6 +377,11 @@ XHCI::Init()
 XHCI::~XHCI()
 {
 	TRACE("tear down XHCI host controller driver\n");
+
+	if (fBusManagerNode != NULL) {
+		fBusManagerNode->ReleaseReference();
+		fBusManagerNode = NULL;
+	}
 
 	WriteOpReg(XHCI_CMD, 0);
 

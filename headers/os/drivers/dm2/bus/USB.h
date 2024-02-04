@@ -384,12 +384,14 @@ protected:
 
 class UsbBusManager {
 public:
-	virtual void Free() = 0;
+	static inline const char ifaceName[] = "bus_managers/usb/manager";
 
 	virtual bool Lock() = 0;
 	virtual void Unlock() = 0;
 
 	virtual int32 ID() = 0;
+
+	virtual UsbStack* GetStack() = 0;
 
 	virtual	int8 AllocateAddress() = 0;
 	virtual	void FreeAddress(int8 address) = 0;
@@ -427,8 +429,6 @@ protected:
 class UsbHostController {
 public:
 	static inline const char ifaceName[] = "busses/usb/device";
-
-	virtual void			SetBusManager(UsbStack* stack, UsbBusManager* busManager) = 0;
 
 	virtual	UsbBusDevice*	AllocateDevice(UsbBusDevice* parent,
 								int8 hubAddress, uint8 hubPort,

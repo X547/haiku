@@ -329,8 +329,6 @@ public:
 	void Free() final {delete this;}
 
 	// UsbHostController
-	void			SetBusManager(UsbStack* stack, UsbBusManager* busManager) final;
-
 	UsbBusDevice*	AllocateDevice(UsbBusDevice* parent,
 								int8 hubAddress, uint8 hubPort,
 								usb_speed speed) final;
@@ -465,6 +463,7 @@ private:
 			friend class XhciTransferDesc;
 
 			DeviceNode*			fNode;
+			DeviceNode*			fBusManagerNode {};
 			UsbBusManager*		fBusManager {};
 
 			area_id				fRegisterArea = -1;
@@ -539,6 +538,7 @@ private:
 		BusManager(XHCI& base): fBase(base) {}
 
 		void* QueryInterface(const char* name) final;
+		void DriverAttached(bool isAttached) final;
 
 	private:
 		XHCI& fBase;
