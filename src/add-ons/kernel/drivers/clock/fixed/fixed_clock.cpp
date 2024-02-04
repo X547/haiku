@@ -70,13 +70,7 @@ FixedClockDriver::Init()
 {
 	fFdtDevice = fNode->QueryBusInterface<FdtDevice>();
 
-	const void* prop;
-	int propLen;
-	prop = fFdtDevice->GetProp("clock-frequency", &propLen);
-	if (prop == NULL || propLen != 4)
-		return B_ERROR;
-
-	fRate = B_BENDIAN_TO_HOST_INT32(*(const uint32*)prop);
+	CHECK_RET(fFdtDevice->GetPropUint32("clock-frequency", fRate));
 
 	return B_OK;
 }

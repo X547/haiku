@@ -114,21 +114,15 @@ I2cHidDriver::Init()
 	DeviceNodePutter i2cBusNode(fNode->GetParent());
 	fI2cBus = i2cBusNode->QueryDriverInterface<I2cBus>(fNode);
 
-	int attrLen;
-	const void *attr = fFdtDevice->GetProp("reg", &attrLen);
-	if (attr == NULL || attrLen != 4)
-		return B_ERROR;
-	fDeviceAddress = B_BENDIAN_TO_HOST_INT32(*(const uint32*)attr);
+	CHECK_RET(fFdtDevice->GetPropUint32("reg", fDeviceAddress));
+	uint32 uint32Val;
+	CHECK_RET(fFdtDevice->GetPropUint32("hid-descr-addr", uint32Val));
+	fDescriptorAddress = uint32Val;
 
-	attr = fFdtDevice->GetProp("hid-descr-addr", &attrLen);
-	if (attr == NULL || attrLen != 4)
+	uint64 uint64Val;
+	if (!fFdtDevice->GetInterrupt(0, NULL, &uint64Val))
 		return B_ERROR;
-	fDescriptorAddress = B_BENDIAN_TO_HOST_INT32(*(const uint32*)attr);
-
-	uint64 val;
-	if (!fFdtDevice->GetInterrupt(0, NULL, &val))
-		return B_ERROR;
-	fIrqVector = val;
+	fIrqVector = uint64Val;
 
 	dprintf("  fDeviceAddress: %" B_PRIu32 "\n", fDeviceAddress);
 	dprintf("  fDescriptorAddress: %" B_PRIu32 "\n", fDescriptorAddress);

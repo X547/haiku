@@ -82,13 +82,7 @@ PlicInterruptController::Init(DeviceNode* node)
 	if (fdtDev == NULL)
 		return B_ERROR;
 
-	const void* prop;
-	int propLen;
-	prop = fdtDev->GetProp("riscv,ndev", &propLen);
-	if (prop == NULL || propLen != 4)
-		return B_ERROR;
-
-	fIrqCount = B_BENDIAN_TO_HOST_INT32(*(const uint32*)prop);
+	CHECK_RET(fdtDev->GetPropUint32("riscv,ndev", fIrqCount));
 	dprintf("  irqCount: %" B_PRIu32 "\n", fIrqCount);
 
 	int32 cpuCount = smp_get_num_cpus();
@@ -102,13 +96,9 @@ PlicInterruptController::Init(DeviceNode* node)
 		DeviceNodePutter hartNode(hartIntcNode->GetParent());
 		FdtDevice* hartFdtDev = hartNode->QueryBusInterface<FdtDevice>();
 
-		const void* prop;
-		int propLen;
-		prop = hartFdtDev->GetProp("reg", &propLen);
-		if (prop == NULL || propLen != 4)
-			return B_ERROR;
+		uint32 hartId;
+		CHECK_RET(hartFdtDev->GetPropUint32("reg", hartId));
 
-		uint32 hartId = B_BENDIAN_TO_HOST_INT32(*(const uint32*)prop);
 		dprintf("  context %" B_PRIu32 "\n", plicContext);
 		dprintf("    cause: %" B_PRIu64 "\n", cause);
 		dprintf("    hartId: %" B_PRIu32 "\n", hartId);
