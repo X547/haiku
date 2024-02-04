@@ -119,6 +119,7 @@ public:
 	inline status_t FindAttrUint32(const char* name, uint32* outValue, bool recursive = false) const;
 	inline status_t FindAttrUint64(const char* name, uint64* outValue, bool recursive = false) const;
 	inline status_t FindAttrString(const char* name, const char** outValue, bool recursive = false) const;
+	inline status_t FindAttrRaw(const char* name, const void** outValue, size_t* size, bool recursive = false) const;
 
 	virtual void* QueryBusInterface(const char* ifaceName) = 0;
 	virtual void* QueryDriverInterface(const char* ifaceName, DeviceNode* dep) = 0;
@@ -320,5 +321,18 @@ DeviceNode::FindAttrString(const char* name, const char** outValue, bool recursi
 		return res;
 
 	*outValue = (const char*)value;
+	return res;
+}
+
+
+inline status_t
+DeviceNode::FindAttrRaw(const char* name, const void** value, size_t* size, bool recursive) const
+{
+	(void)recursive;
+
+	status_t res = FindAttr(name, B_RAW_TYPE, 0, value, size);
+	if (res < B_OK)
+		return res;
+
 	return res;
 }
