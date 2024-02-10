@@ -57,6 +57,7 @@ typedef int64		Elf64_Sxword;
 #define PT_NOTE		4
 #define PT_SHLIB	5
 #define PT_PHDIR	6
+#define PT_HAIKU_RESOURCES 0x6484b550
 #define PT_LOPROC	0x70000000
 #define PT_HIPROC	0x7fffffff
 
