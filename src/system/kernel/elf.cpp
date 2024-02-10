@@ -2275,6 +2275,9 @@ load_kernel_add_on(const char *path)
 			case PT_EH_FRAME:
 				// not implemented yet, but can be ignored
 				continue;
+			case PT_HAIKU_RESOURCES:
+				// resources are handled in different place
+				continue;
 			case PT_ARM_UNWIND:
 				continue;
 			case PT_RISCV_ATTRIBUTES:

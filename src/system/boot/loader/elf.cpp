@@ -250,6 +250,7 @@ ELFLoader<Class>::Load(int fd, preloaded_image* _image)
 			case PT_PHDR:
 			case PT_ARM_UNWIND:
 			case PT_RISCV_ATTRIBUTES:
+			case PT_HAIKU_RESOURCES:
 				// known but unused type
 				continue;
 			case PT_EH_FRAME:

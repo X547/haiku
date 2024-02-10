@@ -82,6 +82,9 @@ count_regions(const char* imagePath, char const* buff, int phnum, int phentsize)
 			case PT_STACK:
 				// we don't use it
 				break;
+			case PT_HAIKU_RESOURCES:
+				// handled by libbe.so
+				break;
 			case PT_TLS:
 				// will be handled at some other place
 				break;
@@ -212,6 +215,9 @@ parse_program_headers(image_t* image, char* buff, int phnum, int phentsize)
 				break;
 			case PT_STACK:
 				// we don't use it
+				break;
+			case PT_HAIKU_RESOURCES:
+				// handled by libbe.so
 				break;
 			case PT_TLS:
 				image->dso_tls_id
