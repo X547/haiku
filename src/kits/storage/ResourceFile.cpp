@@ -586,6 +586,11 @@ ResourceFile::_InitELFXFile(BFile& file, uint64 fileSize)
 				resourceOffset = std::max(resourceOffset, segmentEnd);
 				resourceAlignment = std::max(resourceAlignment, alignment);
 			}
+			if (type == PT_HAIKU_RESOURCES) {
+				fEmptyResources = false;
+				fFile.SetTo(&file, offset);
+				return;
+			}
 		}
 	}
 
