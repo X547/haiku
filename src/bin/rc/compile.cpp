@@ -1,22 +1,22 @@
 /*
  * Copyright (c) 2003 Matthijs Hollemans
- * 
- * Permission is hereby granted, free of charge, to any person obtaining a 
- * copy of this software and associated documentation files (the "Software"), 
- * to deal in the Software without restriction, including without limitation 
- * the rights to use, copy, modify, merge, publish, distribute, sublicense, 
- * and/or sell copies of the Software, and to permit persons to whom the 
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a
+ * copy of this software and associated documentation files (the "Software"),
+ * to deal in the Software without restriction, including without limitation
+ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ * and/or sell copies of the Software, and to permit persons to whom the
  * Software is furnished to do so, subject to the following conditions:
- * 
- * The above copyright notice and this permission notice shall be included in 
+ *
+ * The above copyright notice and this permission notice shall be included in
  * all copies or substantial portions of the Software.
- * 
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE 
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING 
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER 
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  */
 
@@ -30,10 +30,19 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <MessageAdapter.h>
+
+#undef open
+#undef close
+
+#include <elfio/elfio.hpp>
+
 #include "rdef.h"
 #include "compile.h"
 #include "private.h"
 #include "parser.hpp"
+
+#define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
 char lexfile[B_PATH_NAME_LENGTH];
 
@@ -101,9 +110,6 @@ AddIncludeDir::~AddIncludeDir()
 }
 
 
-//	#pragma mark -
-
-
 void *
 alloc_mem(size_t size)
 {
@@ -154,7 +160,7 @@ clean_up_mem()
 		printf("mem_list leaks %ld objects\n", mem_list.size());
 
 	for (mem_iter_t i = mem_list.begin(); i != mem_list.end(); ) {
-		printf("%p allocated at %s:%ld\n", i->ptr, i->file, i->line);	
+		printf("%p allocated at %s:%ld\n", i->ptr, i->file, i->line);
 		free(i->ptr);
 		free(i->file);
 		i = mem_list.erase(i);
@@ -213,15 +219,81 @@ compile_file(char *file)
 		yyparse();
 	}
 
-	// About error handling: If the bison-generated parser encounters 
-	// a syntax error, it calls yyerror(), aborts parsing, and returns 
-	// from yyparse(). For other kinds of errors (semantics, problem 
-	// writing to BResources, etc), we bail out with a longjmp(). From 
+	// About error handling: If the bison-generated parser encounters
+	// a syntax error, it calls yyerror(), aborts parsing, and returns
+	// from yyparse(). For other kinds of errors (semantics, problem
+	// writing to BResources, etc), we bail out with a longjmp(). From
 	// then on, we can tell success or failure by looking at rdef_err.
 
 	clean_up_lexer();
 	clean_up_parser();
 	clean_up_mem();
+}
+
+
+static status_t
+convert_to_elf_object()
+{
+	off_t rsrcSize;
+/*
+	file.GetSize(&rsrcSize);
+	rsrcSize -= 4;
+*/
+
+	rsrcSize = 0;
+
+	std::unique_ptr<char[]> rsrcData(new char[rsrcSize]);
+/*
+	file.ReadAtExactly(4, &rsrcData[0], rsrcSize);
+*/
+	file.Unset();
+
+	ELFIO::elfio writer;
+
+	writer.create(ELFIO::ELFCLASS64, ELFIO::ELFDATA2LSB);
+
+	writer.set_type(ELFIO::ET_REL);
+	writer.set_machine(ELFIO::EM_RISCV);
+
+	ELFIO::section* str_sec = writer.sections.add(".strtab");
+	str_sec->set_type(ELFIO::SHT_STRTAB);
+	ELFIO::string_section_accessor stra(str_sec);
+
+	ELFIO::section* sym_sec = writer.sections.add(".symtab");
+	sym_sec->set_type(ELFIO::SHT_SYMTAB);
+	sym_sec->set_info(3);
+	sym_sec->set_addr_align(0x8);
+	sym_sec->set_entry_size(writer.get_default_entry_size(ELFIO::SHT_SYMTAB));
+	sym_sec->set_link(str_sec->get_index());
+	ELFIO::symbol_section_accessor syma(writer, sym_sec);
+
+	ELFIO::section* rsrc_sec = writer.sections.add(".haiku.rsrc");
+	rsrc_sec->set_type(ELFIO::SHT_PROGBITS);
+	rsrc_sec->set_flags(ELFIO::SHF_ALLOC);
+	rsrc_sec->set_addr_align(0x10);
+	rsrc_sec->set_data(&rsrcData[0], rsrcSize);
+
+	syma.add_symbol(stra, "__haiku_rsrc_start", 0, rsrcSize, ELFIO::STB_LOCAL, ELFIO::STT_OBJECT, 0, rsrc_sec->get_index());
+	syma.add_symbol(stra, "__haiku_rsrc_end", rsrcSize, 0, ELFIO::STB_LOCAL, ELFIO::STT_OBJECT, 0, rsrc_sec->get_index());
+
+	writer.save(rsrc_file);
+
+	return B_OK;
+}
+
+
+static bool
+string_ends_with(const char *str, const char *suffix)
+{
+	if (!str || !suffix)
+		return false;
+
+	size_t lenstr = strlen(str);
+	size_t lensuffix = strlen(suffix);
+	if (lensuffix > lenstr)
+		return false;
+
+	return strncmp(str + lenstr - lensuffix, suffix, lensuffix) == 0;
 }
 
 
@@ -250,9 +322,11 @@ open_output_file()
 static void
 close_output_file()
 {
-	if (rdef_err == B_OK || (flags & RDEF_MERGE_RESOURCES) != 0)
+	if (rdef_err == B_OK || (flags & RDEF_MERGE_RESOURCES) != 0) {
 		rsrc.Sync();
-	else
+		if (format == RDEF_FORMAT_ELF)
+			rdef_err = convert_to_elf_object();
+	} else
 		entry.Remove();  // throw away output file
 
 	file.Unset();
@@ -275,7 +349,7 @@ rdef_compile(const char *outputFile)
 	if (rdef_err != B_OK)
 		return rdef_err;
 
-	for (ptr_iter_t i = input_files.begin(); 
+	for (ptr_iter_t i = input_files.begin();
 			(i != input_files.end()) && (rdef_err == B_OK); ++i) {
 		char *path = (char *)*i;
 

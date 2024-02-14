@@ -179,6 +179,7 @@ rule Object
 						Cc $(1) : $(1:S=.c) ;
 						Yacc $(1:S=.c) $(1:S=.h) : $(2) ;
 					}
+		case .rdef :	ResCompObj $(<) : $(>) ;
 		case * :	UserObject $(<) : $(>) ;
 	}
 }

@@ -1,22 +1,22 @@
 /*
  * Copyright (c) 2003 Matthijs Hollemans
- * 
- * Permission is hereby granted, free of charge, to any person obtaining a 
- * copy of this software and associated documentation files (the "Software"), 
- * to deal in the Software without restriction, including without limitation 
- * the rights to use, copy, modify, merge, publish, distribute, sublicense, 
- * and/or sell copies of the Software, and to permit persons to whom the 
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a
+ * copy of this software and associated documentation files (the "Software"),
+ * to deal in the Software without restriction, including without limitation
+ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ * and/or sell copies of the Software, and to permit persons to whom the
  * Software is furnished to do so, subject to the following conditions:
- * 
- * The above copyright notice and this permission notice shall be included in 
+ *
+ * The above copyright notice and this permission notice shall be included in
  * all copies or substantial portions of the Software.
- * 
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE 
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING 
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER 
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  */
 
@@ -36,7 +36,7 @@
 // Initial size (and increment) of lexbuf.
 #define LEX_BUF_SIZE  (64*1024)
 
-// Temporary buffer that the lexer uses to parse string and raw literals. 
+// Temporary buffer that the lexer uses to parse string and raw literals.
 // The buffer will grow if necessary, to accommodate large data blocks.
 static uint8* lexbuf;
 
@@ -47,8 +47,8 @@ static size_t lexcnt;   // how full lexbuf currently is
 static void resetbuf();     // resets lexptr and lexcnt
 static void addbuf(uint8);  // appends byte to lexbuf
 
-// When we encounter an #include directive, we push the current 
-// buffer, filename, and line number on the include stack, so we 
+// When we encounter an #include directive, we push the current
+// buffer, filename, and line number on the include stack, so we
 // can resume lexing that file when we're done with the include.
 struct include_t {
 	YY_BUFFER_STATE buffer;
@@ -87,6 +87,7 @@ enum                     return ENUM;
 resource                 return RESOURCE;
 array                    return ARRAY;
 message                  return MESSAGE;
+kmessage                 return KMESSAGE;
 archive                  return ARCHIVE;
 type                     return RTYPE;
 import                   return IMPORT;
@@ -128,12 +129,12 @@ true                     yylval.b = true;  return BOOL;
 
 \"                       BEGIN(STRDATA); resetbuf();
 <STRDATA>\"{WSPACE}+\"   /* concatenate two literals */
-<STRDATA>\"              { BEGIN(INITIAL); 
-                           addbuf('\0'); 
+<STRDATA>\"              { BEGIN(INITIAL);
+                           addbuf('\0');
                            yylval.d.type = get_type("string");
                            yylval.d.size = lexcnt;
                            yylval.d.ptr  = alloc_mem(lexcnt);
-                           memcpy(yylval.d.ptr, lexbuf, lexcnt); 
+                           memcpy(yylval.d.ptr, lexbuf, lexcnt);
                            return STRING; }
 <STRDATA>\n              LEXERROR("string not terminated")
 <STRDATA>\\{OCT}{3}      addbuf(strtol(yytext + 1, NULL, 8));
@@ -151,11 +152,11 @@ true                     yylval.b = true;  return BOOL;
 
 $\"                      BEGIN(RAWDATA); resetbuf();
 <RAWDATA>\"{WSPACE}+$\"  /* concatenate two literals */
-<RAWDATA>\"              { BEGIN(INITIAL); 
+<RAWDATA>\"              { BEGIN(INITIAL);
                            yylval.d.type = get_type("raw");
                            yylval.d.size = lexcnt;
                            yylval.d.ptr  = alloc_mem(lexcnt);
-                           memcpy(yylval.d.ptr, lexbuf, lexcnt); 
+                           memcpy(yylval.d.ptr, lexbuf, lexcnt);
                            return RAW; }
 <RAWDATA>\n              LEXERROR("raw data not terminated")
 <RAWDATA>{HEX}{2}        addbuf(strtol(yytext, NULL, 16));
