@@ -75,8 +75,8 @@ ScreenManager::ScreenManager()
 #	if defined(USE_DIRECT_WINDOW_TEST_MODE)
 	_AddHWInterface(new DWindowHWInterface());
 #	else
-	//_AddHWInterface(new ViewHWInterface());
-	_AddHWInterface(new VideoProducerHWInterface());
+	_AddHWInterface(new ViewHWInterface());
+	//_AddHWInterface(new VideoProducerHWInterface());
 #	endif
 #else
 	_ScanDrivers();
@@ -143,8 +143,8 @@ ScreenManager::AcquireScreens(ScreenOwner* owner, int32* wishList,
 		// also target specific accelerants to support other graphics cards
 		HWInterface* interface;
 #ifdef HAIKU_TARGET_PLATFORM_LIBBE_TEST
-		//interface = new(nothrow) ViewHWInterface();
-		interface = new(nothrow) VideoProducerHWInterface();
+		interface = new(nothrow) ViewHWInterface();
+		//interface = new(nothrow) VideoProducerHWInterface();
 #else
 		interface = new(nothrow) RemoteHWInterface(target);
 #endif
