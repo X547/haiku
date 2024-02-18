@@ -20,7 +20,7 @@ status_t VideoBufferFromBitmap(VideoBuffer &buf, BBitmap &bmp)
 		.offset  = (addr_t)bmp.Bits() - (addr_t)info.address,
 		.size    = (uint64)bmp.BitsLength(),
 		.kind    = bufferRefArea,
-		.area    = {.area = {.id = bmp.Area()}}
+		.area    = {.id = bmp.Area()}
 	};
 	buf.format = BufferFormat {
 		.bytesPerRow = bmp.BytesPerRow(),
