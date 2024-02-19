@@ -111,6 +111,14 @@ copy_attributes(const device_attr* attrs, ArrayDeleter<device_attr> &outAttrs, A
 }
 
 
+static int
+dump_device_nodes(int argc, char** argv)
+{
+	DeviceManager::Instance().DumpTree();
+	return 0;
+}
+
+
 // #pragma mark - DeviceNodeImpl
 
 DeviceNodeImpl::DeviceNodeImpl()
@@ -915,10 +923,14 @@ device_manager_std_ops(int32 op, ...)
 
 			device_manager_install_userland_iface();
 
+			add_debugger_command("dm_tree", &dump_device_nodes, "dump device node tree");
+
 			deviceManagerDeleter.Detach();
 			return B_OK;
 		}
 		case B_MODULE_UNINIT: {
+			remove_debugger_command("dm_tree", &dump_device_nodes);
+
 			device_manager_uninstall_userland_iface();
 
 			DriverRoster::Instance().~DriverRoster();
