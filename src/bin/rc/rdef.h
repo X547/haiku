@@ -6,22 +6,22 @@
  *
  * @author Copyright (c) 2003 Matthijs Hollemans
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
+ * Permission is hereby granted, free of charge, to any person obtaining a 
+ * copy of this software and associated documentation files (the "Software"), 
+ * to deal in the Software without restriction, including without limitation 
+ * the rights to use, copy, modify, merge, publish, distribute, sublicense, 
+ * and/or sell copies of the Software, and to permit persons to whom the 
  * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
+ * 
+ * The above copyright notice and this permission notice shall be included in 
  * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE 
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING 
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER 
  * DEALINGS IN THE SOFTWARE.
  */
 
@@ -85,37 +85,32 @@ enum {
 	/* B_NO_MEMORY */
 };
 
-enum {
-	RDEF_FORMAT_RSRC,
-	RDEF_FORMAT_ELF,
-};
-
-/**
+/** 
  * The result of the most recent (de)compilation. B_OK if the operation
  * was successful, a negative error code otherwise. This is the same as
  * the value returned by any of the rdef_xxx functions.
  */
 _IMPEXP_RDEF extern status_t rdef_err;
 
-/**
+/** 
  * The line number where compilation failed. Valid line numbers start
  * at 1. This is 0 if the error did not happen on a specific line.
  */
 _IMPEXP_RDEF extern int32 rdef_err_line;
 
-/**
+/** 
  * The file where the error occurred. This is an empty string if the
  * error did not happen in a specific file.
  */
 _IMPEXP_RDEF extern char rdef_err_file[];
 
-/**
+/** 
  * The error message from the compiler. This is an empty string if there
  * was no additional information to report.
  */
 _IMPEXP_RDEF extern char rdef_err_msg[];
 
-/**
+/** 
  * Returns the version number of the librdef API. You can use this to
  * check which functions and variables are available.
  */
@@ -131,7 +126,7 @@ _IMPEXP_RDEF status_t rdef_add_include_dir(const char *dir, bool toEndOfList);
 /**	Removes an include directory */
 _IMPEXP_RDEF status_t rdef_remove_include_dir(const char *dir);
 
-/**
+/** 
  * Frees the list of include directories. If you call rdef_add_include_dir(),
  * you should always call rdef_free_include_dirs() when the compiler is done.
  */
@@ -152,19 +147,17 @@ _IMPEXP_RDEF void rdef_free_input_files();
 /** Changes the configuration of the compiler or decompiler. */
 _IMPEXP_RDEF void rdef_set_flags(uint32 flags);
 
-_IMPEXP_RDEF void rdef_set_format(uint32 format);
-
 /** Resets all the configuration options to their default values. */
 _IMPEXP_RDEF void rder_clear_flags();
 
-/**
+/** 
  * Invokes the rdef-to-rsrc compiler. Before you call rdef_compile(), you must
  * have specified at least one input file with rdef_add_input_file(), and one
  * include search path with rdef_add_include_dir().
  */
 _IMPEXP_RDEF status_t rdef_compile(const char* output_file);
 
-/**
+/** 
  * Invokes the rsrc-to-rdef decompiler. Just as with rdef_compile(), you must
  * first add at least one input file with rdef_add_input_file(). Include dirs
  * are not necessary, because the decompiler does not use them. The decompiler

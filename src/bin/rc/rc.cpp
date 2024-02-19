@@ -38,7 +38,6 @@ static const char *kProgramName = __progname;
 static bool sQuiet = false;
 static bool sDecompile = false;
 static uint32 sFlags = 0;
-static uint32 sFormat = RDEF_FORMAT_RSRC;
 
 static char sOutputFile[B_PATH_NAME_LENGTH] = { 0 };
 static char *sFirstInputFile = NULL;
@@ -176,21 +175,6 @@ parse_options(int argc, char *argv[])
 			argv[i] = NULL;
 			argv[i + 1] = NULL;
 			++i; args_left -= 2;
-		} else if (strcmp(argv[i], "-f") == 0
-				|| strcmp(argv[i], "--format") == 0) {
-			if (i + 1 >= argc)
-				error("%s should be followed by a format type", argv[i]);
-
-			if (strcmp(argv[i + 1], "rsrc") == 0)
-				sFormat = RDEF_FORMAT_RSRC;
-			else if (strcmp(argv[i + 1], "elf") == 0)
-				sFormat = RDEF_FORMAT_ELF;
-			else
-				error("unsupported output format \"%s\", supported formats: rsrc, elf", argv[i + 1]);
-
-			argv[i] = NULL;
-			argv[i + 1] = NULL;
-			++i; args_left -= 2;
 		} else if (strcmp(argv[i], "-I") == 0
 				|| strcmp(argv[i], "--include") == 0) {
 			if (i + 1 >= argc)
@@ -257,7 +241,7 @@ parse_options(int argc, char *argv[])
 		strlcpy(sOutputFile, sFirstInputFile, sizeof(sOutputFile));
 
 		cut_extension(sOutputFile, sDecompile ? ".rsrc" : ".rdef");
-		//add_extension(sOutputFile, sDecompile ? ".rdef" : ".rsrc");
+		add_extension(sOutputFile, sDecompile ? ".rdef" : ".rsrc");
 	}
 }
 
@@ -265,16 +249,8 @@ parse_options(int argc, char *argv[])
 static void
 compile()
 {
-	switch (sFormat) {
-		case RDEF_FORMAT_RSRC:
-			if (!has_extension(sOutputFile, ".rsrc"))
-				add_extension(sOutputFile, ".rsrc");
-			break;
-		case RDEF_FORMAT_ELF:
-			if (!has_extension(sOutputFile, ".o"))
-				add_extension(sOutputFile, ".o");
-			break;
-	}
+	if (!has_extension(sOutputFile, ".rsrc"))
+		add_extension(sOutputFile, ".rsrc");
 
 	rdef_compile(sOutputFile);
 }
@@ -328,7 +304,6 @@ main(int argc, char *argv[])
 	parse_options(argc, argv);
 
 	rdef_set_flags(sFlags);
-	rdef_set_format(sFormat);
 
 	if (sDecompile)
 		decompile();

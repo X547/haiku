@@ -9,5 +9,4 @@ UsePrivateKernelHeaders ;
 
 KernelAddon usb_disk :
 	usb_disk.cpp
-#	usb_disk_rsrc.rdef
 	;

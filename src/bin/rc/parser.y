@@ -23,7 +23,6 @@
 %{
 
 #include <Message.h>
-#include <MessageAdapter.h>
 
 #include <map>
 #include <string.h>
@@ -81,7 +80,6 @@ static data_t resize_data(data_t, size_t);
 
 static BMessage* make_msg(list_t);
 static data_t flatten_msg(BMessage*);
-static data_t flatten_kmsg(BMessage*);
 
 static data_t make_default(type_t);
 static data_t make_type(char* name, list_t);
@@ -118,7 +116,7 @@ static void add_resource(res_id_t, type_code, data_t);
 	type_t T;
 }
 
-%token ENUM RESOURCE ARCHIVE ARRAY MESSAGE KMESSAGE RTYPE IMPORT
+%token ENUM RESOURCE ARCHIVE ARRAY MESSAGE RTYPE IMPORT
 
 %token <b> BOOL
 %token <i> INTEGER
@@ -130,7 +128,7 @@ static void add_resource(res_id_t, type_code, data_t);
 %type <i> integer
 %type <f> float
 %type <id> id
-%type <d> archive array arrayfields data expr message kmessage msgfield
+%type <d> archive array arrayfields data expr message msgfield
 %type <d> type typefield type_or_define
 %type <l> msgfields typefields typedeffields
 %type <F> typedeffield
@@ -326,30 +324,6 @@ message
 	| MESSAGE                   { $$ = flatten_msg(new BMessage); }
 	;
 
-kmessage
-	: KMESSAGE '(' integer ')' '{' msgfields '}'
-		{
-			BMessage* msg = make_msg($6);
-			msg->what = (int32) $3;
-			$$ = flatten_kmsg(msg);
-		}
-	| KMESSAGE '(' integer ')' '{' '}'
-		{
-			BMessage* msg = new BMessage;
-			msg->what = (int32) $3;
-			$$ = flatten_kmsg(msg);
-		}
-	| KMESSAGE '(' integer ')'
-		{
-			BMessage* msg = new BMessage;
-			msg->what = (int32) $3;
-			$$ = flatten_kmsg(msg);
-		}
-	| KMESSAGE '{' msgfields '}' { $$ = flatten_kmsg(make_msg($3)); }
-	| KMESSAGE '{' '}'           { $$ = flatten_kmsg(new BMessage); }
-	| KMESSAGE                   { $$ = flatten_kmsg(new BMessage); }
-	;
-
 msgfields
 	: msgfields ',' msgfield { $$ = concat_data_list($1, $3); }
 	| msgfield               { $$ = make_data_list($1); }
@@ -479,7 +453,6 @@ data
 	| RAW                   { $$ = cast($1.type, $1); }
 	| array                 { $$ = cast($1.type, $1); }
 	| message               { $$ = cast($1.type, $1); }
-	| kmessage               { $$ = cast($1.type, $1); }
 	| archive               { $$ = cast($1.type, $1); }
 	| type                  { $$ = cast($1.type, $1); }
 	| '(' expr ')'          { $$ = $2; }
@@ -762,21 +735,6 @@ flatten_msg(BMessage* msg)
 		get_type("message"));
 	msg->Flatten(B_MESSAGE_VERSION_1, (char*)out.ptr, out.size);
 #endif
-	delete msg;
-	return out;
-}
-
-
-data_t
-flatten_kmsg(BMessage* msg)
-{
-	KMessage kmsg;
-	status_t res = BPrivate::MessageAdapter::ConvertToKMessage(msg, kmsg);
-	if (res < B_OK)
-		abort_compile(res, "cannot build KMessage");
-
-	data_t out = make_data(kmsg.ContentSize(), get_type("message"));
-	memcpy(out.ptr, kmsg.Buffer(), kmsg.ContentSize());
 	delete msg;
 	return out;
 }
