@@ -7,12 +7,16 @@
 
 #include <new>
 
+#include <acpi.h>
+
 #include <dm2/device_manager.h>
 #include <dm2/bus/FDT.h>
+#include <dm2/bus/ACPI.h>
 #include <dm2/device/InterruptController.h>
 
 #include <AutoDeleterOS.h>
 #include <AutoDeleterDM2.h>
+#include <ScopeExit.h>
 
 #include <cpu.h>
 #include <smp.h>
@@ -22,7 +26,68 @@
 #define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
 
-#define PLIC_MODULE_NAME "drivers/interrupt_controllers/plic/driver/v1"
+#define PLIC_FDT_MODULE_NAME "drivers/interrupt_controllers/plic/fdt/driver/v1"
+#define PLIC_ACPI_MODULE_NAME "drivers/interrupt_controllers/plic/acpi/driver/v1"
+
+
+struct acpi_madt_rintc {
+    acpi_apic               header;
+    uint8                   version;
+    uint8                   reserved;
+    uint32                  flags;
+    uint64                  hart_id;
+    uint32                  uid;
+    uint32                  ext_intc_id;
+    uint64                  imsic_addr;
+    uint32                  imsic_size;
+};
+
+/* Values for RISC-V INTC Version field above */
+
+enum AcpiMadtRintcVersion {
+    ACPI_MADT_RINTC_VERSION_NONE       = 0,
+    ACPI_MADT_RINTC_VERSION_V1         = 1,
+    ACPI_MADT_RINTC_VERSION_RESERVED   = 2	/* 2 and greater are reserved */
+};
+
+struct acpi_madt_imsic {
+    acpi_apic               header;
+    uint8                   version;
+    uint8                   reserved;
+    uint32                  flags;
+    uint16                  num_ids;
+    uint16                  num_guest_ids;
+    uint8                   guest_index_bits;
+    uint8                   hart_index_bits;
+    uint8                   group_index_bits;
+    uint8                   group_index_shift;
+};
+
+struct acpi_madt_aplic {
+    acpi_apic               header;
+    uint8                   version;
+    uint8                   id;
+    uint32                  flags;
+    uint8                   hw_id[8];
+    uint16                  num_idcs;
+    uint16                  num_sources;
+    uint32                  gsi_base;
+    uint64                  base_addr;
+    uint32                  size;
+};
+
+struct acpi_madt_plic {
+    acpi_apic               header;
+    uint8                   version;
+    uint8                   id;
+    uint8                   hw_id[8];
+    uint16                  num_irqs;
+    uint16                  max_prio;
+    uint32                  flags;
+    uint32                  size;
+    uint64                  base_addr;
+    uint32                  gsi_base;
+};
 
 
 class PlicInterruptController: public DeviceDriver, public InterruptSource, public InterruptControllerDevice {
@@ -30,7 +95,8 @@ public:
 	virtual ~PlicInterruptController();
 
 	// DeviceDriver
-	static status_t Probe(DeviceNode* node, DeviceDriver** driver);
+	static status_t ProbeFdt(DeviceNode* node, DeviceDriver** driver);
+	static status_t ProbeAcpi(DeviceNode* node, DeviceDriver** driver);
 	void Free() final {delete this;}
 	void* QueryInterface(const char* name) final;
 
@@ -45,7 +111,9 @@ public:
 	int32 AssignToCpu(int32 irq, int32 cpu) final;
 
 private:
-	status_t Init(DeviceNode* node);
+	status_t Init(uint64 regs, uint64 regsLen);
+	status_t InitFdt(DeviceNode* node);
+	status_t InitAcpi(DeviceNode* node);
 
 	static int32 HandleInterrupt(void* arg);
 	inline int32 HandleInterruptInt();
@@ -61,29 +129,67 @@ private:
 
 
 status_t
-PlicInterruptController::Probe(DeviceNode* node, DeviceDriver** outDriver)
+PlicInterruptController::ProbeFdt(DeviceNode* node, DeviceDriver** outDriver)
 {
 	ObjectDeleter<PlicInterruptController> driver(new(std::nothrow) PlicInterruptController());
 	if (!driver.IsSet())
 		return B_NO_MEMORY;
 
-	CHECK_RET(driver->Init(node));
+	CHECK_RET(driver->InitFdt(node));
 	*outDriver = driver.Detach();
 	return B_OK;
 }
 
 
 status_t
-PlicInterruptController::Init(DeviceNode* node)
+PlicInterruptController::ProbeAcpi(DeviceNode* node, DeviceDriver** outDriver)
 {
-	dprintf("PlicInterruptController::InitDriver\n");
+	ObjectDeleter<PlicInterruptController> driver(new(std::nothrow) PlicInterruptController());
+	if (!driver.IsSet())
+		return B_NO_MEMORY;
+
+	CHECK_RET(driver->InitAcpi(node));
+	*outDriver = driver.Detach();
+	return B_OK;
+}
+
+
+status_t
+PlicInterruptController::Init(uint64 regs, uint64 regsLen)
+{
+	int32 cpuCount = smp_get_num_cpus();
+
+	dprintf("  irqCount: %" B_PRIu32 "\n", fIrqCount);
+
+	fRegsArea.SetTo(map_physical_memory("PLIC MMIO", regs, regsLen, B_ANY_KERNEL_ADDRESS,
+		B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA, (void**)&fRegs));
+	CHECK_RET(fRegsArea.Get());
+
+	reserve_io_interrupt_vectors_ex(fIrqCount + 1, 0, INTERRUPT_TYPE_IRQ, this);
+	install_io_interrupt_handler(0, HandleInterrupt, this, B_NO_LOCK_VECTOR);
+	fAttached = true;
+
+	for (int32 cpu = 0; cpu < cpuCount; cpu++)
+		fRegs->contexts[fPlicContexts[cpu]].priorityThreshold = 0;
+
+	// unmask interrupts
+	for (uint32 irq = 1; irq < fIrqCount + 1; irq++)
+		fRegs->priority[irq] = 1;
+
+	return B_OK;
+}
+
+
+status_t
+PlicInterruptController::InitFdt(DeviceNode* node)
+{
+	dprintf("PlicInterruptController::InitFdt\n");
 
 	FdtDevice* fdtDev = node->QueryBusInterface<FdtDevice>();
 	if (fdtDev == NULL)
 		return B_ERROR;
 
 	CHECK_RET(fdtDev->GetPropUint32("riscv,ndev", fIrqCount));
-	dprintf("  irqCount: %" B_PRIu32 "\n", fIrqCount);
 
 	int32 cpuCount = smp_get_num_cpus();
 	uint32 cookie = 0;
@@ -118,22 +224,103 @@ PlicInterruptController::Init(DeviceNode* node)
 	if (!fdtDev->GetReg(0, &regs, &regsLen))
 		return B_ERROR;
 
-	fRegsArea.SetTo(map_physical_memory("PLIC MMIO", regs, regsLen, B_ANY_KERNEL_ADDRESS,
-		B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA, (void**)&fRegs));
-	CHECK_RET(fRegsArea.Get());
+	return Init(regs, regsLen);
+}
 
-	reserve_io_interrupt_vectors_ex(fIrqCount + 1, 0, INTERRUPT_TYPE_IRQ, this);
-	install_io_interrupt_handler(0, HandleInterrupt, this, B_NO_LOCK_VECTOR);
-	fAttached = true;
 
-	for (int32 cpu = 0; cpu < cpuCount; cpu++)
-		fRegs->contexts[fPlicContexts[cpu]].priorityThreshold = 0;
+status_t
+PlicInterruptController::InitAcpi(DeviceNode* node)
+{
+	dprintf("PlicInterruptController::InitAcpi\n");
 
-	// unmask interrupts
-	for (uint32 irq = 1; irq < fIrqCount + 1; irq++)
-		fRegs->priority[irq] = 1;
+	int32 cpuCount = smp_get_num_cpus();
 
-	return B_OK;
+	uint64 regs = 0;
+	uint64 regsLen = 0;
+
+	acpi_module_info* acpiModule;
+	CHECK_RET(get_module(B_ACPI_MODULE_NAME, (module_info**)&acpiModule));
+	ScopeExit acpiModulePutter([]() {
+		put_module(B_ACPI_MODULE_NAME);
+	});
+
+	acpi_madt* madt;
+	CHECK_RET(acpiModule->get_table(ACPI_MADT_SIGNATURE, 0, (void**)&madt));
+
+	bool plicFound = false;
+	uint32 plicId = 0;
+
+	{
+		acpi_apic* apic = (acpi_apic*)((uint8 *)madt + sizeof(acpi_madt));
+		acpi_apic* apicEnd = (acpi_apic*)((uint8 *)madt + madt->header.length);
+
+		while (apic < apicEnd) {
+			switch (apic->type) {
+				case ACPI_MADT_PLIC: {
+					acpi_madt_plic* plic = (acpi_madt_plic*)apic;
+					if (plic->version != 1)
+						break;
+
+					if (plicFound) {
+						dprintf("[!] plic: multiple PLIC found, using first one\n");
+						break;
+					}
+
+					plicFound = true;
+					plicId = plic->id;
+					fIrqCount = plic->num_irqs;
+					regs = plic->base_addr;
+					regsLen = plic->size;
+					break;
+				}
+				default:
+					break;
+			}
+
+			apic = (acpi_apic *)((uint8 *)apic + apic->length);
+		}
+	}
+
+	if (!plicFound)
+		return ENODEV;
+
+	{
+		acpi_apic* apic = (acpi_apic*)((uint8 *)madt + sizeof(acpi_madt));
+		acpi_apic* apicEnd = (acpi_apic*)((uint8 *)madt + madt->header.length);
+
+		while (apic < apicEnd) {
+			switch (apic->type) {
+				case ACPI_MADT_RINTC:
+				{
+					acpi_madt_rintc* rintc = (acpi_madt_rintc*)apic;
+					if (rintc->version != 1)
+						break;
+
+					uint32 hartId = rintc->hart_id;
+					uint32 rintcPlicId = (rintc->ext_intc_id >> 24) % (1 << 8);
+					uint32 contextId = rintc->ext_intc_id % (1 << 16);
+
+					if (rintcPlicId != plicId)
+						break;
+
+					int32 cpu = 0;
+					while (cpu < cpuCount && !(gCPU[cpu].arch.hartId == hartId))
+						cpu++;
+
+					if (cpu < cpuCount)
+						fPlicContexts[cpu] = contextId;
+
+					break;
+				}
+				default:
+					break;
+			}
+
+			apic = (acpi_apic *)((uint8 *)apic + apic->length);
+		}
+	}
+
+	return Init(regs, regsLen);
 }
 
 
@@ -238,15 +425,23 @@ PlicInterruptController::AssignToCpu(int32 irq, int32 cpu)
 }
 
 
-static driver_module_info sControllerModuleInfo = {
+static driver_module_info sControllerFdtModuleInfo = {
 	.info = {
-		.name = PLIC_MODULE_NAME,
+		.name = PLIC_FDT_MODULE_NAME,
 	},
-	.probe = PlicInterruptController::Probe
+	.probe = PlicInterruptController::ProbeFdt
+};
+
+static driver_module_info sControllerAcpiModuleInfo = {
+	.info = {
+		.name = PLIC_ACPI_MODULE_NAME,
+	},
+	.probe = PlicInterruptController::ProbeAcpi
 };
 
 
 _EXPORT module_info* modules[] = {
-	(module_info* )&sControllerModuleInfo,
+	(module_info* )&sControllerFdtModuleInfo,
+	(module_info* )&sControllerAcpiModuleInfo,
 	NULL
 };
