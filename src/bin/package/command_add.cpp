@@ -35,7 +35,7 @@ command_add(int argc, const char* const* argv)
 	bool quiet = false;
 	bool verbose = false;
 	bool force = false;
-	int32 compressionLevel = BPackageKit::BHPKG::B_HPKG_COMPRESSION_LEVEL_BEST;
+	int32 compressionLevel = 5;
 
 	while (true) {
 		static struct option sLongOptions[] = {

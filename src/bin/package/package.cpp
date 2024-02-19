@@ -29,7 +29,7 @@ static const char* kUsage =
 	"    Adds the specified entries <entries> to package file <package>.\n"
 	"\n"
 	"    -0 ... -9  - Use compression level 0 ... 9. 0 means no, 9 best compression.\n"
-	"                 Defaults to 9.\n"
+	"                 Defaults to 5.\n"
 	"    -C <dir>   - Change to directory <dir> before adding entries.\n"
 	"    -f         - Force adding, replacing already existing entries. Without\n"
 	"                 this option adding will fail when encountering a pre-exiting\n"
