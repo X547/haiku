@@ -128,6 +128,33 @@ private:
 };
 
 
+int32
+find_cpu_id_by_hart_id(uint32 hartId)
+{
+	int32 cpuCount = smp_get_num_cpus();
+
+	for (int32 cpu = 0; cpu < cpuCount; cpu++) {
+		if (gCPU[cpu].arch.hartId == hartId)
+			return cpu;
+	}
+
+	return -1;
+}
+
+
+template<typename Callback> static void
+enumerate_acpi_madt(acpi_madt* madt, Callback&& cb)
+{
+	acpi_apic* apic = (acpi_apic*)((uint8 *)madt + sizeof(acpi_madt));
+	acpi_apic* apicEnd = (acpi_apic*)((uint8 *)madt + madt->header.length);
+
+	while (apic < apicEnd) {
+		cb(apic);
+		apic = (acpi_apic *)((uint8 *)apic + apic->length);
+	}
+}
+
+
 status_t
 PlicInterruptController::ProbeFdt(DeviceNode* node, DeviceDriver** outDriver)
 {
@@ -191,7 +218,6 @@ PlicInterruptController::InitFdt(DeviceNode* node)
 
 	CHECK_RET(fdtDev->GetPropUint32("riscv,ndev", fIrqCount));
 
-	int32 cpuCount = smp_get_num_cpus();
 	uint32 cookie = 0;
 	DeviceNode* hartIntcNode;
 	uint64 cause;
@@ -210,11 +236,8 @@ PlicInterruptController::InitFdt(DeviceNode* node)
 		dprintf("    hartId: %" B_PRIu32 "\n", hartId);
 
 		if (cause == sExternInt) {
-			int32 cpu = 0;
-			while (cpu < cpuCount && !(gCPU[cpu].arch.hartId == hartId))
-				cpu++;
-
-			if (cpu < cpuCount)
+			int32 cpu = find_cpu_id_by_hart_id(hartId);
+			if (cpu >= 0)
 				fPlicContexts[cpu] = plicContext;
 		}
 	}
@@ -233,8 +256,6 @@ PlicInterruptController::InitAcpi(DeviceNode* node)
 {
 	dprintf("PlicInterruptController::InitAcpi\n");
 
-	int32 cpuCount = smp_get_num_cpus();
-
 	uint64 regs = 0;
 	uint64 regsLen = 0;
 
@@ -250,75 +271,58 @@ PlicInterruptController::InitAcpi(DeviceNode* node)
 	bool plicFound = false;
 	uint32 plicId = 0;
 
-	{
-		acpi_apic* apic = (acpi_apic*)((uint8 *)madt + sizeof(acpi_madt));
-		acpi_apic* apicEnd = (acpi_apic*)((uint8 *)madt + madt->header.length);
+	enumerate_acpi_madt(madt, [this, &regs, &regsLen, &plicFound, &plicId](acpi_apic* apic) {
+		switch (apic->type) {
+			case ACPI_MADT_PLIC: {
+				acpi_madt_plic* plic = (acpi_madt_plic*)apic;
+				if (plic->version != 1)
+					break;
 
-		while (apic < apicEnd) {
-			switch (apic->type) {
-				case ACPI_MADT_PLIC: {
-					acpi_madt_plic* plic = (acpi_madt_plic*)apic;
-					if (plic->version != 1)
-						break;
-
-					if (plicFound) {
-						dprintf("[!] plic: multiple PLIC found, using first one\n");
-						break;
-					}
-
-					plicFound = true;
-					plicId = plic->id;
-					fIrqCount = plic->num_irqs;
-					regs = plic->base_addr;
-					regsLen = plic->size;
+				if (plicFound) {
+					dprintf("[!] plic: multiple PLIC found, using first one\n");
 					break;
 				}
-				default:
-					break;
-			}
 
-			apic = (acpi_apic *)((uint8 *)apic + apic->length);
+				plicFound = true;
+				plicId = plic->id;
+				fIrqCount = plic->num_irqs;
+				regs = plic->base_addr;
+				regsLen = plic->size;
+				break;
+			}
+			default:
+				break;
 		}
-	}
+	});
 
 	if (!plicFound)
 		return ENODEV;
 
-	{
-		acpi_apic* apic = (acpi_apic*)((uint8 *)madt + sizeof(acpi_madt));
-		acpi_apic* apicEnd = (acpi_apic*)((uint8 *)madt + madt->header.length);
-
-		while (apic < apicEnd) {
-			switch (apic->type) {
-				case ACPI_MADT_RINTC:
-				{
-					acpi_madt_rintc* rintc = (acpi_madt_rintc*)apic;
-					if (rintc->version != 1)
-						break;
-
-					uint32 hartId = rintc->hart_id;
-					uint32 rintcPlicId = (rintc->ext_intc_id >> 24) % (1 << 8);
-					uint32 contextId = rintc->ext_intc_id % (1 << 16);
-
-					if (rintcPlicId != plicId)
-						break;
-
-					int32 cpu = 0;
-					while (cpu < cpuCount && !(gCPU[cpu].arch.hartId == hartId))
-						cpu++;
-
-					if (cpu < cpuCount)
-						fPlicContexts[cpu] = contextId;
-
+	enumerate_acpi_madt(madt, [this, plicId](acpi_apic* apic) {
+		switch (apic->type) {
+			case ACPI_MADT_RINTC:
+			{
+				acpi_madt_rintc* rintc = (acpi_madt_rintc*)apic;
+				if (rintc->version != 1)
 					break;
-				}
-				default:
+
+				uint32 hartId = rintc->hart_id;
+				uint32 rintcPlicId = (rintc->ext_intc_id >> 24) % (1 << 8);
+				uint32 contextId = rintc->ext_intc_id % (1 << 16);
+
+				if (rintcPlicId != plicId)
 					break;
+
+				int32 cpu = find_cpu_id_by_hart_id(hartId);
+				if (cpu >= 0)
+					fPlicContexts[cpu] = contextId;
+
+				break;
 			}
-
-			apic = (acpi_apic *)((uint8 *)apic + apic->length);
+			default:
+				break;
 		}
-	}
+	});
 
 	return Init(regs, regsLen);
 }
