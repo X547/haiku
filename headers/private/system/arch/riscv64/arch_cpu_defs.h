@@ -185,6 +185,11 @@ union CounterenReg {
 		uint64 x; asm volatile("csrr %0, " #value : "=r" (x)); return x;} \
 	static B_ALWAYS_INLINE void Set##Name(uint64 x) { \
 		asm volatile("csrw " #value ", %0" : : "r" (x));} \
+	static B_ALWAYS_INLINE uint64 GetAndSet##Name(uint64 x) { \
+		uint64 res; \
+		asm volatile("csrrw %0, " #value ", %1" : "=r" (res) : "r" (x)); \
+		return res; \
+	} \
 	static B_ALWAYS_INLINE void SetBits##Name(uint64 x) { \
 		asm volatile("csrs " #value ", %0" : : "r" (x));} \
 	static B_ALWAYS_INLINE void ClearBits##Name(uint64 x) { \
@@ -256,6 +261,15 @@ CSR_REG_MACRO(CpuTime, time)
 // physical memory protection
 CSR_REG_MACRO(Pmpaddr0, pmpaddr0)
 CSR_REG_MACRO(Pmpcfg0, pmpcfg0)
+
+// indirect register select
+CSR_REG_MACRO(Siselect, siselect)
+// indirect register alias
+CSR_REG_MACRO(Sireg, sireg)
+// top external interrupt (only with an IMSIC)
+CSR_REG_MACRO(Stopei, stopei)
+// top interrupt
+CSR_REG_MACRO(Stopi, stopi)
 
 // flush the TLB
 static B_ALWAYS_INLINE void FlushTlbAll() {

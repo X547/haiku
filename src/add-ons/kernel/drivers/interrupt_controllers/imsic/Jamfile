@@ -1,0 +1,9 @@
+SubDir HAIKU_TOP src add-ons kernel drivers interrupt_controllers imsic ;
+
+UsePrivateKernelHeaders ;
+UsePrivateHeaders shared ;
+
+SubDirC++Flags -fvisibility=hidden ;
+
+KernelAddon imsic :
+	imsic.cpp ;

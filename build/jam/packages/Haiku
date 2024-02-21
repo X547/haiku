@@ -147,6 +147,7 @@ AddNewDriversToPackage misc	:
 AddNewDriversToPackage interrupt_controllers :
 	plic@riscv64
 	aplic@riscv64
+	imsic@riscv64
 	;
 AddNewDriversToPackage graphics :
 	ati
@@ -284,6 +285,7 @@ AddBootModuleSymlinksToPackage
 	openpic@ppc
 	plic@riscv64
 	aplic@riscv64
+	imsic@riscv64
 #	syscon@riscv64
 	goldfish@riscv64
 	packagefs pci
