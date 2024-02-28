@@ -229,15 +229,15 @@ ECAMPCIController::GetMsiDriver()
 
 
 status_t
-ECAMPCIController::MSIInterfaceImpl::AllocateVectors(uint8 count, uint8& startVector,
-	uint64& address, uint16& data)
+ECAMPCIController::MSIInterfaceImpl::AllocateVectors(uint32 count, uint32& startVector,
+	uint64& address, uint32& data)
 {
 	return msi_allocate_vectors(count, &startVector, &address, &data);
 }
 
 
 void
-ECAMPCIController::MSIInterfaceImpl::FreeVectors(uint8 count, uint8 startVector)
+ECAMPCIController::MSIInterfaceImpl::FreeVectors(uint32 count, uint32 startVector)
 {
 	msi_free_vectors(count, startVector);
 }

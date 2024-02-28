@@ -1974,7 +1974,7 @@ PCI::SetPowerstate(uint8 domain, uint8 bus, uint8 _device, uint8 function,
 
 // #pragma mark - MSI
 
-uint8
+uint32
 PCI::GetMSICount(PCIDev *device)
 {
 	domain_data *domain = _GetDomainData(device->domain);
@@ -1992,7 +1992,7 @@ PCI::GetMSICount(PCIDev *device)
 
 
 status_t
-PCI::ConfigureMSI(PCIDev *device, uint8 count, uint8 *startVector)
+PCI::ConfigureMSI(PCIDev *device, uint32 count, uint32 *startVector)
 {
 	domain_data *domain = _GetDomainData(device->domain);
 	MSIInterface *driver = domain->controller->GetMsiDriver();
@@ -2142,7 +2142,7 @@ PCI::DisableMSI(PCIDev *device)
 }
 
 
-uint8
+uint32
 PCI::GetMSIXCount(PCIDev *device)
 {
 	domain_data *domain = _GetDomainData(device->domain);
@@ -2160,7 +2160,7 @@ PCI::GetMSIXCount(PCIDev *device)
 
 
 status_t
-PCI::ConfigureMSIX(PCIDev *device, uint8 count, uint8 *startVector)
+PCI::ConfigureMSIX(PCIDev *device, uint32 count, uint32 *startVector)
 {
 	domain_data *domain = _GetDomainData(device->domain);
 	MSIInterface *driver = domain->controller->GetMsiDriver();

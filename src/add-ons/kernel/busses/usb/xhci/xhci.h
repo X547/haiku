@@ -477,7 +477,7 @@ private:
 			PciDevice*			fPciDevice {};
 
 			UsbStack*			fStack {};
-			uint8				fIRQ {};
+			uint32				fIRQ {};
 			bool				fUseMSI {};
 
 			area_id				fErstArea = -1;

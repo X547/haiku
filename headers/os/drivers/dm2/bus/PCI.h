@@ -35,15 +35,15 @@ public:
 	virtual void 		SetPowerstate(uint8 state) = 0;
 
 	// MSI/MSI-X
-	virtual uint8		GetMsiCount() = 0;
-	virtual status_t	ConfigureMsi(uint8 count, uint8* startVector) = 0;
+	virtual uint32		GetMsiCount() = 0;
+	virtual status_t	ConfigureMsi(uint32 count, uint32* startVector) = 0;
 	virtual status_t	UnconfigureMsi() = 0;
 
 	virtual status_t	EnableMsi() = 0;
 	virtual status_t	DisableMsi() = 0;
 
-	virtual uint8		GetMsixCount() = 0;
-	virtual status_t	ConfigureMsix(uint8 count, uint8* startVector) = 0;
+	virtual uint32		GetMsixCount() = 0;
+	virtual status_t	ConfigureMsix(uint32 count, uint32* startVector) = 0;
 	virtual status_t	EnableMsix() = 0;
 
 protected:

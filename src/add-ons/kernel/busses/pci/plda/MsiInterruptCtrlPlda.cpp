@@ -43,9 +43,9 @@ MsiInterruptCtrlPlda::Init(PciPldaRegs volatile* regs, int32 irq)
 
 
 status_t
-MsiInterruptCtrlPlda::AllocateVectors(uint8 count, uint8& startVector, uint64& address, uint16& data)
+MsiInterruptCtrlPlda::AllocateVectors(uint32 count, uint32& startVector, uint64& address, uint32& data)
 {
-	dprintf("MsiInterruptCtrlPlda::AllocateVectors(%" B_PRIu8 ")\n", count);
+	dprintf("MsiInterruptCtrlPlda::AllocateVectors(%" B_PRIu32 ")\n", count);
 	if (count != 1)
 		return B_ERROR;
 
@@ -56,9 +56,9 @@ MsiInterruptCtrlPlda::AllocateVectors(uint8 count, uint8& startVector, uint64& a
 			startVector = fMsiStartIrq + i;
 			address = fMsiPhysAddr;
 			data = i;
-			dprintf("  startVector: %" B_PRIu8 "\n", startVector);
+			dprintf("  startVector: %" B_PRIu32 "\n", startVector);
 			dprintf("  address: %#" B_PRIx64 "\n", address);
-			dprintf("  data: %#" B_PRIx16 "\n", data);
+			dprintf("  data: %#" B_PRIx32 "\n", data);
 			return B_OK;
 		}
 	}
@@ -67,9 +67,9 @@ MsiInterruptCtrlPlda::AllocateVectors(uint8 count, uint8& startVector, uint64& a
 
 
 void
-MsiInterruptCtrlPlda::FreeVectors(uint8 count, uint8 startVector)
+MsiInterruptCtrlPlda::FreeVectors(uint32 count, uint32 startVector)
 {
-	dprintf("MsiInterruptCtrlPlda::FreeVectors(%" B_PRIu8 ", %" B_PRIu8 ")\n", count, startVector);
+	dprintf("MsiInterruptCtrlPlda::FreeVectors(%" B_PRIu32 ", %" B_PRIu32 ")\n", count, startVector);
 	int32 irq = (int32)startVector - fMsiStartIrq;
 	while (count > 0) {
 		if (irq >= 0 && irq < 32 && ((1 << irq) & fAllocatedMsiIrqs[0]) != 0) {

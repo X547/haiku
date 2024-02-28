@@ -123,9 +123,22 @@ public:
 };
 
 
+class VirtioMmioBusDriver: public BusDriver {
+public:
+	VirtioMmioBusDriver(VirtioMmioDevice& device): fDevice(device) {}
+	virtual ~VirtioMmioBusDriver() = default;
+
+	void* QueryInterface(const char* name) final;
+
+private:
+	VirtioMmioDevice& fDevice;
+};
+
+
 class VirtioMmioDeviceDriver: public DeviceDriver {
 public:
-	static status_t Probe(DeviceNode* node, DeviceDriver** driver);
+	static status_t ProbeFdt(DeviceNode* node, DeviceDriver** driver);
+	static status_t ProbeAcpi(DeviceNode* node, DeviceDriver** driver);
 
 	virtual ~VirtioMmioDeviceDriver() = default;
 
@@ -134,22 +147,10 @@ public:
 private:
 	DeviceNode* fNode {};
 	VirtioMmioDevice fDevice;
+	VirtioMmioBusDriver fBusDriver;
 
-	VirtioMmioDeviceDriver(DeviceNode* node): fNode(node) {}
-	status_t Init();
-};
-
-
-class VirtioMmioBusDriver: public BusDriver {
-public:
-	VirtioMmioBusDriver(VirtioMmioDevice& device): fDevice(device) {}
-	virtual ~VirtioMmioBusDriver() = default;
-
-	void Free() final;
-	void* QueryInterface(const char* name) final;
-
-private:
-	VirtioMmioDevice& fDevice;
+	VirtioMmioDeviceDriver(DeviceNode* node): fNode(node), fBusDriver(fDevice) {}
+	status_t Init(uint64 regs, uint64 regsLen, uint64 interrupt);
 };
 
 

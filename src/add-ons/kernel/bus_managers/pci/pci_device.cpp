@@ -72,15 +72,15 @@ public:
 	void 		SetPowerstate(uint8 state) final;
 
 	// MSI/MSI-X
-	uint8		GetMsiCount() final;
-	status_t	ConfigureMsi(uint8 count, uint8* startVector) final;
+	uint32		GetMsiCount() final;
+	status_t	ConfigureMsi(uint32 count, uint32* startVector) final;
 	status_t	UnconfigureMsi() final;
 
 	status_t	EnableMsi() final;
 	status_t	DisableMsi() final;
 
-	uint8		GetMsixCount() final;
-	status_t	ConfigureMsix(uint8 count, uint8* startVector) final;
+	uint32		GetMsixCount() final;
+	status_t	ConfigureMsix(uint32 count, uint32* startVector) final;
 	status_t	EnableMsix() final;
 
 private:
@@ -343,7 +343,7 @@ PciDeviceImpl::SetPowerstate(uint8 state)
 }
 
 
-uint8
+uint32
 PciDeviceImpl::GetMsiCount()
 {
 	return gPCI->GetMSICount(fDevice);
@@ -351,7 +351,7 @@ PciDeviceImpl::GetMsiCount()
 
 
 status_t
-PciDeviceImpl::ConfigureMsi(uint8 count, uint8* startVector)
+PciDeviceImpl::ConfigureMsi(uint32 count, uint32* startVector)
 {
 	return gPCI->ConfigureMSI(fDevice, count, startVector);
 }
@@ -378,7 +378,7 @@ PciDeviceImpl::DisableMsi()
 }
 
 
-uint8
+uint32
 PciDeviceImpl::GetMsixCount()
 {
 	return gPCI->GetMSIXCount(fDevice);
@@ -386,7 +386,7 @@ PciDeviceImpl::GetMsixCount()
 
 
 status_t
-PciDeviceImpl::ConfigureMsix(uint8 count, uint8* startVector)
+PciDeviceImpl::ConfigureMsix(uint32 count, uint32* startVector)
 {
 	return gPCI->ConfigureMSIX(fDevice, count, startVector);
 }

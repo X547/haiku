@@ -14,6 +14,19 @@
 #define ACPI_DEVICE_UID_ITEM	"acpi/uid"
 
 
+class AcpiWalkResourcesCallback {
+public:
+	template<typename Fn>
+	AcpiWalkResourcesCallback(Fn& fn);
+
+	acpi_status operator()(acpi_resource* res);
+
+public:
+	acpi_walk_resources_callback fCls;
+	void* fInst;
+};
+
+
 class AcpiDevice {
 public:
 	static inline const char ifaceName[] = "bus_managers/acpi/device";
@@ -51,6 +64,31 @@ public:
 	virtual status_t	WalkResources(char *method,
 							acpi_walk_resources_callback callback, void* context) = 0;
 
+			status_t	WalkResources(char *method, AcpiWalkResourcesCallback callback);
+
 protected:
 	~AcpiDevice() = default;
 };
+
+
+template<typename Fn>
+AcpiWalkResourcesCallback::AcpiWalkResourcesCallback(Fn& fn):
+	fCls([](acpi_resource* res, void* context) -> acpi_status {
+		return (*static_cast<Fn*>(context))(res);
+	}),
+	fInst(&fn)
+{}
+
+
+inline acpi_status
+AcpiWalkResourcesCallback::operator()(acpi_resource* res)
+{
+	return fCls(res, fInst);
+}
+
+
+inline status_t
+AcpiDevice::WalkResources(char *method, AcpiWalkResourcesCallback callback)
+{
+	return WalkResources(method, callback.fCls, callback.fInst);
+}

@@ -331,9 +331,12 @@ XHCI::Init()
 
 	// Find the right interrupt vector, using MSIs if available.
 	fIRQ = fPCIInfo.u.h0.interrupt_line;
+	if (fIRQ == 0xFF)
+		fIRQ = 0;
+
 #if 0
 	if (fPciDevice->GetMsixCount() >= 1) {
-		uint8 msiVector = 0;
+		uint32 msiVector = 0;
 		if (fPciDevice->ConfigureMsix(1, &msiVector) == B_OK
 			&& fPciDevice->EnableMsix() == B_OK) {
 			TRACE_ALWAYS("using MSI-X\n");
@@ -343,7 +346,7 @@ XHCI::Init()
 	} else
 #endif
 	if (fPciDevice->GetMsiCount() >= 1) {
-		uint8 msiVector = 0;
+		uint32 msiVector = 0;
 		if (fPciDevice->ConfigureMsi(1, &msiVector) == B_OK
 			&& fPciDevice->EnableMsi() == B_OK) {
 			TRACE_ALWAYS("using message signaled interrupts\n");
@@ -352,7 +355,7 @@ XHCI::Init()
 		}
 	}
 
-	if (fIRQ == 0 || fIRQ == 0xFF) {
+	if (fIRQ == 0) {
 		TRACE_MODULE_ERROR("device PCI:%d:%d:%d was assigned an invalid IRQ\n",
 			fPCIInfo.bus, fPCIInfo.device, fPCIInfo.function);
 		return B_ERROR;

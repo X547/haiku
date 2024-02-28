@@ -306,16 +306,19 @@ status_t NvmeDiskDriver::Init()
 	command &= ~(PCI_command_int_disable);
 	fPciDevice->WritePciConfig(PCI_command, 2, command);
 
-	uint8 irq = fInfo.u.h0.interrupt_line;
+	uint32 irq = fInfo.u.h0.interrupt_line;
+	if (irq == 0xFF)
+		irq = 0;
+
 	if (fPciDevice->GetMsixCount()) {
-		uint8 msixVector = 0;
+		uint32 msixVector = 0;
 		if (fPciDevice->ConfigureMsix(1, &msixVector) == B_OK
 			&& fPciDevice->EnableMsix() == B_OK) {
 			TRACE_ALWAYS("using MSI-X\n");
 			irq = msixVector;
 		}
 	} else if (fPciDevice->GetMsiCount() >= 1) {
-		uint8 msiVector = 0;
+		uint32 msiVector = 0;
 		if (fPciDevice->ConfigureMsi(1, &msiVector) == B_OK
 			&& fPciDevice->EnableMsi() == B_OK) {
 			TRACE_ALWAYS("using message signaled interrupts\n");
@@ -323,7 +326,7 @@ status_t NvmeDiskDriver::Init()
 		}
 	}
 
-	if (irq == 0 || irq == 0xFF) {
+	if (irq == 0) {
 		TRACE_ERROR("device PCI:%d:%d:%d was assigned an invalid IRQ\n",
 			fInfo.bus, fInfo.device, fInfo.function);
 		fPolling = 1;

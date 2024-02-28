@@ -89,8 +89,8 @@ public:
 	void Free() final {delete this;}
 
 	// MSIInterface
-	status_t AllocateVectors(uint8 count, uint8& startVector, uint64& address, uint16& data) final;
-	void FreeVectors(uint8 count, uint8 startVector) final;
+	status_t AllocateVectors(uint32 count, uint32& startVector, uint64& address, uint32& data) final;
+	void FreeVectors(uint32 count, uint32 startVector) final;
 
 	// InterruptSource
 	void EnableIoInterrupt(int irq) final;
@@ -311,10 +311,10 @@ ImsicInterruptController::~ImsicInterruptController()
 
 
 status_t
-ImsicInterruptController::AllocateVectors(uint8 count, uint8& outStartVector, uint64& address, uint16& data)
+ImsicInterruptController::AllocateVectors(uint32 count, uint32& outStartVector, uint64& address, uint32& data)
 {
 	ssize_t startVector = fAllocatedVectors.GetLowestContiguousClear(count);
-	TRACE("ImsicInterruptController::AllocateVectors(%" B_PRIu8 ") -> %" B_PRIdSSIZE "\n", count, startVector);
+	TRACE("ImsicInterruptController::AllocateVectors(%" B_PRIu32 ") -> %" B_PRIdSSIZE "\n", count, startVector);
 
 	if (startVector < 0)
 		return ENOENT;
@@ -329,7 +329,7 @@ ImsicInterruptController::AllocateVectors(uint8 count, uint8& outStartVector, ui
 
 
 void
-ImsicInterruptController::FreeVectors(uint8 count, uint8 startVector)
+ImsicInterruptController::FreeVectors(uint32 count, uint32 startVector)
 {
 	TRACE("ImsicInterruptController::FreeVectors(%" B_PRIu8 ", %" B_PRIu8 ")\n", count, startVector);
 	fAllocatedVectors.ClearRange(startVector, count);
