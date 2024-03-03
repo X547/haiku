@@ -213,9 +213,7 @@ DwmacDriver::Init()
 	if (!fRegsArea.IsSet())
 		return fRegsArea.Get();
 
-	uint64 irq;
-	CHECK_RET(fFdtDevice->GetInterruptByName("macirq", NULL, &irq));
-	fIrqVector = irq;
+	CHECK_RET(fFdtDevice->GetInterruptVectorByName("macirq", &fIrqVector));
 	dprintf("  fIrqVector: %ld\n", fIrqVector);
 	CHECK_RET(install_io_interrupt_handler(fIrqVector, HandleInterrupt, this, 0));
 	fInterruptHandlerInstalled = true;

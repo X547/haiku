@@ -83,10 +83,7 @@ OcoresI2cDriver::Init()
 	if (!fRegsArea.IsSet())
 		return fRegsArea.Get();
 
-	uint64 irq;
-	if (!fFdtDevice->GetInterrupt(0, NULL, &irq))
-		return B_ERROR;
-	fIrqVector = irq; // TODO: take interrupt controller into account
+	CHECK_RET(fFdtDevice->GetInterruptVector(0, &fIrqVector));
 
 	return B_OK;
 }

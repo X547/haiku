@@ -16,6 +16,7 @@
 #include <arch_cpu_defs.h>
 #include <arch_thread_types.h>
 #include <arch/debug.h>
+#include <arch/generic/generic_int.h>
 #include <util/AutoLock.h>
 #include <Htif.h>
 #include <Plic.h>
@@ -500,7 +501,7 @@ STrap(iframe* frame)
 		}
 		case causeInterrupt + sExternInt: {
 			// forward interrupt to PLIC module
-			int_io_interrupt_handler(0, true);
+			int_io_interrupt_handler(kHartExternIntVector, true);
 			AfterInterrupt();
 			return;
 		}
@@ -536,9 +537,43 @@ STrap(iframe* frame)
 
 //#pragma mark -
 
+class HartInterruptSource: public InterruptSource {
+public:
+	void EnableIoInterrupt(int vector) final;
+	void DisableIoInterrupt(int vector) final;
+	void ConfigureIoInterrupt(int vector, uint32 config) final {}
+	void EndOfInterrupt(int vector) final {}
+	int32 AssignToCpu(int32 vector, int32 cpu) final {return cpu;}
+};
+
+static HartInterruptSource sHartInterruptSource;
+
+
+void
+HartInterruptSource::EnableIoInterrupt(int vector)
+{
+	call_all_cpus_sync([](int cpu) {
+		SetBitsSie((1 << sExternInt));
+	});
+}
+
+
+void
+HartInterruptSource::DisableIoInterrupt(int vector)
+{
+	call_all_cpus_sync([](int cpu) {
+		ClearBitsSie((1 << sExternInt));
+	});
+}
+
+
+//#pragma mark -
+
 status_t
 arch_int_init(kernel_args* args)
 {
+	new((char*)&sHartInterruptSource) HartInterruptSource();
+	reserve_io_interrupt_vectors_ex(1, kHartExternIntVector, INTERRUPT_TYPE_LOCAL_IRQ, &sHartInterruptSource);
 	return B_OK;
 }
 

@@ -68,7 +68,7 @@ arch_cpu_init_percpu(kernel_args *args, int curr_cpu)
 	sstatus.fs = extStatusInitial; // enable FPU
 	sstatus.xs = extStatusOff;
 	SetSstatus(sstatus.val);
-	SetBitsSie((1 << sTimerInt) | (1 << sSoftInt) | (1 << sExternInt));
+	SetBitsSie((1 << sTimerInt) | (1 << sSoftInt));
 
 	return B_OK;
 }

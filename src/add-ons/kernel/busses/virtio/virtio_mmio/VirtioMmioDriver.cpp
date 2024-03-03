@@ -27,7 +27,7 @@ VirtioMmioDeviceDriver::ProbeFdt(DeviceNode* node, DeviceDriver** outDriver)
 
 	uint64 regs = 0;
 	uint64 regsLen = 0;
-	uint64 interrupt = 0;
+	long interrupt = 0;
 
 	FdtDevice* fdtDev = node->QueryBusInterface<FdtDevice>();
 	for (uint32 i = 0; fdtDev->GetReg(i, &regs, &regsLen); i++) {
@@ -40,7 +40,7 @@ VirtioMmioDeviceDriver::ProbeFdt(DeviceNode* node, DeviceDriver** outDriver)
 		return ENODEV;
 	}
 
-	if (!fdtDev->GetInterrupt(0, NULL, &interrupt)) {
+	if (fdtDev->GetInterruptVector(0, &interrupt) < B_OK) {
 		ERROR("  no interrupts\n");
 		return ENODEV;
 	}

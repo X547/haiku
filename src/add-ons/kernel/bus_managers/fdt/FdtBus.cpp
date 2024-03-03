@@ -28,15 +28,6 @@ extern "C" {
 #define FDT_BUS_DRIVER_MODULE_NAME "bus_managers/fdt/driver/v1"
 
 
-#define GIC_INTERRUPT_CELL_TYPE     0
-#define GIC_INTERRUPT_CELL_ID       1
-#define GIC_INTERRUPT_CELL_FLAGS    2
-#define GIC_INTERRUPT_TYPE_SPI      0
-#define GIC_INTERRUPT_TYPE_PPI      1
-#define GIC_INTERRUPT_BASE_SPI      32
-#define GIC_INTERRUPT_BASE_PPI      16
-
-
 extern void* gFDT;
 
 
@@ -240,6 +231,21 @@ FdtBusImpl::RegisterNode(int node, DeviceNode* parentDev, DeviceNode*& curDev)
 }
 
 
+status_t
+FdtBusImpl::TranslateInterrupt(uint32 intrParent, const uint32* intrData, uint32 intrCells, long* vector)
+{
+	DeviceNode* intrCtrlNode = NodeByPhandle(intrParent);
+
+	InterruptControllerDeviceFdt* intrCtrl = intrCtrlNode->QueryDriverInterface<InterruptControllerDeviceFdt>();
+	if (intrCtrl == NULL)
+		return B_UNSUPPORTED;
+
+	CHECK_RET(intrCtrl->GetVector(intrData, intrCells, vector));
+
+	return B_OK;
+}
+
+
 // #pragma mark - FdtDeviceImpl
 
 status_t
@@ -394,45 +400,56 @@ FdtDeviceImpl::GetRegByName(const char* name, uint64* regs, uint64* len)
 
 
 bool
+FdtDeviceImpl::GetInterruptInt(uint32 index, uint32& intrParent, const uint32*& intrData, uint32& intrCells)
+{
+	int propLen;
+	const uint32 *prop = (uint32*)GetProp("interrupts-extended", &propLen);
+	if (prop == NULL) {
+		intrParent = fdt_get_interrupt_parent(fBus->GetFDT(), fFdtNode);
+		intrCells = fdt_get_interrupt_cells(fBus->GetFDT(), intrParent);
+
+		prop = (const uint32*)GetProp("interrupts", &propLen);
+		if (prop == NULL)
+			return false;
+
+		if ((index + 1) * intrCells * sizeof(uint32) > (uint32)propLen)
+			return false;
+
+		intrData = prop + intrCells * index;
+	} else {
+		if ((index + 1) * 8 > (uint32)propLen)
+			return false;
+
+		intrParent = fdt32_to_cpu(*(prop + 2 * index));
+		intrData = prop + 2 * index + 1;
+		intrCells = 1; // TODO: get actual interrupt cells
+	}
+
+	return true;
+}
+
+
+bool
 FdtDeviceImpl::GetInterrupt(uint32 index, DeviceNode** outInterruptController, uint64* interrupt)
 {
 	uint32 interruptParent = 0;
 	uint32 interruptNumber = 0;
 
-	int propLen;
-	const uint32 *prop = (uint32*)GetProp("interrupts-extended", &propLen);
-	if (prop == NULL) {
-		interruptParent = fdt_get_interrupt_parent(fBus->GetFDT(), fFdtNode);
-		uint32 interruptCells = fdt_get_interrupt_cells(fBus->GetFDT(), interruptParent);
+	const uint32* intrData;
+	uint32 intrCells;
+	if (!GetInterruptInt(index, interruptParent, intrData, intrCells))
+		return false;
 
-		prop = (uint32*)GetProp("interrupts", &propLen);
-		if (prop == NULL)
-			return false;
-
-		if ((index + 1) * interruptCells * sizeof(uint32) > (uint32)propLen)
-			return false;
-
-		uint32 offset = interruptCells * index;
-
-		if ((interruptCells == 1) || (interruptCells == 2)) {
-			 interruptNumber = fdt32_to_cpu(*(prop + offset));
-		} else if (interruptCells == 3) {
-			uint32 interruptType = fdt32_to_cpu(prop[offset + GIC_INTERRUPT_CELL_TYPE]);
-			interruptNumber = fdt32_to_cpu(prop[offset + GIC_INTERRUPT_CELL_ID]);
-
-			if (interruptType == GIC_INTERRUPT_TYPE_SPI)
-				interruptNumber += GIC_INTERRUPT_BASE_SPI;
-			else if (interruptType == GIC_INTERRUPT_TYPE_PPI)
-				interruptNumber += GIC_INTERRUPT_BASE_PPI;
-		} else {
+	switch (intrCells) {
+		case 1:
+			interruptNumber = fdt32_to_cpu(*intrData);
+			break;
+		case 2:
+			interruptNumber = fdt64_to_cpu(*intrData);
+			break;
+		default:
 			panic("unsupported interruptCells");
-		}
-	} else {
-		if ((index + 1) * 8 > (uint32)propLen)
-			return false;
-
-		interruptParent = fdt32_to_cpu(*(prop + 2 * index));
-		interruptNumber = fdt32_to_cpu(*(prop + 2 * index + 1));
+			break;
 	}
 
 	if (outInterruptController != NULL) {
@@ -468,13 +485,41 @@ FdtDeviceImpl::GetInterruptByName(const char* name, DeviceNode** interruptContro
 }
 
 
+status_t
+FdtDeviceImpl::GetInterruptVector(uint32 ord, long* vector)
+{
+	uint32 intrParent;
+	const uint32* intrData;
+	uint32 intrCells;
+	if (!GetInterruptInt(ord, intrParent, intrData, intrCells))
+		return B_BAD_INDEX;
+
+	return fBus->TranslateInterrupt(intrParent, intrData, intrCells, vector);
+}
+
+
+status_t
+FdtDeviceImpl::GetInterruptVectorByName(const char* name, long* vector)
+{
+	int propLen;
+	const void* prop = GetProp("interrupt-names", &propLen);
+	if (prop == NULL)
+		return B_NAME_NOT_FOUND;
+
+	int32 index = fdt_find_string((const char*)prop, propLen, name);
+	CHECK_RET(index);
+
+	return GetInterruptVector(index, vector);
+}
+
+
 FdtInterruptMap*
 FdtDeviceImpl::GetInterruptMap()
 {
 	if (fInterruptMap.IsSet())
 		return fInterruptMap.Get();
 
-	ObjectDeleter<FdtInterruptMapImpl> interruptMap(new(std::nothrow) FdtInterruptMapImpl());
+	ObjectDeleter<FdtInterruptMapImpl> interruptMap(new(std::nothrow) FdtInterruptMapImpl(fBus));
 	if (!interruptMap.IsSet())
 		return NULL;
 
@@ -510,8 +555,8 @@ FdtDeviceImpl::GetInterruptMap()
 	if (property != NULL)
 		interruptCells = B_BENDIAN_TO_HOST_INT32(*(uint32*)property);
 
-	uint32_t *it = (uint32_t*)intMapAddr;
-	while ((uint8_t*)it - (uint8_t*)intMapAddr < intMapLen) {
+	const uint32 *it = (const uint32*)intMapAddr;
+	while ((const uint8*)it - (const uint8*)intMapAddr < intMapLen) {
 		FdtInterruptMapImpl::MapEntry irqEntry;
 
 		irqEntry.childAddr = B_BENDIAN_TO_HOST_INT32(*it);
@@ -539,19 +584,9 @@ FdtDeviceImpl::GetInterruptMap()
 
 		it += parentAddressCells;
 
-		if ((parentInterruptCells == 1) || (parentInterruptCells == 2)) {
-			irqEntry.parentIrq = B_BENDIAN_TO_HOST_INT32(*it);
-		} else if (parentInterruptCells == 3) {
-			uint32 interruptType = fdt32_to_cpu(it[GIC_INTERRUPT_CELL_TYPE]);
-			uint32 interruptNumber = fdt32_to_cpu(it[GIC_INTERRUPT_CELL_ID]);
+		irqEntry.parentIrqData = it;
+		irqEntry.parentIrqCells = parentInterruptCells;
 
-			if (interruptType == GIC_INTERRUPT_TYPE_SPI)
-				irqEntry.parentIrq = interruptNumber + GIC_INTERRUPT_BASE_SPI;
-			else if (interruptType == GIC_INTERRUPT_TYPE_PPI)
-				irqEntry.parentIrq = interruptNumber + GIC_INTERRUPT_BASE_PPI;
-			else
-				irqEntry.parentIrq = interruptNumber;
-		}
 		it += parentInterruptCells;
 
 		interruptMap->fInterruptMap.PushBack(irqEntry);
@@ -712,9 +747,12 @@ FdtInterruptMapImpl::Print()
 	dprintf("interrupt_map:\n");
 
 	for (Vector<MapEntry>::Iterator it = fInterruptMap.Begin(); it != fInterruptMap.End(); it++) {
+		long vector;
+		if (fBus->TranslateInterrupt(it->parentIrqCtrl, it->parentIrqData, it->parentIrqCells, &vector) < B_OK)
+			vector = -1;
 
-		dprintf("childAddr=0x%08" PRIx32 ", childIrq=%" PRIu32 ", parentIrqCtrl=%" PRIu32 ", parentIrq=%" PRIu32 "\n",
-			it->childAddr, it->childIrq, it->parentIrqCtrl, it->parentIrq);
+		dprintf("childAddr=0x%08" PRIx32 ", childIrq=%" PRIu32 ", parentIrqCtrl=%" PRIu32 ", parentIrq=%ld\n",
+			it->childAddr, it->childIrq, it->parentIrqCtrl, vector);
 	}
 }
 
@@ -726,8 +764,13 @@ FdtInterruptMapImpl::Lookup(uint32 childAddr, uint32 childIrq)
 	childIrq &= fChildIrqMask;
 
 	for (Vector<MapEntry>::Iterator it = fInterruptMap.Begin(); it != fInterruptMap.End(); it++) {
-		if ((it->childAddr == childAddr) && (it->childIrq == childIrq))
-			return it->parentIrq;
+		if ((it->childAddr == childAddr) && (it->childIrq == childIrq)) {
+			long vector;
+			if (fBus->TranslateInterrupt(it->parentIrqCtrl, it->parentIrqData, it->parentIrqCells, &vector) < B_OK)
+				return 0xffffffff;
+
+			return vector;
+		}
 	}
 
 	return 0xffffffff;

@@ -171,10 +171,7 @@ AlteraPs2Driver::Init()
 	if (!fFdtDevice->GetReg(0, &regs, &fRegsLen))
 		return B_ERROR;
 
-	uint64 val;
-	if (!fFdtDevice->GetInterrupt(0, NULL, &val))
-		return B_ERROR;
-	fIrqVector = val;
+	CHECK_RET(fFdtDevice->GetInterruptVector(0, &fIrqVector));
 
 	install_io_interrupt_handler(fIrqVector, HandleInterrupt, this, 0);
 
@@ -193,13 +190,13 @@ AlteraPs2Driver::Init()
 	fPs2Device.Write(ps2CmdDisableDataReporting);
 
 	CHECK_RET(Read(val8));
-	while (val != ps2ReplyAck) {
+	while (val8 != ps2ReplyAck) {
 		CHECK_RET(Read(val8));
 	}
 
 	fPs2Device.Write(ps2CmdGetDevId);
 	CHECK_RET(Read(val8));
-	while (val != ps2ReplyAck) {
+	while (val8 != ps2ReplyAck) {
 		CHECK_RET(Read(val8));
 	}
 

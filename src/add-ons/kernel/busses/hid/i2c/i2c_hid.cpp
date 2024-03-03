@@ -119,10 +119,7 @@ I2cHidDriver::Init()
 	CHECK_RET(fFdtDevice->GetPropUint32("hid-descr-addr", uint32Val));
 	fDescriptorAddress = uint32Val;
 
-	uint64 uint64Val;
-	if (!fFdtDevice->GetInterrupt(0, NULL, &uint64Val))
-		return B_ERROR;
-	fIrqVector = uint64Val;
+	CHECK_RET(fFdtDevice->GetInterruptVector(0, &fIrqVector));
 
 	dprintf("  fDeviceAddress: %" B_PRIu32 "\n", fDeviceAddress);
 	dprintf("  fDescriptorAddress: %" B_PRIu32 "\n", fDescriptorAddress);

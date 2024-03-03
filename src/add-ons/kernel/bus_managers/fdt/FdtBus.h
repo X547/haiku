@@ -18,8 +18,11 @@
 #define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
 
+class FdtBusImpl;
+
 class FdtInterruptMapImpl: public FdtInterruptMap {
 public:
+	FdtInterruptMapImpl(FdtBusImpl* bus): fBus(bus) {}
 	virtual ~FdtInterruptMapImpl() = default;
 
 	void Print() final;
@@ -29,15 +32,17 @@ private:
 	friend class FdtDeviceImpl;
 
 	struct MapEntry {
-		uint32_t childAddr;
-		uint32_t childIrq;
-		uint32_t parentIrqCtrl;
-		uint32_t parentIrq;
+		uint32 childAddr;
+		uint32 childIrq;
+		uint32 parentIrqCtrl;
+		const uint32* parentIrqData;
+		uint32 parentIrqCells;
 	};
 
 	uint32_t fChildAddrMask;
 	uint32_t fChildIrqMask;
 
+	FdtBusImpl* fBus;
 	Vector<MapEntry> fInterruptMap;
 };
 
@@ -49,6 +54,7 @@ public:
 
 	DeviceNode* GetNode() {return fNode;}
 	const void* GetFDT() {return fFDT.Get();}
+	status_t TranslateInterrupt(uint32 intrParent, const uint32* intrData, uint32 intrCells, long* vector);
 
 	// DeviceDriver
 	static status_t Probe(DeviceNode* node, DeviceDriver** driver);
@@ -87,6 +93,8 @@ public:
 	status_t GetRegByName(const char* name, uint64* regs, uint64* len) final;
 	bool GetInterrupt(uint32 ord, DeviceNode** interruptController, uint64* interrupt) final;
 	status_t GetInterruptByName(const char* name, DeviceNode** interruptController, uint64* interrupt) final;
+	status_t GetInterruptVector(uint32 ord, long* vector) final;
+	status_t GetInterruptVectorByName(const char* name, long* vector) final;
 	FdtInterruptMap* GetInterruptMap() final;
 
 	status_t GetClock(uint32 ord, ClockDevice** clock) final;
@@ -104,4 +112,5 @@ private:
 	ObjectDeleter<FdtInterruptMapImpl> fInterruptMap;
 
 	int GetFdtNode();
+	bool GetInterruptInt(uint32 index, uint32& intrParent, const uint32*& intrData, uint32& intrCells);
 };

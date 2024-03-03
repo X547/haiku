@@ -47,6 +47,7 @@ enum {
 #else
 #	define TRACE(a...)
 #endif
+#	define TRACE_ALWAYS(a...) dprintf("imsic: " a)
 
 
 #define IMSIC_FDT_MODULE_NAME "drivers/interrupt_controllers/imsic/fdt/driver/v1"
@@ -87,6 +88,7 @@ public:
 	static status_t ProbeFdt(DeviceNode* node, DeviceDriver** driver);
 	static status_t ProbeAcpi(DeviceNode* node, DeviceDriver** driver);
 	void Free() final {delete this;}
+	void* QueryInterface(const char* name) final;
 
 	// MSIInterface
 	status_t AllocateVectors(uint32 count, uint32& startVector, uint64& address, uint32& data) final;
@@ -110,6 +112,7 @@ private:
 private:
 	spinlock fLock = B_SPINLOCK_INITIALIZER;
 	bool fAttached = false;
+	long fFirstVector {};
 	uint32 fIrqCount {};
 	phys_addr_t fIrqDestAdrs[SMP_MAX_CPUS] {};
 	uint32 fTargetCpus[NUM_IO_VECTORS] {};
@@ -128,20 +131,6 @@ find_cpu_id_by_hart_id(uint32 hartId)
 	}
 
 	return -1;
-}
-
-
-template<typename Func> static void
-call_single_cpu_sync(uint32 targetCPU, Func func)
-{
-	call_single_cpu_sync(targetCPU, [](void* arg, int cpu) {(*static_cast<Func*>(arg))(cpu);}, &func);
-}
-
-
-template<typename Func> static void
-call_all_cpus_sync(Func func)
-{
-	call_all_cpus_sync([](void* arg, int cpu) {(*static_cast<Func*>(arg))(cpu);}, &func);
 }
 
 
@@ -187,15 +176,15 @@ ImsicInterruptController::ProbeAcpi(DeviceNode* node, DeviceDriver** outDriver)
 status_t
 ImsicInterruptController::Init()
 {
-	TRACE("  irqCount: %" B_PRIu32 "\n", fIrqCount);
+	CHECK_RET(fAllocatedVectors.Resize(fIrqCount));
 
-	CHECK_RET(fAllocatedVectors.Resize(fIrqCount + 1));
-	fAllocatedVectors.Set(0); // IRQ 0 is not usable
-
-	reserve_io_interrupt_vectors_ex(fIrqCount + 1, 0, INTERRUPT_TYPE_IRQ, this);
-	install_io_interrupt_handler(0, HandleInterrupt, this, B_NO_LOCK_VECTOR);
+	CHECK_RET(allocate_io_interrupt_vectors_ex(fIrqCount, &fFirstVector, INTERRUPT_TYPE_IRQ, this));
+	CHECK_RET(install_io_interrupt_handler(kHartExternIntVector, HandleInterrupt, this, B_NO_LOCK_VECTOR));
 	msi_set_interface(this);
 	fAttached = true;
+
+	dprintf("imsic: MSI vector range: %" B_PRIu32 " - %" B_PRIu32 " (%" B_PRIu32 ")\n",
+		fFirstVector, fFirstVector + fIrqCount - 1, fIrqCount);
 
 	call_all_cpus_sync([this](int cpu) {
 		InterruptsLocker lock;
@@ -218,8 +207,41 @@ ImsicInterruptController::InitFdt(DeviceNode* node)
 	if (fdtDev == NULL)
 		return B_ERROR;
 
-	panic("[!] imsic: not implemented yet\n");
-	return ENODEV;
+	CHECK_RET(fdtDev->GetPropUint32("riscv,num-ids", fIrqCount));
+
+	uint64 regs = 0;
+	uint64 regsLen = 0;
+	if (!fdtDev->GetReg(0, &regs, &regsLen))
+		return B_ERROR;
+
+	DeviceNode* hartIntcNode;
+	uint64 cause;
+	bool isModeS = false;
+	for (uint32 index = 0; fdtDev->GetInterrupt(index, &hartIntcNode, &cause); index++) {
+		DeviceNodePutter hartIntcNodePutter(hartIntcNode);
+		DeviceNodePutter hartNode(hartIntcNode->GetParent());
+		FdtDevice* hartFdtDev = hartNode->QueryBusInterface<FdtDevice>();
+
+		uint32 hartId;
+		CHECK_RET(hartFdtDev->GetPropUint32("reg", hartId));
+
+		TRACE("  index %" B_PRIu32 "\n", index);
+		TRACE("    cause: %" B_PRIu64 "\n", cause);
+		TRACE("    hartId: %" B_PRIu32 "\n", hartId);
+
+		if (cause == sExternInt) {
+			int32 cpu = find_cpu_id_by_hart_id(hartId);
+			if (cpu >= 0) {
+				isModeS = true;
+				fIrqDestAdrs[cpu] = regs + B_PAGE_SIZE * index;
+			}
+		}
+	}
+
+	if (!isModeS)
+		return ENODEV;
+
+	return Init();
 }
 
 
@@ -305,25 +327,38 @@ ImsicInterruptController::~ImsicInterruptController()
 		msi_set_interface(NULL);
 
 		remove_io_interrupt_handler(0, HandleInterrupt, this);
-		free_io_interrupt_vectors_ex(fIrqCount + 1, 0);
+		free_io_interrupt_vectors_ex(fIrqCount, fFirstVector);
 	}
+}
+
+
+void*
+ImsicInterruptController::QueryInterface(const char* name)
+{
+	if (strcmp(name, MSIInterface::ifaceName) == 0)
+		return static_cast<MSIInterface*>(this);
+
+	return NULL;
+
 }
 
 
 status_t
 ImsicInterruptController::AllocateVectors(uint32 count, uint32& outStartVector, uint64& address, uint32& data)
 {
-	ssize_t startVector = fAllocatedVectors.GetLowestContiguousClear(count);
-	TRACE("ImsicInterruptController::AllocateVectors(%" B_PRIu32 ") -> %" B_PRIdSSIZE "\n", count, startVector);
+	TRACE_ALWAYS("ImsicInterruptController::AllocateVectors(%" B_PRIu32 ")\n", count);
+	ssize_t startIndex = fAllocatedVectors.GetLowestContiguousClear(count);
+	int32 startVector = startIndex < 0 ? -1 : startIndex + fFirstVector;
+	TRACE_ALWAYS("  -> %" B_PRIdSSIZE "\n", startVector);
 
 	if (startVector < 0)
 		return ENOENT;
 
-	fAllocatedVectors.SetRange(startVector, count);
+	fAllocatedVectors.SetRange(startIndex, count);
 
 	outStartVector = startVector;
-	address = fIrqDestAdrs[fTargetCpus[startVector]];
-	data = startVector;
+	address = fIrqDestAdrs[fTargetCpus[startIndex]];
+	data = startIndex + 1;
 	return B_OK;
 }
 
@@ -331,8 +366,8 @@ ImsicInterruptController::AllocateVectors(uint32 count, uint32& outStartVector, 
 void
 ImsicInterruptController::FreeVectors(uint32 count, uint32 startVector)
 {
-	TRACE("ImsicInterruptController::FreeVectors(%" B_PRIu8 ", %" B_PRIu8 ")\n", count, startVector);
-	fAllocatedVectors.ClearRange(startVector, count);
+	TRACE_ALWAYS("ImsicInterruptController::FreeVectors(%" B_PRIu8 ", %" B_PRIu8 ")\n", count, startVector);
+	fAllocatedVectors.ClearRange(startVector - fFirstVector, count);
 }
 
 
@@ -348,22 +383,28 @@ ImsicInterruptController::HandleInterruptInt()
 {
 	uint32 irq = (GetAndSetStopei(0) >> 16) % (1 << 11);
 	TRACE("ImsicInterruptController::HandleInterrupt(%" B_PRIu32 ")\n", irq);
+
+	// no pending interrupts
 	if (irq == 0)
 		return B_HANDLED_INTERRUPT;
 
-	int_io_interrupt_handler(irq, true);
+	long vector = irq - 1 + fFirstVector;
+
+	int_io_interrupt_handler(vector, true);
 	return B_HANDLED_INTERRUPT;
 }
 
 
 void
-ImsicInterruptController::EnableIoInterrupt(int irq)
+ImsicInterruptController::EnableIoInterrupt(int vector)
 {
 	TRACE("ImsicInterruptController::EnableIoInterrupt(%d)\n", irq);
-	if (irq == 0 || (uint32)irq >= fIrqCount + 1)
+	if (vector < fFirstVector || vector >= fFirstVector + fIrqCount)
 		return;
 
-	call_single_cpu_sync(fTargetCpus[irq], [this, irq](int cpu) {
+	uint32 irq = vector - fFirstVector + 1;
+
+	call_single_cpu_sync(fTargetCpus[irq - 1], [this, irq](int cpu) {
 		InterruptsLocker lock;
 		SetSiselect(kIselectEie0 + 2 * (irq / 64));
 		SetBitsSireg(1ULL << (irq % 64));
@@ -372,13 +413,15 @@ ImsicInterruptController::EnableIoInterrupt(int irq)
 
 
 void
-ImsicInterruptController::DisableIoInterrupt(int irq)
+ImsicInterruptController::DisableIoInterrupt(int vector)
 {
 	TRACE("ImsicInterruptController::DisableIoInterrupt(%d)\n", irq);
-	if (irq == 0 || (uint32)irq >= fIrqCount + 1)
+	if (vector < fFirstVector || vector >= fFirstVector + fIrqCount)
 		return;
 
-	call_single_cpu_sync(fTargetCpus[irq], [this, irq](int cpu) {
+	uint32 irq = vector - fFirstVector + 1;
+
+	call_single_cpu_sync(fTargetCpus[irq - 1], [this, irq](int cpu) {
 		InterruptsLocker lock;
 		SetSiselect(kIselectEie0 + 2 * (irq / 64));
 		SetBitsSireg(1ULL << (irq % 64));
@@ -387,23 +430,21 @@ ImsicInterruptController::DisableIoInterrupt(int irq)
 
 
 void
-ImsicInterruptController::EndOfInterrupt(int irq)
+ImsicInterruptController::EndOfInterrupt(int vector)
 {
-	if (irq == 0)
-		return;
-
 	// TODO
 }
 
 
 int32
-ImsicInterruptController::AssignToCpu(int32 irq, int32 cpu)
+ImsicInterruptController::AssignToCpu(int32 vector, int32 cpu)
 {
-	TRACE("ImsicInterruptController::AssignToCpu(%" PRId32 ", %" PRId32 ")\n", irq, cpu);
-	// TODO
-	// fTargetCpus[irq] = cpu;
+	TRACE("ImsicInterruptController::AssignToCpu(%" PRId32 ", %" PRId32 ")\n", vector, cpu);
 
-	return 0;
+	uint32 irq = vector - fFirstVector + 1;
+	fTargetCpus[irq] = cpu;
+
+	return cpu;
 }
 
 

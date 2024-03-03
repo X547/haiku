@@ -37,6 +37,8 @@ public:
 	virtual status_t GetRegByName(const char* name, uint64* regs, uint64* len) = 0;
 	virtual bool GetInterrupt(uint32 ord, DeviceNode** interruptController, uint64* interrupt) = 0;
 	virtual status_t GetInterruptByName(const char* name, DeviceNode** interruptController, uint64* interrupt) = 0;
+	virtual status_t GetInterruptVector(uint32 ord, long* vector) = 0;
+	virtual status_t GetInterruptVectorByName(const char* name, long* vector) = 0;
 	virtual FdtInterruptMap* GetInterruptMap() = 0;
 
 	// TODO: declare dependency on clock controller driver

@@ -6,7 +6,6 @@ UsePrivateKernelHeaders ;
 UsePrivateHeaders kernel virtio ;
 
 KernelAddon virtio_mmio :
-	#virtio_mmio.cpp
 	VirtioMmioDevice.cpp
 	VirtioMmioQueue.cpp
 	VirtioMmioDriver.cpp

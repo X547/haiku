@@ -3,12 +3,12 @@
 #include <dm2/device_manager.h>
 
 
-class InterruptControllerDevice {
+class InterruptControllerDeviceFdt {
 public:
-	static inline const char ifaceName[] = "interrupt_controller";
+	static inline const char ifaceName[] = "interrupt_controller/fdt";
 
-	virtual status_t GetVector(const uint8* optInfo, uint32 optInfoSize, long* vector) = 0;
+	virtual status_t GetVector(const uint32* intrData, uint32 intrCells, long* vector) = 0;
 
 protected:
-	~InterruptControllerDevice() = default;
+	~InterruptControllerDeviceFdt() = default;
 };

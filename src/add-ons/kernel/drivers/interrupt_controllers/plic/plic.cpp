@@ -90,7 +90,7 @@ struct acpi_madt_plic {
 };
 
 
-class PlicInterruptController: public DeviceDriver, public InterruptSource, public InterruptControllerDevice {
+class PlicInterruptController: public DeviceDriver, public InterruptSource, public InterruptControllerDeviceFdt {
 public:
 	virtual ~PlicInterruptController();
 
@@ -100,15 +100,15 @@ public:
 	void Free() final {delete this;}
 	void* QueryInterface(const char* name) final;
 
-	// InterruptControllerDevice
-	status_t GetVector(const uint8* optInfo, uint32 optInfoSize, long* vector) final;
+	// InterruptControllerDeviceFdt
+	status_t GetVector(const uint32* intrData, uint32 intrCells, long* vector) final;
 
 	// InterruptSource
-	void EnableIoInterrupt(int irq) final;
-	void DisableIoInterrupt(int irq) final;
-	void ConfigureIoInterrupt(int irq, uint32 config) final {}
-	void EndOfInterrupt(int irq) final;
-	int32 AssignToCpu(int32 irq, int32 cpu) final;
+	void EnableIoInterrupt(int vector) final;
+	void DisableIoInterrupt(int vector) final;
+	void ConfigureIoInterrupt(int vector, uint32 config) final {}
+	void EndOfInterrupt(int vector) final;
+	int32 AssignToCpu(int32 vector, int32 cpu) final;
 
 private:
 	status_t Init(uint64 regs, uint64 regsLen);
@@ -122,6 +122,7 @@ private:
 	AreaDeleter fRegsArea;
 	PlicRegs volatile* fRegs {};
 	bool fAttached = false;
+	long fFirstVector = -1;
 	uint32 fIrqCount {};
 	uint32 fPlicContexts[SMP_MAX_CPUS] {};
 	uint32 fPendingContexts[NUM_IO_VECTORS] {};
@@ -186,22 +187,29 @@ PlicInterruptController::Init(uint64 regs, uint64 regsLen)
 {
 	int32 cpuCount = smp_get_num_cpus();
 
-	dprintf("  irqCount: %" B_PRIu32 "\n", fIrqCount);
-
 	fRegsArea.SetTo(map_physical_memory("PLIC MMIO", regs, regsLen, B_ANY_KERNEL_ADDRESS,
 		B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA, (void**)&fRegs));
 	CHECK_RET(fRegsArea.Get());
 
-	reserve_io_interrupt_vectors_ex(fIrqCount + 1, 0, INTERRUPT_TYPE_IRQ, this);
-	install_io_interrupt_handler(0, HandleInterrupt, this, B_NO_LOCK_VECTOR);
+	if (fFirstVector < 0)
+		allocate_io_interrupt_vectors_ex(fIrqCount, &fFirstVector, INTERRUPT_TYPE_IRQ, this);
+	else
+		reserve_io_interrupt_vectors_ex(fIrqCount, fFirstVector, INTERRUPT_TYPE_IRQ, this);
+
+	install_io_interrupt_handler(kHartExternIntVector, HandleInterrupt, this, B_NO_LOCK_VECTOR);
 	fAttached = true;
+
+	dprintf("plic: vector range: %" B_PRIu32 " - %" B_PRIu32 " (%" B_PRIu32 ")\n",
+		fFirstVector, fFirstVector + fIrqCount - 1, fIrqCount);
 
 	for (int32 cpu = 0; cpu < cpuCount; cpu++)
 		fRegs->contexts[fPlicContexts[cpu]].priorityThreshold = 0;
 
 	// unmask interrupts
-	for (uint32 irq = 1; irq < fIrqCount + 1; irq++)
+	for (uint32 i = 0; i < fIrqCount; i++) {
+		uint32 irq = i + 1;
 		fRegs->priority[irq] = 1;
+	}
 
 	return B_OK;
 }
@@ -286,6 +294,7 @@ PlicInterruptController::InitAcpi(DeviceNode* node)
 				plicFound = true;
 				plicId = plic->id;
 				fIrqCount = plic->num_irqs;
+				fFirstVector = plic->gsi_base;
 				regs = plic->base_addr;
 				regsLen = plic->size;
 				break;
@@ -334,11 +343,13 @@ PlicInterruptController::~PlicInterruptController()
 
 	if (fAttached) {
 		// mask interrupts
-		for (uint32 irq = 1; irq < fIrqCount + 1; irq++)
+		for (uint32 i = 0; i < fIrqCount; i++) {
+			uint32 irq = i + 1;
 			fRegs->priority[irq] = 0;
+		}
 
-		remove_io_interrupt_handler(0, HandleInterrupt, this);
-		free_io_interrupt_vectors_ex(fIrqCount + 1, 0);
+		remove_io_interrupt_handler(kHartExternIntVector, HandleInterrupt, this);
+		free_io_interrupt_vectors_ex(fIrqCount, fFirstVector);
 	}
 }
 
@@ -346,8 +357,8 @@ PlicInterruptController::~PlicInterruptController()
 void*
 PlicInterruptController::QueryInterface(const char* name)
 {
-	if (strcmp(name, InterruptControllerDevice::ifaceName) == 0)
-		return static_cast<InterruptControllerDevice*>(this);
+	if (strcmp(name, InterruptControllerDeviceFdt::ifaceName) == 0)
+		return static_cast<InterruptControllerDeviceFdt*>(this);
 
 	return NULL;
 
@@ -355,17 +366,17 @@ PlicInterruptController::QueryInterface(const char* name)
 
 
 status_t
-PlicInterruptController::GetVector(const uint8* optInfo, uint32 optInfoSize, long* vector)
+PlicInterruptController::GetVector(const uint32* intrData, uint32 intrCells, long* vector)
 {
-	if (optInfoSize != 4)
+	if (intrCells != 1)
 		return B_BAD_VALUE;
 
-	uint32 irq = B_BENDIAN_TO_HOST_INT32(*((const uint32*)optInfo));
+	uint32 irq = B_BENDIAN_TO_HOST_INT32(*intrData);
 
 	if (irq < 1 || irq >= fIrqCount + 1)
 		return B_BAD_INDEX;
 
-	*vector = irq;
+	*vector = irq - 1 + fFirstVector;
 	return B_OK;
 }
 
@@ -384,37 +395,35 @@ PlicInterruptController::HandleInterruptInt()
 	uint64 irq = fRegs->contexts[context].claimAndComplete;
 	if (irq == 0)
 		return B_HANDLED_INTERRUPT;
+
+	uint32 vector = irq - 1 + fFirstVector;
+
 	fPendingContexts[irq] = context;
-	int_io_interrupt_handler(irq, true);
+	int_io_interrupt_handler(vector, true);
 	return B_HANDLED_INTERRUPT;
 }
 
 
 void
-PlicInterruptController::EnableIoInterrupt(int irq)
+PlicInterruptController::EnableIoInterrupt(int vector)
 {
-	if (irq == 0)
-		return;
-
+	uint32 irq = vector - fFirstVector + 1;
 	fRegs->enable[fPlicContexts[0]][irq / 32] |= 1 << (irq % 32);
 }
 
 
 void
-PlicInterruptController::DisableIoInterrupt(int irq)
+PlicInterruptController::DisableIoInterrupt(int vector)
 {
-	if (irq == 0)
-		return;
-
+	uint32 irq = vector - fFirstVector + 1;
 	fRegs->enable[fPlicContexts[0]][irq / 32] &= ~(1 << (irq % 32));
 }
 
 
 void
-PlicInterruptController::EndOfInterrupt(int irq)
+PlicInterruptController::EndOfInterrupt(int vector)
 {
-	if (irq == 0)
-		return;
+	uint32 irq = vector - fFirstVector + 1;
 
 	uint32 context = fPendingContexts[irq];
 	fRegs->contexts[context].claimAndComplete = irq;
@@ -422,7 +431,7 @@ PlicInterruptController::EndOfInterrupt(int irq)
 
 
 int32
-PlicInterruptController::AssignToCpu(int32 irq, int32 cpu)
+PlicInterruptController::AssignToCpu(int32 vector, int32 cpu)
 {
 	// Not yet supported.
 	return 0;
@@ -445,7 +454,7 @@ static driver_module_info sControllerAcpiModuleInfo = {
 
 
 _EXPORT module_info* modules[] = {
-	(module_info* )&sControllerFdtModuleInfo,
-	(module_info* )&sControllerAcpiModuleInfo,
+	(module_info*)&sControllerFdtModuleInfo,
+	(module_info*)&sControllerAcpiModuleInfo,
 	NULL
 };
