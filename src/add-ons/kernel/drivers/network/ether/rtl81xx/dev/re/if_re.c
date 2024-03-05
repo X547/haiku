@@ -1564,7 +1564,7 @@ re_attach(device_t dev)
 	CSR_WRITE_1(sc, sc->rl_cfg5, cfg);
 	CSR_WRITE_1(sc, RL_EECMD, RL_EEMODE_OFF);
 
-	if (true || (sc->rl_flags & RL_FLAG_PAR) != 0) {
+	if ((sc->rl_flags & RL_FLAG_PAR) != 0) {
 		/*
 		 * XXX Should have a better way to extract station
 		 * address from EEPROM.
