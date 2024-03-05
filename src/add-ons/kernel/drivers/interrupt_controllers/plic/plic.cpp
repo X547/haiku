@@ -101,13 +101,13 @@ public:
 	void* QueryInterface(const char* name) final;
 
 	// InterruptControllerDeviceFdt
-	status_t GetVector(const uint32* intrData, uint32 intrCells, long* vector) final;
+	status_t GetVector(const uint32* intrData, uint32 intrCells, int32* vector) final;
 
 	// InterruptSource
-	void EnableIoInterrupt(int vector) final;
-	void DisableIoInterrupt(int vector) final;
-	void ConfigureIoInterrupt(int vector, uint32 config) final {}
-	void EndOfInterrupt(int vector) final;
+	void EnableIoInterrupt(int32 vector) final;
+	void DisableIoInterrupt(int32 vector) final;
+	void ConfigureIoInterrupt(int32 vector, uint32 config) final {}
+	void EndOfInterrupt(int32 vector) final;
 	int32 AssignToCpu(int32 vector, int32 cpu) final;
 
 private:
@@ -122,7 +122,7 @@ private:
 	AreaDeleter fRegsArea;
 	PlicRegs volatile* fRegs {};
 	bool fAttached = false;
-	long fFirstVector = -1;
+	int32 fFirstVector = -1;
 	uint32 fIrqCount {};
 	uint32 fPlicContexts[SMP_MAX_CPUS] {};
 	uint32 fPendingContexts[NUM_IO_VECTORS] {};
@@ -366,7 +366,7 @@ PlicInterruptController::QueryInterface(const char* name)
 
 
 status_t
-PlicInterruptController::GetVector(const uint32* intrData, uint32 intrCells, long* vector)
+PlicInterruptController::GetVector(const uint32* intrData, uint32 intrCells, int32* vector)
 {
 	if (intrCells != 1)
 		return B_BAD_VALUE;
@@ -405,7 +405,7 @@ PlicInterruptController::HandleInterruptInt()
 
 
 void
-PlicInterruptController::EnableIoInterrupt(int vector)
+PlicInterruptController::EnableIoInterrupt(int32 vector)
 {
 	uint32 irq = vector - fFirstVector + 1;
 	fRegs->enable[fPlicContexts[0]][irq / 32] |= 1 << (irq % 32);
@@ -413,7 +413,7 @@ PlicInterruptController::EnableIoInterrupt(int vector)
 
 
 void
-PlicInterruptController::DisableIoInterrupt(int vector)
+PlicInterruptController::DisableIoInterrupt(int32 vector)
 {
 	uint32 irq = vector - fFirstVector + 1;
 	fRegs->enable[fPlicContexts[0]][irq / 32] &= ~(1 << (irq % 32));
@@ -421,7 +421,7 @@ PlicInterruptController::DisableIoInterrupt(int vector)
 
 
 void
-PlicInterruptController::EndOfInterrupt(int vector)
+PlicInterruptController::EndOfInterrupt(int32 vector)
 {
 	uint32 irq = vector - fFirstVector + 1;
 

@@ -95,10 +95,10 @@ public:
 	void FreeVectors(uint32 count, uint32 startVector) final;
 
 	// InterruptSource
-	void EnableIoInterrupt(int irq) final;
-	void DisableIoInterrupt(int irq) final;
-	void ConfigureIoInterrupt(int irq, uint32 config) final {}
-	void EndOfInterrupt(int irq) final;
+	void EnableIoInterrupt(int32 irq) final;
+	void DisableIoInterrupt(int32 irq) final;
+	void ConfigureIoInterrupt(int32 irq, uint32 config) final {}
+	void EndOfInterrupt(int32 irq) final;
 	int32 AssignToCpu(int32 irq, int32 cpu) final;
 
 private:
@@ -112,7 +112,7 @@ private:
 private:
 	spinlock fLock = B_SPINLOCK_INITIALIZER;
 	bool fAttached = false;
-	long fFirstVector {};
+	int32 fFirstVector {};
 	uint32 fIrqCount {};
 	phys_addr_t fIrqDestAdrs[SMP_MAX_CPUS] {};
 	uint32 fTargetCpus[NUM_IO_VECTORS] {};
@@ -388,7 +388,7 @@ ImsicInterruptController::HandleInterruptInt()
 	if (irq == 0)
 		return B_HANDLED_INTERRUPT;
 
-	long vector = irq - 1 + fFirstVector;
+	int32 vector = irq - 1 + fFirstVector;
 
 	int_io_interrupt_handler(vector, true);
 	return B_HANDLED_INTERRUPT;
@@ -396,7 +396,7 @@ ImsicInterruptController::HandleInterruptInt()
 
 
 void
-ImsicInterruptController::EnableIoInterrupt(int vector)
+ImsicInterruptController::EnableIoInterrupt(int32 vector)
 {
 	TRACE("ImsicInterruptController::EnableIoInterrupt(%d)\n", irq);
 	if (vector < fFirstVector || vector >= fFirstVector + fIrqCount)
@@ -413,7 +413,7 @@ ImsicInterruptController::EnableIoInterrupt(int vector)
 
 
 void
-ImsicInterruptController::DisableIoInterrupt(int vector)
+ImsicInterruptController::DisableIoInterrupt(int32 vector)
 {
 	TRACE("ImsicInterruptController::DisableIoInterrupt(%d)\n", irq);
 	if (vector < fFirstVector || vector >= fFirstVector + fIrqCount)
@@ -430,7 +430,7 @@ ImsicInterruptController::DisableIoInterrupt(int vector)
 
 
 void
-ImsicInterruptController::EndOfInterrupt(int vector)
+ImsicInterruptController::EndOfInterrupt(int32 vector)
 {
 	// TODO
 }

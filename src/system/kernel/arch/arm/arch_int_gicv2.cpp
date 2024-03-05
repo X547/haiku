@@ -53,7 +53,7 @@ GICv2InterruptController::GICv2InterruptController(uint32_t gicd_addr, uint32_t 
 }
 
 
-void GICv2InterruptController::EnableIoInterrupt(int irq)
+void GICv2InterruptController::EnableIoInterrupt(int32 irq)
 {
 	uint32_t ena_reg = GICD_REG_ISENABLER + irq / 32;
 	uint32_t ena_val = 1 << (irq % 32);
@@ -66,7 +66,7 @@ void GICv2InterruptController::EnableIoInterrupt(int irq)
 }
 
 
-void GICv2InterruptController::DisableIoInterrupt(int irq)
+void GICv2InterruptController::EnableIoInterrupt(int32 irq)
 {
 	fGicdRegs[GICD_REG_ICENABLER + irq / 32] = 1 << (irq % 32);
 }
@@ -86,7 +86,7 @@ void GICv2InterruptController::HandleInterrupt()
 }
 
 
-void GICv2InterruptController::ConfigureIoInterrupt(int irq, uint32 config)
+void GICv2InterruptController::ConfigureIoInterrupt(int32 irq, uint32 config)
 {
 }
 

@@ -113,7 +113,7 @@ private:
 
 	AreaDeleter fRegsArea;
 	volatile OcoresI2cRegs* fRegs{};
-	long fIrqVector = -1;
+	int32 fIrqVector = -1;
 
 	struct mutex fLock = MUTEX_INITIALIZER("Opencores i2c");
 };

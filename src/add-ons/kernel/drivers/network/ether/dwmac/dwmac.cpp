@@ -102,7 +102,7 @@ private:
 	AreaDeleter fRegsArea;
 	DwmacRegs volatile* fRegs {};
 	uint64 fRegsLen {};
-	long fIrqVector = -1;
+	int32 fIrqVector = -1;
 	bool fInterruptHandlerInstalled = false;
 
 	ClockDevice* fTxClock {};

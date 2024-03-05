@@ -83,7 +83,7 @@ private:
 	AlteraPs2Regs volatile* fRegs {};
 	uint64 fRegsLen {};
 
-	long fIrqVector = -1;
+	int32 fIrqVector = -1;
 
 	ConditionVariable fCanReadCond;
 

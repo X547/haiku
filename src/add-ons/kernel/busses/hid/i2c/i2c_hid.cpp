@@ -50,7 +50,7 @@ private:
 
 	uint32 fDeviceAddress {};
 	uint16 fDescriptorAddress {};
-	long fIrqVector = -1;
+	int32 fIrqVector = -1;
 
 	i2c_hid_descriptor fDescriptor {};
 

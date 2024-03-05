@@ -17,7 +17,7 @@
 
 
 void
-Sun4iInterruptController::EnableIoInterrupt(int irq)
+Sun4iInterruptController::EnableIoInterrupt(int32 irq)
 {
 	if (irq <= 31) {
 		fRegBase[SUN4I_INTC_MASK_REG0] |= 1 << irq;
@@ -34,7 +34,7 @@ Sun4iInterruptController::EnableIoInterrupt(int irq)
 
 
 void
-Sun4iInterruptController::DisableIoInterrupt(int irq)
+Sun4iInterruptController::DisableIoInterrupt(int32 irq)
 {
 	if (irq <= 31) {
 		fRegBase[SUN4I_INTC_MASK_REG0] &= ~(1 << irq);
@@ -72,7 +72,7 @@ Sun4iInterruptController::HandleInterrupt()
 
 
 void
-Sun4iInterruptController::ConfigureIoInterrupt(int irq, uint32 config)
+Sun4iInterruptController::ConfigureIoInterrupt(int32 irq, uint32 config)
 {
 }
 

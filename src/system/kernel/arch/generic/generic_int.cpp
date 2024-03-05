@@ -50,11 +50,11 @@ arch_int_assign_to_cpu(int32 irq, int32 cpu)
 //#pragma mark - Kernel API
 
 status_t
-reserve_io_interrupt_vectors_ex(long count, long startVector,
+reserve_io_interrupt_vectors_ex(int32 count, int32 startVector,
 	enum interrupt_type type, InterruptSource* source)
 {
 	CHECK_RET(reserve_io_interrupt_vectors(count, startVector, type));
-	for (long i = 0; i < count; i++)
+	for (int32 i = 0; i < count; i++)
 		sSources[startVector + i] = source;
 
 	return B_OK;
@@ -62,11 +62,11 @@ reserve_io_interrupt_vectors_ex(long count, long startVector,
 
 
 status_t
-allocate_io_interrupt_vectors_ex(long count, long *startVector,
+allocate_io_interrupt_vectors_ex(int32 count, int32 *startVector,
 	enum interrupt_type type, InterruptSource* source)
 {
 	CHECK_RET(allocate_io_interrupt_vectors(count, startVector, type));
-	for (long i = 0; i < count; i++)
+	for (int32 i = 0; i < count; i++)
 		sSources[*startVector + i] = source;
 
 	return B_OK;
@@ -74,9 +74,9 @@ allocate_io_interrupt_vectors_ex(long count, long *startVector,
 
 
 void
-free_io_interrupt_vectors_ex(long count, long startVector)
+free_io_interrupt_vectors_ex(int32 count, int32 startVector)
 {
 	free_io_interrupt_vectors(count, startVector);
-	for (long i = 0; i < count; i++)
+	for (int32 i = 0; i < count; i++)
 		sSources[startVector + i] = NULL;
 }

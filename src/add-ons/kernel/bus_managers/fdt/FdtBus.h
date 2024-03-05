@@ -54,7 +54,7 @@ public:
 
 	DeviceNode* GetNode() {return fNode;}
 	const void* GetFDT() {return fFDT.Get();}
-	status_t TranslateInterrupt(uint32 intrParent, const uint32* intrData, uint32 intrCells, long* vector);
+	status_t TranslateInterrupt(uint32 intrParent, const uint32* intrData, uint32 intrCells, int32* vector);
 
 	// DeviceDriver
 	static status_t Probe(DeviceNode* node, DeviceDriver** driver);
@@ -93,8 +93,8 @@ public:
 	status_t GetRegByName(const char* name, uint64* regs, uint64* len) final;
 	bool GetInterrupt(uint32 ord, DeviceNode** interruptController, uint64* interrupt) final;
 	status_t GetInterruptByName(const char* name, DeviceNode** interruptController, uint64* interrupt) final;
-	status_t GetInterruptVector(uint32 ord, long* vector) final;
-	status_t GetInterruptVectorByName(const char* name, long* vector) final;
+	status_t GetInterruptVector(uint32 ord, int32* vector) final;
+	status_t GetInterruptVectorByName(const char* name, int32* vector) final;
 	FdtInterruptMap* GetInterruptMap() final;
 
 	status_t GetClock(uint32 ord, ClockDevice** clock) final;

@@ -15,9 +15,9 @@ class GICv2InterruptController : public InterruptController {
 public:
 	GICv2InterruptController(uint32_t gicd_regs = 0, uint32_t gicc_regs = 0);
 
-	void EnableIoInterrupt(int irq) final;
-	void DisableIoInterrupt(int irq) final;
-	void ConfigureIoInterrupt(int irq, uint32 config) final;
+	void EnableIoInterrupt(int32 irq) final;
+	void DisableIoInterrupt(int32 irq) final;
+	void ConfigureIoInterrupt(int32 irq, uint32 config) final;
 	int32 AssignToCpu(int32 irq, int32 cpu) final;
 	void HandleInterrupt() final;
 

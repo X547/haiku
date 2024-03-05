@@ -139,13 +139,13 @@ public:
 	void* QueryInterface(const char* name) final;
 
 	// InterruptControllerDeviceFdt
-	status_t GetVector(const uint32* intrData, uint32 intrCells, long* vector);
+	status_t GetVector(const uint32* intrData, uint32 intrCells, int32* vector);
 
 	// InterruptSource
-	void EnableIoInterrupt(int vector) final;
-	void DisableIoInterrupt(int vector) final;
-	void ConfigureIoInterrupt(int vector, uint32 config) final;
-	void EndOfInterrupt(int vector) final;
+	void EnableIoInterrupt(int32 vector) final;
+	void DisableIoInterrupt(int32 vector) final;
+	void ConfigureIoInterrupt(int32 vector, uint32 config) final;
+	void EndOfInterrupt(int32 vector) final;
 	int32 AssignToCpu(int32 vector, int32 cpu) final;
 
 private:
@@ -168,7 +168,7 @@ private:
 	bool fIsMsi = false;
 
 	MSIInterface* fMsi {};
-	long fFirstVector = -1;
+	int32 fFirstVector = -1;
 	uint32 fMsiVector {};
 	uint32 fMsiData {};
 
@@ -482,7 +482,7 @@ AplicInterruptController::QueryInterface(const char* name)
 
 
 status_t
-AplicInterruptController::GetVector(const uint32* intrData, uint32 intrCells, long* vector)
+AplicInterruptController::GetVector(const uint32* intrData, uint32 intrCells, int32* vector)
 {
 	if (intrCells != 1 && intrCells != 2)
 		return B_BAD_VALUE;
@@ -519,7 +519,7 @@ AplicInterruptController::HandleInterruptInt()
 	if (irq == 0)
 		return B_HANDLED_INTERRUPT;
 
-	long vector = irq - 1 + fFirstVector;
+	int32 vector = irq - 1 + fFirstVector;
 
 	int_io_interrupt_handler(vector, true);
 	return B_HANDLED_INTERRUPT;
@@ -541,7 +541,7 @@ AplicInterruptController::HandleInterruptMsiInt(uint32 irq)
 {
 	TRACE("HandleInterruptMsiInt(irq: %" B_PRIu32 ")\n", irq);
 
-	long vector = irq - 1 + fFirstVector;
+	int32 vector = irq - 1 + fFirstVector;
 	int_io_interrupt_handler(vector, true);
 	//fRegs->setIpNum = irq;
 	return B_HANDLED_INTERRUPT;
@@ -549,7 +549,7 @@ AplicInterruptController::HandleInterruptMsiInt(uint32 irq)
 
 
 void
-AplicInterruptController::EnableIoInterrupt(int vector)
+AplicInterruptController::EnableIoInterrupt(int32 vector)
 {
 	uint32 irq = vector - fFirstVector + 1;
 	fRegs->setIeNum = irq;
@@ -557,7 +557,7 @@ AplicInterruptController::EnableIoInterrupt(int vector)
 
 
 void
-AplicInterruptController::DisableIoInterrupt(int vector)
+AplicInterruptController::DisableIoInterrupt(int32 vector)
 {
 	uint32 irq = vector - fFirstVector + 1;
 	fRegs->clrIeNum = irq;
@@ -565,14 +565,14 @@ AplicInterruptController::DisableIoInterrupt(int vector)
 
 
 void
-AplicInterruptController::ConfigureIoInterrupt(int vector, uint32 config)
+AplicInterruptController::ConfigureIoInterrupt(int32 vector, uint32 config)
 {
 	// TODO: implement
 }
 
 
 void
-AplicInterruptController::EndOfInterrupt(int irq)
+AplicInterruptController::EndOfInterrupt(int32 irq)
 {
 	// TODO: implement
 }

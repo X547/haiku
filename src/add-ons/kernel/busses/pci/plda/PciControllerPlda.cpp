@@ -123,7 +123,7 @@ PciControllerPlda::Init()
 	CHECK_RET(fFdtDevice->GetRegByName("config", &fConfigPhysBase, &fConfigSize));
 	dprintf("  config: %08" B_PRIx64 ", %08" B_PRIx64 "\n", fConfigPhysBase, fConfigSize);
 
-	long irq;
+	int32 irq;
 	CHECK_RET(fFdtDevice->GetInterruptVector(0, &irq));
 
 	const void* prop;

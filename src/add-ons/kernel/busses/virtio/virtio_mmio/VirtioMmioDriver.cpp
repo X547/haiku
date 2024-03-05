@@ -27,7 +27,7 @@ VirtioMmioDeviceDriver::ProbeFdt(DeviceNode* node, DeviceDriver** outDriver)
 
 	uint64 regs = 0;
 	uint64 regsLen = 0;
-	long interrupt = 0;
+	int32 interrupt = 0;
 
 	FdtDevice* fdtDev = node->QueryBusInterface<FdtDevice>();
 	for (uint32 i = 0; fdtDev->GetReg(i, &regs, &regsLen); i++) {

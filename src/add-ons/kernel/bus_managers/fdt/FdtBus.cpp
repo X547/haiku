@@ -232,7 +232,7 @@ FdtBusImpl::RegisterNode(int node, DeviceNode* parentDev, DeviceNode*& curDev)
 
 
 status_t
-FdtBusImpl::TranslateInterrupt(uint32 intrParent, const uint32* intrData, uint32 intrCells, long* vector)
+FdtBusImpl::TranslateInterrupt(uint32 intrParent, const uint32* intrData, uint32 intrCells, int32* vector)
 {
 	DeviceNode* intrCtrlNode = NodeByPhandle(intrParent);
 
@@ -486,7 +486,7 @@ FdtDeviceImpl::GetInterruptByName(const char* name, DeviceNode** interruptContro
 
 
 status_t
-FdtDeviceImpl::GetInterruptVector(uint32 ord, long* vector)
+FdtDeviceImpl::GetInterruptVector(uint32 ord, int32* vector)
 {
 	uint32 intrParent;
 	const uint32* intrData;
@@ -499,7 +499,7 @@ FdtDeviceImpl::GetInterruptVector(uint32 ord, long* vector)
 
 
 status_t
-FdtDeviceImpl::GetInterruptVectorByName(const char* name, long* vector)
+FdtDeviceImpl::GetInterruptVectorByName(const char* name, int32* vector)
 {
 	int propLen;
 	const void* prop = GetProp("interrupt-names", &propLen);
@@ -747,11 +747,11 @@ FdtInterruptMapImpl::Print()
 	dprintf("interrupt_map:\n");
 
 	for (Vector<MapEntry>::Iterator it = fInterruptMap.Begin(); it != fInterruptMap.End(); it++) {
-		long vector;
+		int32 vector;
 		if (fBus->TranslateInterrupt(it->parentIrqCtrl, it->parentIrqData, it->parentIrqCells, &vector) < B_OK)
 			vector = -1;
 
-		dprintf("childAddr=0x%08" PRIx32 ", childIrq=%" PRIu32 ", parentIrqCtrl=%" PRIu32 ", parentIrq=%ld\n",
+		dprintf("childAddr=0x%08" PRIx32 ", childIrq=%" PRIu32 ", parentIrqCtrl=%" PRIu32 ", parentIrq=%" B_PRId32 "\n",
 			it->childAddr, it->childIrq, it->parentIrqCtrl, vector);
 	}
 }
@@ -765,7 +765,7 @@ FdtInterruptMapImpl::Lookup(uint32 childAddr, uint32 childIrq)
 
 	for (Vector<MapEntry>::Iterator it = fInterruptMap.Begin(); it != fInterruptMap.End(); it++) {
 		if ((it->childAddr == childAddr) && (it->childIrq == childIrq)) {
-			long vector;
+			int32 vector;
 			if (fBus->TranslateInterrupt(it->parentIrqCtrl, it->parentIrqData, it->parentIrqCells, &vector) < B_OK)
 				return 0xffffffff;
 
