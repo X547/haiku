@@ -83,7 +83,8 @@ typedef int32 (*interrupt_handler)(void *data);
 // when it completed servicing an interrupt. end_of_interrupt() can be called in another thread
 // and with interrupts enabled.
 #define B_DEFERRED_COMPLETION	2
-
+// Do not automatically enable interrut on inatall. Use `enable_io_interrupt` to enable.
+#define B_DISABLED_INTERRUPT	4
 
 /* timer interrupts services */
 
@@ -176,6 +177,8 @@ extern status_t		install_io_interrupt_handler(int32 interrupt_number,
 						interrupt_handler handler, void *data, uint32 flags);
 extern status_t		remove_io_interrupt_handler(int32 interrupt_number,
 						interrupt_handler handler, void	*data);
+extern void			enable_io_interrupt(int32 interrupt_number);
+extern void			disable_io_interrupt(int32 interrupt_number);
 extern void			end_of_interrupt(long interrupt_number);
 
 extern status_t		add_timer(timer *t, timer_hook hook, bigtime_t period,
