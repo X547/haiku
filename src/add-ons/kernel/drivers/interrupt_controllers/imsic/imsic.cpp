@@ -47,7 +47,7 @@ enum {
 #else
 #	define TRACE(a...)
 #endif
-#	define TRACE_ALWAYS(a...) dprintf("imsic: " a)
+#define TRACE_ALWAYS(a...) dprintf("imsic: " a)
 
 
 #define IMSIC_FDT_MODULE_NAME "drivers/interrupt_controllers/imsic/fdt/driver/v1"
@@ -98,7 +98,6 @@ public:
 	void EnableIoInterrupt(int32 irq) final;
 	void DisableIoInterrupt(int32 irq) final;
 	void ConfigureIoInterrupt(int32 irq, uint32 config) final {}
-	void EndOfInterrupt(int32 irq) final;
 	int32 AssignToCpu(int32 irq, int32 cpu) final;
 
 private:
@@ -426,13 +425,6 @@ ImsicInterruptController::DisableIoInterrupt(int32 vector)
 		SetSiselect(kIselectEie0 + 2 * (irq / 64));
 		SetBitsSireg(1ULL << (irq % 64));
 	});
-}
-
-
-void
-ImsicInterruptController::EndOfInterrupt(int32 vector)
-{
-	// TODO
 }
 
 

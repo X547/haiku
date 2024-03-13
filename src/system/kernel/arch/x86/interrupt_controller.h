@@ -8,7 +8,6 @@ public:
 	virtual const char* Name() = 0;
 	virtual bool IsSpuriousInterrupt(int num) = 0;
 	virtual bool IsLevelTriggeredInterrupt(int num) = 0;
-	virtual void EndOfInterrupt(int num) = 0;
 };
 
 

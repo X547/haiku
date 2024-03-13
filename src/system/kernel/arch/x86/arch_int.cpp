@@ -390,12 +390,6 @@ arch_int_configure_io_interrupt(int32 irq, uint32 config)
 }
 
 
-void
-arch_end_of_interrupt(int irq)
-{
-}
-
-
 #undef arch_int_enable_interrupts
 #undef arch_int_disable_interrupts
 #undef arch_int_restore_interrupts

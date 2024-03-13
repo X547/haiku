@@ -26,6 +26,16 @@
 #define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
 
+//define TRACE_PLIC
+#ifdef TRACE_PLIC
+#	define TRACE(a...) dprintf("plic: " a)
+#else
+#	define TRACE(a...)
+#endif
+#define TRACE_ALWAYS(a...) dprintf("plic: " a)
+#define TRACE_ERROR(a...) dprintf("[!] plic: " a)
+
+
 #define PLIC_FDT_MODULE_NAME "drivers/interrupt_controllers/plic/fdt/driver/v1"
 #define PLIC_ACPI_MODULE_NAME "drivers/interrupt_controllers/plic/acpi/driver/v1"
 
@@ -107,7 +117,6 @@ public:
 	void EnableIoInterrupt(int32 vector) final;
 	void DisableIoInterrupt(int32 vector) final;
 	void ConfigureIoInterrupt(int32 vector, uint32 config) final {}
-	void EndOfInterrupt(int32 vector) final;
 	int32 AssignToCpu(int32 vector, int32 cpu) final;
 
 private:
@@ -125,7 +134,7 @@ private:
 	int32 fFirstVector = -1;
 	uint32 fIrqCount {};
 	uint32 fPlicContexts[SMP_MAX_CPUS] {};
-	uint32 fPendingContexts[NUM_IO_VECTORS] {};
+	int32 fAssignedContexts[NUM_IO_VECTORS] {};
 };
 
 
@@ -199,16 +208,20 @@ PlicInterruptController::Init(uint64 regs, uint64 regsLen)
 	install_io_interrupt_handler(kHartExternIntVector, HandleInterrupt, this, B_NO_LOCK_VECTOR);
 	fAttached = true;
 
-	dprintf("plic: vector range: %" B_PRIu32 " - %" B_PRIu32 " (%" B_PRIu32 ")\n",
+	TRACE_ALWAYS("vector range: %" B_PRIu32 " - %" B_PRIu32 " (%" B_PRIu32 ")\n",
 		fFirstVector, fFirstVector + fIrqCount - 1, fIrqCount);
 
-	for (int32 cpu = 0; cpu < cpuCount; cpu++)
-		fRegs->contexts[fPlicContexts[cpu]].priorityThreshold = 0;
+	for (int32 cpu = 0; cpu < cpuCount; cpu++) {
+		uint32 context = fPlicContexts[cpu];
+		fRegs->contexts[context].priorityThreshold = 0;
+		for (uint32 irq = 1; irq < fIrqCount + 1; irq += 32)
+			fRegs->enable[context][irq / 32] = 0;
+	}
 
-	// unmask interrupts
 	for (uint32 i = 0; i < fIrqCount; i++) {
 		uint32 irq = i + 1;
-		fRegs->priority[irq] = 1;
+		fAssignedContexts[irq] = -1;
+		fRegs->priority[irq] = 0;
 	}
 
 	return B_OK;
@@ -218,7 +231,7 @@ PlicInterruptController::Init(uint64 regs, uint64 regsLen)
 status_t
 PlicInterruptController::InitFdt(DeviceNode* node)
 {
-	dprintf("PlicInterruptController::InitFdt\n");
+	TRACE_ALWAYS("InitFdt\n");
 
 	FdtDevice* fdtDev = node->QueryBusInterface<FdtDevice>();
 	if (fdtDev == NULL)
@@ -239,9 +252,9 @@ PlicInterruptController::InitFdt(DeviceNode* node)
 		uint32 hartId;
 		CHECK_RET(hartFdtDev->GetPropUint32("reg", hartId));
 
-		dprintf("  context %" B_PRIu32 "\n", plicContext);
-		dprintf("    cause: %" B_PRIu64 "\n", cause);
-		dprintf("    hartId: %" B_PRIu32 "\n", hartId);
+		TRACE_ALWAYS("  context %" B_PRIu32 "\n", plicContext);
+		TRACE_ALWAYS("    cause: %" B_PRIu64 "\n", cause);
+		TRACE_ALWAYS("    hartId: %" B_PRIu32 "\n", hartId);
 
 		if (cause == sExternInt) {
 			int32 cpu = find_cpu_id_by_hart_id(hartId);
@@ -262,7 +275,7 @@ PlicInterruptController::InitFdt(DeviceNode* node)
 status_t
 PlicInterruptController::InitAcpi(DeviceNode* node)
 {
-	dprintf("PlicInterruptController::InitAcpi\n");
+	TRACE_ALWAYS("InitAcpi\n");
 
 	uint64 regs = 0;
 	uint64 regsLen = 0;
@@ -287,7 +300,7 @@ PlicInterruptController::InitAcpi(DeviceNode* node)
 					break;
 
 				if (plicFound) {
-					dprintf("[!] plic: multiple PLIC found, using first one\n");
+					TRACE_ERROR("plic: multiple PLIC found, using first one\n");
 					break;
 				}
 
@@ -339,7 +352,7 @@ PlicInterruptController::InitAcpi(DeviceNode* node)
 
 PlicInterruptController::~PlicInterruptController()
 {
-	dprintf("-PlicInterruptController\n");
+	TRACE_ALWAYS("-PlicInterruptController\n");
 
 	if (fAttached) {
 		// mask interrupts
@@ -368,7 +381,7 @@ PlicInterruptController::QueryInterface(const char* name)
 status_t
 PlicInterruptController::GetVector(const uint32* intrData, uint32 intrCells, int32* vector)
 {
-	if (intrCells != 1)
+	if (intrCells < 1)
 		return B_BAD_VALUE;
 
 	uint32 irq = B_BENDIAN_TO_HOST_INT32(*intrData);
@@ -377,6 +390,7 @@ PlicInterruptController::GetVector(const uint32* intrData, uint32 intrCells, int
 		return B_BAD_INDEX;
 
 	*vector = irq - 1 + fFirstVector;
+	TRACE_ALWAYS("GetVector(%" B_PRIu32 ") -> %" B_PRId32 "\n", irq, *vector);
 	return B_OK;
 }
 
@@ -396,9 +410,11 @@ PlicInterruptController::HandleInterruptInt()
 	if (irq == 0)
 		return B_HANDLED_INTERRUPT;
 
-	uint32 vector = irq - 1 + fFirstVector;
+	fRegs->contexts[context].claimAndComplete = irq;
 
-	fPendingContexts[irq] = context;
+	uint32 vector = irq - 1 + fFirstVector;
+	TRACE("HandleInterrupt(%" B_PRId32 ")\n", vector);
+
 	int_io_interrupt_handler(vector, true);
 	return B_HANDLED_INTERRUPT;
 }
@@ -407,34 +423,36 @@ PlicInterruptController::HandleInterruptInt()
 void
 PlicInterruptController::EnableIoInterrupt(int32 vector)
 {
+	TRACE("EnableIoInterrupt(%" B_PRId32 ")\n", vector);
 	uint32 irq = vector - fFirstVector + 1;
-	fRegs->enable[fPlicContexts[0]][irq / 32] |= 1 << (irq % 32);
+	fRegs->priority[irq] = 1;
 }
 
 
 void
 PlicInterruptController::DisableIoInterrupt(int32 vector)
 {
+	TRACE("DisableIoInterrupt(%" B_PRId32 ")\n", vector);
 	uint32 irq = vector - fFirstVector + 1;
-	fRegs->enable[fPlicContexts[0]][irq / 32] &= ~(1 << (irq % 32));
-}
-
-
-void
-PlicInterruptController::EndOfInterrupt(int32 vector)
-{
-	uint32 irq = vector - fFirstVector + 1;
-
-	uint32 context = fPendingContexts[irq];
-	fRegs->contexts[context].claimAndComplete = irq;
+	fRegs->priority[irq] = 0;
 }
 
 
 int32
 PlicInterruptController::AssignToCpu(int32 vector, int32 cpu)
 {
-	// Not yet supported.
-	return 0;
+	TRACE_ALWAYS("AssignToCpu(%" B_PRId32 ", %" B_PRId32 ")\n", vector, cpu);
+	uint32 irq = vector - fFirstVector + 1;
+	uint32 context = fPlicContexts[cpu];
+
+	int32& assignedContext = fAssignedContexts[irq];
+	if (assignedContext >= 0)
+		fRegs->enable[assignedContext][irq / 32] &= ~(1U << (irq % 32));
+
+	assignedContext = context;
+	fRegs->enable[context][irq / 32] |= 1U << (irq % 32);
+
+	return cpu;
 }
 
 

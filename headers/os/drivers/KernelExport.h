@@ -79,12 +79,8 @@ typedef int32 (*interrupt_handler)(void *data);
 
 /* Flags that can be passed to install_io_interrupt_handler() */
 #define B_NO_ENABLE_COUNTER		1
-// Do not automatically send end of interrupt. Interrupt handler should call end_of_interrupt()
-// when it completed servicing an interrupt. end_of_interrupt() can be called in another thread
-// and with interrupts enabled.
-#define B_DEFERRED_COMPLETION	2
 // Do not automatically enable interrut on inatall. Use `enable_io_interrupt` to enable.
-#define B_DISABLED_INTERRUPT	4
+#define B_DISABLED_INTERRUPT	2
 
 /* timer interrupts services */
 

@@ -131,12 +131,6 @@ MsiInterruptCtrlDW::DisableIoInterrupt(int vector)
 
 
 void
-MsiInterruptCtrlDW::EndOfInterrupt(int vector)
-{
-}
-
-
-void
 MsiInterruptCtrlDW::ConfigureIoInterrupt(int vector, uint32 config)
 {
 }

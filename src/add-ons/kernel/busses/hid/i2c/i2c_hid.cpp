@@ -87,8 +87,12 @@ private:
 
 I2cHidDriver::~I2cHidDriver()
 {
-	if (fIrqVector >= 0)
+	if (fIrqVector >= 0) {
+		if (fInputBuffer != NULL)
+			disable_io_interrupt(fIrqVector);
+
 		remove_io_interrupt_handler(fIrqVector, HandleInterrupt, this);
+	}
 }
 
 
@@ -123,6 +127,8 @@ I2cHidDriver::Init()
 
 	dprintf("  fDeviceAddress: %" B_PRIu32 "\n", fDeviceAddress);
 	dprintf("  fDescriptorAddress: %" B_PRIu32 "\n", fDescriptorAddress);
+
+	CHECK_RET(install_io_interrupt_handler(fIrqVector, HandleInterrupt, this, B_DISABLED_INTERRUPT | B_NO_LOCK_VECTOR));
 
 	i2c_chunk i2cChunks[] = {
 		{.buffer = (uint8*)&fDescriptorAddress, .length = sizeof(fDescriptorAddress), .isWrite = true},
@@ -190,6 +196,7 @@ I2cHidDriver::HandleInterrupt(void* arg)
 int32
 I2cHidDriver::HandleInterruptInt()
 {
+	disable_io_interrupt(fIrqVector);
 	DPCQueue::DefaultQueue(B_URGENT_DISPLAY_PRIORITY)->Add(this);
 	return B_HANDLED_INTERRUPT;
 }
@@ -198,9 +205,6 @@ I2cHidDriver::HandleInterruptInt()
 void
 I2cHidDriver::DoDPC(DPCQueue* queue)
 {
-	remove_io_interrupt_handler(fIrqVector, HandleInterrupt, this);
-	end_of_interrupt(fIrqVector);
-
 	MutexLocker lock(&fLock);
 
 	// canceled
@@ -225,7 +229,7 @@ I2cHidDriver::DoDPC(DPCQueue* queue)
 
 	// handle reset
 	if (res >= B_OK && actualSize == 0) {
-		install_io_interrupt_handler(fIrqVector, HandleInterrupt, this, B_DEFERRED_COMPLETION);
+		enable_io_interrupt(fIrqVector);
 		return;
 	}
 	actualSize = (actualSize) < 2 ? 0 : actualSize - 2;
@@ -320,7 +324,7 @@ I2cHidDriver::HidDeviceImpl::RequestRead(uint32 size, uint8* data, HidInputCallb
 	fBase.fInputBufferSize = size;
 	fBase.fInputCallback = callback;
 
-	install_io_interrupt_handler(fBase.fIrqVector, HandleInterrupt, &fBase, B_DEFERRED_COMPLETION);
+	enable_io_interrupt(fBase.fIrqVector);
 
 	return B_OK;
 }

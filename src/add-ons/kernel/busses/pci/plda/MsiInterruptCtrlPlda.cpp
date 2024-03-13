@@ -131,12 +131,6 @@ MsiInterruptCtrlPlda::DisableIoInterrupt(int vector)
 
 
 void
-MsiInterruptCtrlPlda::EndOfInterrupt(int vector)
-{
-}
-
-
-void
 MsiInterruptCtrlPlda::ConfigureIoInterrupt(int vector, uint32 config)
 {
 }

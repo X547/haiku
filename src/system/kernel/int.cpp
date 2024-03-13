@@ -44,7 +44,6 @@ struct io_handler {
 	void				*data;
 	bool				use_enable_counter: 1;
 	bool				disable_on_install: 1;
-	bool				deferred_completion: 1;
 	bool				no_handled_info: 1;
 #if DEBUG_INTERRUPTS
 	int64				handled_count;
@@ -305,12 +304,6 @@ int_io_interrupt_handler(int vector, bool levelTriggered)
 	if (!sVectors[vector].no_lock_vector)
 		acquire_spinlock(&sVectors[vector].vector_lock);
 
-	bool deferredCompletion = sVectors[vector].handler_list != NULL
-		&& sVectors[vector].handler_list->deferred_completion;
-
-	if (!levelTriggered && !deferredCompletion)
-		arch_end_of_interrupt(vector);
-
 #if !DEBUG_INTERRUPTS
 	// The list can be empty at this place
 	if (sVectors[vector].handler_list == NULL) {
@@ -382,9 +375,6 @@ int_io_interrupt_handler(int vector, bool levelTriggered)
 		sVectors[vector].ignored_count = 0;
 	}
 #endif
-
-	if (levelTriggered && !deferredCompletion)
-		arch_end_of_interrupt(vector);
 
 	if (!sVectors[vector].no_lock_vector)
 		release_spinlock(&sVectors[vector].vector_lock);
@@ -482,7 +472,6 @@ install_io_interrupt_handler(int32 vector, interrupt_handler handler, void *data
 	io->data = data;
 	io->use_enable_counter = (flags & B_NO_ENABLE_COUNTER) == 0;
 	io->disable_on_install = (flags & B_DISABLED_INTERRUPT) != 0;
-	io->deferred_completion = (flags & B_DEFERRED_COMPLETION) != 0;
 	io->no_handled_info = (flags & B_NO_HANDLED_INFO) != 0;
 #if DEBUG_INTERRUPTS
 	io->handled_count = 0LL;
@@ -666,13 +655,6 @@ disable_io_interrupt(int32 vector)
 }
 
 
-void
-end_of_interrupt(long vector)
-{
-	arch_end_of_interrupt(vector);
-}
-
-
 /*	Mark \a count contigous interrupts starting at \a startVector as in use.
 	This will prevent them from being allocated by others. Only use this when
 	the reserved range is hardwired to the given vector, otherwise allocate
@@ -713,6 +695,7 @@ status_t
 allocate_io_interrupt_vectors(int32 count, int32 *startVector,
 	interrupt_type type)
 {
+	const bool sameCpu = false;
 	MutexLocker locker(&sIOInterruptVectorAllocationLock);
 
 	int32 vector = 0;
@@ -742,12 +725,17 @@ allocate_io_interrupt_vectors(int32 count, int32 *startVector,
 
 	for (int32 i = 0; i < count; i++) {
 		sVectors[vector + i].type = type;
-		sVectors[vector + i].assigned_cpu = &sVectorCPUAssignments[vector];
+		if (sameCpu) {
+			sVectors[vector + i].assigned_cpu = &sVectorCPUAssignments[vector];
+		} else {
+			sVectors[vector + i].assigned_cpu = &sVectorCPUAssignments[vector + i];
+			sVectorCPUAssignments[vector + i].count = 1;
+		}
 		sAllocatedIOInterruptVectors[vector + i] = true;
 	}
 
-	sVectorCPUAssignments[vector].irq = vector;
-	sVectorCPUAssignments[vector].count = count;
+	if (sameCpu)
+		sVectorCPUAssignments[vector].count = count;
 
 	*startVector = vector;
 	dprintf("allocate_io_interrupt_vectors: allocated %" B_PRId32 " vectors starting "

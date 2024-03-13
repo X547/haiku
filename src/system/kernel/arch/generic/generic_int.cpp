@@ -33,13 +33,6 @@ arch_int_configure_io_interrupt(int irq, uint32 config)
 }
 
 
-void
-arch_end_of_interrupt(int irq)
-{
-	sSources[irq]->EndOfInterrupt(irq);
-}
-
-
 int32
 arch_int_assign_to_cpu(int32 irq, int32 cpu)
 {

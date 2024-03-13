@@ -145,7 +145,6 @@ public:
 	void EnableIoInterrupt(int32 vector) final;
 	void DisableIoInterrupt(int32 vector) final;
 	void ConfigureIoInterrupt(int32 vector, uint32 config) final;
-	void EndOfInterrupt(int32 vector) final;
 	int32 AssignToCpu(int32 vector, int32 cpu) final;
 
 private:
@@ -566,13 +565,6 @@ AplicInterruptController::DisableIoInterrupt(int32 vector)
 
 void
 AplicInterruptController::ConfigureIoInterrupt(int32 vector, uint32 config)
-{
-	// TODO: implement
-}
-
-
-void
-AplicInterruptController::EndOfInterrupt(int32 irq)
 {
 	// TODO: implement
 }
