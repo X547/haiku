@@ -19,6 +19,27 @@ class DeviceNodeImpl;
 class DevFsNodeWrapper;
 
 
+class DriverDependencyImpl final: public DriverDependency {
+public:
+	DriverDependencyImpl(DeviceNodeImpl* source, DeviceNodeImpl* target);
+	void Free() final;
+
+private:
+	DoublyLinkedListLink<DriverDependencyImpl> fSourceLink;
+	DoublyLinkedListLink<DriverDependencyImpl> fTargetLink;
+	DeviceNodeImpl* fSource;
+	DeviceNodeImpl* fTarget;
+
+public:
+	typedef DoublyLinkedList<
+		DriverDependencyImpl, DoublyLinkedListMemberGetLink<DriverDependencyImpl, &DriverDependencyImpl::fSourceLink>
+	> SourceList;
+	typedef DoublyLinkedList<
+		DriverDependencyImpl, DoublyLinkedListMemberGetLink<DriverDependencyImpl, &DriverDependencyImpl::fTargetLink>
+	> TargetList;
+};
+
+
 class DeviceNodeImpl: public DeviceNode, public BReferenceable {
 public:
 	DeviceNodeImpl();
@@ -37,10 +58,12 @@ public:
 	status_t FindAttr(const char* name, type_code type, int32 index, const void** value, size_t* size) const final;
 
 	void* QueryBusInterface(const char* ifaceName) final;
-	void* QueryDriverInterface(const char* ifaceName, DeviceNode* dep) final;
+	void* QueryDriverInterface(const char* ifaceName) final;
 
 	status_t InstallListener(DeviceNodeListener* listener) final;
 	status_t UninstallListener(DeviceNodeListener* listener) final;
+
+	status_t AddDependency(DeviceNode* node, DriverDependency::Flags flags, DriverDependency** dep);
 
 	status_t RegisterNode(DeviceNode* owner, BusDriver* driver, const device_attr* attrs, DeviceNode** node) final;
 	status_t UnregisterNode(DeviceNode* node) final;
@@ -83,6 +106,7 @@ public:
 
 private:
 	friend class DeviceManager;
+	friend class DriverDependencyImpl;
 
 	struct State {
 		bool multipleDrivers: 1;
@@ -103,6 +127,8 @@ private:
 	ChildList fChildNodes;
 	ArrayDeleter<device_attr> fAttributes;
 	ArrayDeleter<uint8> fAttrData;
+	DriverDependencyImpl::SourceList fDepSourceList;
+	DriverDependencyImpl::TargetList fDepTargetList;
 
 	CompatDriverModuleList fCompatDriverModules;
 

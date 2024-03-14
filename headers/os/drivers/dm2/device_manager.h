@@ -93,6 +93,13 @@ struct driver_module_info {
 
 class DriverDependency {
 public:
+	union Flags {
+		struct {
+			uint32 weak: 1;
+			uint32 unused: 31;
+		};
+		uint32 val;
+	};
 	virtual void Free() = 0;
 
 protected:
@@ -122,15 +129,17 @@ public:
 	inline status_t FindAttrRaw(const char* name, const void** outValue, size_t* size, bool recursive = false) const;
 
 	virtual void* QueryBusInterface(const char* ifaceName) = 0;
-	virtual void* QueryDriverInterface(const char* ifaceName, DeviceNode* dep) = 0;
+	virtual void* QueryDriverInterface(const char* ifaceName) = 0;
 
 	template<typename Iface>
 	inline Iface* QueryBusInterface();
 	template<typename Iface>
-	inline Iface* QueryDriverInterface(DeviceNode* dep = NULL);
+	inline Iface* QueryDriverInterface();
 
 	virtual status_t InstallListener(DeviceNodeListener* listener) = 0;
 	virtual status_t UninstallListener(DeviceNodeListener* listener) = 0;
+
+	virtual status_t AddDependency(DeviceNode* node, DriverDependency::Flags flags, DriverDependency** dep) = 0;
 
 	virtual status_t RegisterNode(DeviceNode* owner, BusDriver* driver, const device_attr* attrs, DeviceNode** node) = 0;
 	virtual status_t UnregisterNode(DeviceNode* node) = 0;
@@ -240,9 +249,9 @@ DeviceNode::QueryBusInterface()
 
 template<typename Iface>
 inline Iface*
-DeviceNode::QueryDriverInterface(DeviceNode* dep)
+DeviceNode::QueryDriverInterface()
 {
-	return (Iface*)QueryDriverInterface(Iface::ifaceName, dep);
+	return (Iface*)QueryDriverInterface(Iface::ifaceName);
 }
 
 

@@ -119,6 +119,30 @@ dump_device_nodes(int argc, char** argv)
 }
 
 
+// #pragma mark - DriverDependencyImpl
+
+DriverDependencyImpl::DriverDependencyImpl(DeviceNodeImpl* source, DeviceNodeImpl* target):
+	fSource(source), fTarget(target)
+{
+}
+
+
+void
+DriverDependencyImpl::Free()
+{
+	{
+		MutexLocker lock(&fSource->fLock);
+		fSource->fDepTargetList.Remove(this);
+	}
+	{
+		MutexLocker lock(&fTarget->fLock);
+		fTarget->fDepSourceList.Remove(this);
+	}
+
+	delete this;
+}
+
+
 // #pragma mark - DeviceNodeImpl
 
 DeviceNodeImpl::DeviceNodeImpl()
@@ -296,7 +320,7 @@ DeviceNodeImpl::QueryBusInterface(const char* ifaceName)
 
 
 void*
-DeviceNodeImpl::QueryDriverInterface(const char* ifaceName, DeviceNode* dep)
+DeviceNodeImpl::QueryDriverInterface(const char* ifaceName)
 {
 	Probe();
 
@@ -333,6 +357,39 @@ DeviceNodeImpl::UninstallListener(DeviceNodeListener* listener)
 	// TODO: implement
 	panic("DeviceNodeImpl::UninstallListener: not implemented");
 	return ENOSYS;
+}
+
+
+status_t
+DeviceNodeImpl::AddDependency(DeviceNode* nodeIface, DriverDependency::Flags flags, DriverDependency** outDep)
+{
+	if (nodeIface == NULL || outDep == NULL)
+		return B_BAD_VALUE;
+
+	auto node = static_cast<DeviceNodeImpl*>(nodeIface);
+
+	{
+		MutexLocker lock(&node->fLock);
+		if (node->fDeviceDriver == NULL)
+			return B_ERROR; // missing dependency
+	}
+
+	// TODO: check cyclic dependencies
+
+	ObjectDeleter<DriverDependencyImpl> dep(new(std::nothrow) DriverDependencyImpl(this, node));
+	if (!dep.IsSet())
+		return B_NO_MEMORY;
+
+	{
+		MutexLocker lock(&node->fLock);
+		node->fDepSourceList.Add(dep.Get());
+	}
+	{
+		MutexLocker lock(&fLock);
+		fDepTargetList.Add(dep.Detach());
+	}
+
+	return B_OK;
 }
 
 
@@ -374,6 +431,9 @@ DeviceNodeImpl::UnregisterNode(DeviceNode* nodeIface)
 	lock.Lock();
 	node->fState.registered = false;
 	node->fState.unregistered = true;
+
+	while (!fDepTargetList.IsEmpty())
+		fDepTargetList.First()->Free();
 
 	fChildNodes.Remove(node);
 	node->fParent = NULL;
