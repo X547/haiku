@@ -655,6 +655,13 @@ disable_io_interrupt(int32 vector)
 }
 
 
+void
+configure_io_interrupt(int32 vector, uint32 config)
+{
+	arch_int_configure_io_interrupt(vector, config);
+}
+
+
 /*	Mark \a count contigous interrupts starting at \a startVector as in use.
 	This will prevent them from being allocated by others. Only use this when
 	the reserved range is hardwired to the given vector, otherwise allocate

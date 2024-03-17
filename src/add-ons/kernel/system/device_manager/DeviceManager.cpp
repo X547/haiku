@@ -334,10 +334,7 @@ DeviceNodeImpl::QueryDriverInterface(const char* ifaceName)
 	void* iface = deviceDriver->QueryInterface(ifaceName);
 	if (iface == NULL)
 		return NULL;
-#if 0
-	if (dep != NULL)
-		fDependants.Insert(static_cast<DriverDependencyImpl*>(dep));
-#endif
+
 	return iface;
 }
 
@@ -371,7 +368,7 @@ DeviceNodeImpl::AddDependency(DeviceNode* nodeIface, DriverDependency::Flags fla
 	{
 		MutexLocker lock(&node->fLock);
 		if (node->fDeviceDriver == NULL)
-			return B_ERROR; // missing dependency
+			return B_DEV_DEPENDENCY_MISSING;
 	}
 
 	// TODO: check cyclic dependencies

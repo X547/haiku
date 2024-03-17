@@ -175,7 +175,7 @@ extern status_t		remove_io_interrupt_handler(int32 interrupt_number,
 						interrupt_handler handler, void	*data);
 extern void			enable_io_interrupt(int32 interrupt_number);
 extern void			disable_io_interrupt(int32 interrupt_number);
-extern void			end_of_interrupt(long interrupt_number);
+extern void			configure_io_interrupt(int32 vector, uint32 config);
 
 extern status_t		add_timer(timer *t, timer_hook hook, bigtime_t period,
 						int32 flags);

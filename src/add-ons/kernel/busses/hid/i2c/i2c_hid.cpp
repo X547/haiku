@@ -116,7 +116,7 @@ I2cHidDriver::Init()
 
 	fFdtDevice = fNode->QueryBusInterface<FdtDevice>();
 	DeviceNodePutter i2cBusNode(fNode->GetParent());
-	fI2cBus = i2cBusNode->QueryDriverInterface<I2cBus>(fNode);
+	fI2cBus = i2cBusNode->QueryDriverInterface<I2cBus>();
 
 	CHECK_RET(fFdtDevice->GetPropUint32("reg", fDeviceAddress));
 	uint32 uint32Val;
@@ -129,6 +129,7 @@ I2cHidDriver::Init()
 	dprintf("  fDescriptorAddress: %" B_PRIu32 "\n", fDescriptorAddress);
 
 	CHECK_RET(install_io_interrupt_handler(fIrqVector, HandleInterrupt, this, B_DISABLED_INTERRUPT | B_NO_LOCK_VECTOR));
+	configure_io_interrupt(fIrqVector, B_LEVEL_TRIGGERED);
 
 	i2c_chunk i2cChunks[] = {
 		{.buffer = (uint8*)&fDescriptorAddress, .length = sizeof(fDescriptorAddress), .isWrite = true},

@@ -116,7 +116,7 @@ public:
 	// InterruptSource
 	void EnableIoInterrupt(int32 vector) final;
 	void DisableIoInterrupt(int32 vector) final;
-	void ConfigureIoInterrupt(int32 vector, uint32 config) final {}
+	void ConfigureIoInterrupt(int32 vector, uint32 config) final;
 	int32 AssignToCpu(int32 vector, int32 cpu) final;
 
 private:
@@ -135,6 +135,7 @@ private:
 	uint32 fIrqCount {};
 	uint32 fPlicContexts[SMP_MAX_CPUS] {};
 	int32 fAssignedContexts[NUM_IO_VECTORS] {};
+	uint32 fIsLevelIrq[NUM_IO_VECTORS / 32] {};
 };
 
 
@@ -410,12 +411,19 @@ PlicInterruptController::HandleInterruptInt()
 	if (irq == 0)
 		return B_HANDLED_INTERRUPT;
 
-	fRegs->contexts[context].claimAndComplete = irq;
+	bool isLevelIrq = (fIsLevelIrq[irq / 32] & (1U << (irq % 32))) != 0;
+
+	if (!isLevelIrq)
+		fRegs->contexts[context].claimAndComplete = irq;
 
 	uint32 vector = irq - 1 + fFirstVector;
 	TRACE("HandleInterrupt(%" B_PRId32 ")\n", vector);
 
 	int_io_interrupt_handler(vector, true);
+
+	if (isLevelIrq)
+		fRegs->contexts[context].claimAndComplete = irq;
+
 	return B_HANDLED_INTERRUPT;
 }
 
@@ -435,6 +443,18 @@ PlicInterruptController::DisableIoInterrupt(int32 vector)
 	TRACE("DisableIoInterrupt(%" B_PRId32 ")\n", vector);
 	uint32 irq = vector - fFirstVector + 1;
 	fRegs->priority[irq] = 0;
+}
+
+
+void
+PlicInterruptController::ConfigureIoInterrupt(int32 vector, uint32 config)
+{
+	uint32 irq = vector - fFirstVector + 1;
+
+	if ((config & B_LEVEL_TRIGGERED) != 0)
+		fIsLevelIrq[irq / 32] |= (1U << (irq % 32));
+	else
+		fIsLevelIrq[irq / 32] &= ~(1U << (irq % 32));
 }
 
 
