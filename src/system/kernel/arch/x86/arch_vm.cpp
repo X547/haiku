@@ -41,7 +41,7 @@
 #endif
 
 // 0: disabled, 1: some, 2: more
-#define TRACE_MTRR_ARCH_VM 1
+#define TRACE_MTRR_ARCH_VM 0
 
 #if TRACE_MTRR_ARCH_VM >= 1
 #	define TRACE_MTRR(x...) dprintf(x)
