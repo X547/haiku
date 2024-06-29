@@ -36,7 +36,7 @@
 
 // Enables checks that non-dirty blocks really aren't changed. Seriously
 // degrades performance when the block cache is used heavily.
-#define BLOCK_CACHE_DEBUG_CHANGED		KDEBUG_LEVEL_2
+#define BLOCK_CACHE_DEBUG_CHANGED		0
 
 // Enables a global list of file maps and related debugger commands.
 #define DEBUG_FILE_MAP					KDEBUG_LEVEL_1
