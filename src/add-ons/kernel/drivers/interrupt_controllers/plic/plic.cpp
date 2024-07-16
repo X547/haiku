@@ -269,6 +269,7 @@ PlicInterruptController::InitFdt(DeviceNode* node)
 	if (!fdtDev->GetReg(0, &regs, &regsLen))
 		return B_ERROR;
 
+	fFirstVector = 1; // [!] identity mapping
 	return Init(regs, regsLen);
 }
 
