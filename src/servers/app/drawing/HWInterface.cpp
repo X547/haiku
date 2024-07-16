@@ -677,7 +677,6 @@ HWInterface::_CopyToFront(uint8* src, uint32 srcBPR, int32 x, int32 y,
 				for (; y <= bottom; y++) {
 					// bytes is guaranteed to be multiple of 4
 					memcpy(dst, src, bytes);
-					clear_caches(dst, bytes, B_FLUSH_DCACHE);
 					dst += dstBPR;
 					src += srcBPR;
 				}

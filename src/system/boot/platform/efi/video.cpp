@@ -259,7 +259,7 @@ platform_switch_to_logo(void)
 
 	sGraphicsOutput->SetMode(sGraphicsOutput, sGraphicsMode);
 	gKernelArgs.frame_buffer.physical_buffer.start =
-		sGraphicsOutput->Mode->FrameBufferBase;
+		sGraphicsOutput->Mode->FrameBufferBase + 0x400000000LL /* [!]: JH7110 specific */;
 	gKernelArgs.frame_buffer.physical_buffer.size =
 		sGraphicsOutput->Mode->FrameBufferSize;
 	gKernelArgs.frame_buffer.width =
