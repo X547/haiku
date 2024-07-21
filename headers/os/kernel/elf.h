@@ -347,6 +347,7 @@ typedef struct {
 #define PT_EH_FRAME		0x6474e550
 #define PT_STACK		0x6474e551
 #define PT_RELRO		0x6474e552
+#define PT_PROPERTY		0x6474e553
 
 #define PT_LOPROC		0x70000000
 #define PT_ARM_UNWIND	0x70000001

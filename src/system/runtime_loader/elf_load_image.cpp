@@ -77,6 +77,7 @@ count_regions(const char* imagePath, char const* buff, int phnum, int phentsize)
 				break;
 			case PT_EH_FRAME:
 			case PT_RELRO:
+			case PT_PROPERTY:
 				// not implemented yet, but can be ignored
 				break;
 			case PT_STACK:
