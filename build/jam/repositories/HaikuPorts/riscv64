@@ -50,6 +50,8 @@ RemotePackageRepository HaikuPorts
 	giflib-5.2.1-1
 	git_daemon-2.30.2-3
 	git-2.30.2-3
+	glu_devel-9.0.0-8
+	glu-9.0.0-8
 	gmp_debuginfo-6.2.1-3
 	gmp_devel-6.2.1-3
 	gmp-6.2.1-3
@@ -65,6 +67,8 @@ RemotePackageRepository HaikuPorts
 	less-451-1
 	libedit_devel-20210419_3.1-1
 	libedit-20210419_3.1-1
+	libglvnd_devel-1.7.0-2
+	libglvnd-1.7.0-2
 	libicns_devel-0.8.1-8
 	libicns-0.8.1-8
 	libiconv-1.16-1
