@@ -1,0 +1,6 @@
+SubDir HAIKU_TOP src add-ons kernel drivers interrupt_controllers ;
+
+SubInclude HAIKU_TOP src add-ons kernel drivers interrupt_controllers openpic ;
+SubInclude HAIKU_TOP src add-ons kernel drivers interrupt_controllers plic ;
+SubInclude HAIKU_TOP src add-ons kernel drivers interrupt_controllers imsic ;
+SubInclude HAIKU_TOP src add-ons kernel drivers interrupt_controllers aplic ;

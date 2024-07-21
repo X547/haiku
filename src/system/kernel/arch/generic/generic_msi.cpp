@@ -10,6 +10,13 @@
 MSIInterface* sMSIInterface;
 
 
+MSIInterface*
+msi_interface()
+{
+	return sMSIInterface;
+}
+
+
 void
 msi_set_interface(MSIInterface* interface)
 {

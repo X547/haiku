@@ -50,9 +50,6 @@
 /*! The modules referenced by this structure are built-in
 	modules that can't be loaded from disk.
 */
-extern module_info gDeviceManagerModule;
-extern module_info gDeviceRootModule;
-extern module_info gDeviceGenericModule;
 extern module_info gFrameBufferConsoleModule;
 
 // file systems
@@ -60,9 +57,6 @@ extern module_info gRootFileSystem;
 extern module_info gDeviceFileSystem;
 
 static module_info* sBuiltInModules[] = {
-	&gDeviceManagerModule,
-	&gDeviceRootModule,
-	&gDeviceGenericModule,
 	&gFrameBufferConsoleModule,
 
 	&gRootFileSystem,

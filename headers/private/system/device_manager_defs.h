@@ -6,7 +6,7 @@
 #define _SYSTEM_DEVICE_MANAGER_DEFS_H
 
 
-#include <device_manager.h>
+#include <dm2/device_manager.h>
 
 
 // temporary/optional device manager syscall API

@@ -120,7 +120,7 @@ Bitmap::GetLowestContiguousClear(size_t count, size_t fromIndex) const
 			return -1;
 
 		size_t curCount = 1;
-		while (curCount < count && Get(index + curCount))
+		while (curCount < count && index + curCount < fSize && !Get(index + curCount))
 			curCount++;
 
 		if (curCount == count)

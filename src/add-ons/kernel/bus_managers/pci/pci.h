@@ -7,11 +7,13 @@
 #ifndef __PCI_H__
 #define __PCI_H__
 
-#include <bus/PCI.h>
+#include <PCI.h>
+#include <dm2/bus/PCI.h>
 
 #include <VectorMap.h>
 
 #include "pci_msi.h"
+#include "pci_resources.h"
 
 
 #define TRACE_PCI
@@ -28,6 +30,8 @@ struct PCIBus {
 	PCIDev *			child;
 	uint8				domain;
 	uint8				bus;
+
+	//PCIResourceAllocator resources;
 };
 
 struct PCIDev {
@@ -56,9 +60,8 @@ struct domain_data {
 	}
 
 	// These two are set in PCI::AddController:
-	pci_controller_module_info *controller;
-	void *				controller_cookie;
-	device_node *		root_node;
+	PciController *		controller;
+	DeviceNode *		root_node;
 	PCIBus *			bus;
 
 	// All the rest is set in PCI::InitDomainData
@@ -80,8 +83,7 @@ public:
 			void			InitDomainData(domain_data &data);
 			void			InitBus(PCIBus *bus);
 
-			status_t		AddController(pci_controller_module_info *controller,
-								void *controllerCookie, device_node *rootNode,
+			status_t		AddController(PciController *controller, DeviceNode *rootNode,
 								domain_data **domainData);
 
 			status_t		LookupRange(uint32 type, phys_addr_t pciAddr,

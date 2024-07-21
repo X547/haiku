@@ -348,18 +348,12 @@ protected:
 
 			BRegion				fVisibleRegion;
 			BRegion				fVisibleContentRegion;
-
-			// Our part of the "global" dirty region (what needs to be redrawn).
-			// It is calculated from the desktop thread, but we can write to it when we read locked
-			// the clipping, since it is local and the desktop thread is blocked.
+			// our part of the "global" dirty region
+			// it is calculated from the desktop thread,
+			// but we can write to it when we read locked
+			// the clipping, since it is local and the desktop
+			// thread is blocked
 			BRegion				fDirtyRegion;
-
-			// Subset of the dirty region that is newly exposed. While the dirty region is merely
-			// showing out of date data on screen, this subset of it is showing remains of other
-			// windows. To avoid glitches, it must be set to a reasonable state as fast as possible,
-			// without waiting for a roundtrip to the window's Draw() methods. So it will be filled
-			// using background color and view bitmap, which can all be done without leaving
-			// app_server.
 			BRegion				fExposeRegion;
 
 			// caching local regions

@@ -1,0 +1,16 @@
+SubDir HAIKU_TOP src add-ons kernel busses usb xhci ;
+
+SubDirC++Flags -fno-rtti -fvisibility=hidden ;
+
+UsePrivateKernelHeaders ;
+UseHeaders [ FDirName $(HAIKU_TOP) src add-ons kernel bus_managers usb ] ;
+
+KernelAddon <usb>xhci :
+	xhci.cpp
+	xhci_ring.cpp
+	xhci_rh.cpp
+	xhci_rh_usb2.cpp
+	xhci_rh_usb3.cpp
+	:
+	: xhci.rdef
+	;

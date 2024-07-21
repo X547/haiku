@@ -241,7 +241,12 @@ x86_hardware_interrupt(struct iframe* frame)
 	}
 
 	cpu_status state = disable_interrupts();
-	if (thread->post_interrupt_callback != NULL) {
+	if (thread->cpu->invoke_scheduler) {
+		SpinLocker schedulerLocker(thread->scheduler_lock);
+		scheduler_reschedule(B_THREAD_READY);
+		schedulerLocker.Unlock();
+		restore_interrupts(state);
+	} else if (thread->post_interrupt_callback != NULL) {
 		void (*callback)(void*) = thread->post_interrupt_callback;
 		void* data = thread->post_interrupt_data;
 
@@ -251,11 +256,6 @@ x86_hardware_interrupt(struct iframe* frame)
 		restore_interrupts(state);
 
 		callback(data);
-	} else if (thread->cpu->invoke_scheduler) {
-		SpinLocker schedulerLocker(thread->scheduler_lock);
-		scheduler_reschedule(B_THREAD_READY);
-		schedulerLocker.Unlock();
-		restore_interrupts(state);
 	}
 }
 

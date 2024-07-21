@@ -16,6 +16,7 @@
 #include <arch_cpu_defs.h>
 #include <arch_thread_types.h>
 #include <arch/debug.h>
+#include <arch/generic/generic_int.h>
 #include <util/AutoLock.h>
 #include <Htif.h>
 #include <Plic.h>
@@ -25,9 +26,6 @@
 #include "RISCV64VMTranslationMap.h"
 
 #include <algorithm>
-
-
-static uint32 sPlicContexts[SMP_MAX_CPUS];
 
 
 //#pragma mark debug output
@@ -286,7 +284,12 @@ AfterInterrupt()
 
 	Thread* thread = thread_get_current_thread();
 	cpu_status state = disable_interrupts();
-	if (thread->post_interrupt_callback != NULL) {
+	if (thread->cpu->invoke_scheduler) {
+		SpinLocker schedulerLocker(thread->scheduler_lock);
+		scheduler_reschedule(B_THREAD_READY);
+		schedulerLocker.Unlock();
+		restore_interrupts(state);
+	} else if (thread->post_interrupt_callback != NULL) {
 		void (*callback)(void*) = thread->post_interrupt_callback;
 		void* data = thread->post_interrupt_data;
 
@@ -296,11 +299,6 @@ AfterInterrupt()
 		restore_interrupts(state);
 
 		callback(data);
-	} else if (thread->cpu->invoke_scheduler) {
-		SpinLocker schedulerLocker(thread->scheduler_lock);
-		scheduler_reschedule(B_THREAD_READY);
-		schedulerLocker.Unlock();
-		restore_interrupts(state);
 	}
 }
 
@@ -354,27 +352,6 @@ STrap(iframe* frame)
 {
 	// dprintf("STrap("); WriteCause(Scause()); dprintf(")\n");
 
-/*
-	iframe oldFrame = *frame;
-	const auto& frameChangeChecker = MakeScopeExit([&]() {
-			InterruptsLocker locker;
-			bool first = true;
-			for (int i = 0; i < 32; i++) {
-				uint64 oldVal = ((int64*)&oldFrame)[i];
-				uint64 newVal = ((int64*)frame)[i];
-				if (oldVal != newVal) {
-					if (first) {
-						dprintf("FrameChangeChecker, thread: %" B_PRId32 "(%s)\n", thread_get_current_thread()->id, thread_get_current_thread()->name);
-						first = false;
-					}
-					dprintf("  %s: %#" B_PRIxADDR " -> %#" B_PRIxADDR "\n", registerNames[i], oldVal, newVal);
-				}
-			}
-
-			if (frame->epc == 0)
-				panic("FrameChangeChecker: EPC = 0");
-	});
-*/
 	switch (frame->cause) {
 		case causeExecPageFault:
 		case causeLoadPageFault:
@@ -435,8 +412,19 @@ STrap(iframe* frame)
 		case causeExecAccessFault:
 		case causeLoadAccessFault:
 		case causeStoreAccessFault: {
-			return SendSignal(B_SEGMENT_VIOLATION, SIGBUS, BUS_ADRERR,
-				Stval());
+			uint64 stval = Stval();
+			switch (frame->cause) {
+				case causeExecAccessFault:
+					panic("[!] STrap(causeExecAccessFault, %#" B_PRIx64 ")\n", stval);
+					break;
+				case causeLoadAccessFault:
+					panic("[!] STrap(causeLoadAccessFault, %#" B_PRIx64 ")\n", stval);
+					break;
+				case causeStoreAccessFault:
+					panic("[!] STrap(causeStoreAccessFault, %#" B_PRIx64 ")\n", stval);
+					break;
+			}
+			return SendSignal(B_SEGMENT_VIOLATION, SIGBUS, BUS_ADRERR, stval);
 		}
 		case causeExecPageFault:
 		case causeLoadPageFault:
@@ -482,7 +470,7 @@ STrap(iframe* frame)
 						return;
 					}
 				}
-				panic("page fault with interrupts disabled@!dump_virt_page %#" B_PRIx64, stval);
+				panic("page fault with interrupts disabled, EPC: %#" B_PRIx64 ", STVAL: %#" B_PRIx64 " @!dump_virt_page %#" B_PRIx64, frame->epc, stval, stval);
 			}
 
 			addr_t newIP = 0;
@@ -512,9 +500,8 @@ STrap(iframe* frame)
 			return;
 		}
 		case causeInterrupt + sExternInt: {
-			uint64 irq = gPlicRegs->contexts[sPlicContexts[smp_get_current_cpu()]].claimAndComplete;
-			int_io_interrupt_handler(irq, true);
-			gPlicRegs->contexts[sPlicContexts[smp_get_current_cpu()]].claimAndComplete = irq;
+			// forward interrupt to PLIC module
+			int_io_interrupt_handler(kHartExternIntVector, true);
 			AfterInterrupt();
 			return;
 		}
@@ -536,15 +523,6 @@ STrap(iframe* frame)
 					}
 				}
 			}
-/*
-			switch (syscall) {
-				case SYSCALL_READ_PORT_ETC:
-				case SYSCALL_WRITE_PORT_ETC:
-					DoStackTrace(Fp(), 0);
-					break;
-			}
-*/
-			// dprintf("syscall: %s\n", kExtendedSyscallInfos[syscall].name);
 
 			enable_interrupts();
 			uint64 returnValue = 0;
@@ -559,26 +537,42 @@ STrap(iframe* frame)
 
 //#pragma mark -
 
+class HartInterruptSource: public InterruptSource {
+public:
+	void EnableIoInterrupt(int vector) final;
+	void DisableIoInterrupt(int vector) final;
+	void ConfigureIoInterrupt(int vector, uint32 config) final {}
+	int32 AssignToCpu(int32 vector, int32 cpu) final {return cpu;}
+};
+
+static HartInterruptSource sHartInterruptSource;
+
+
+void
+HartInterruptSource::EnableIoInterrupt(int vector)
+{
+	call_all_cpus_sync([](int cpu) {
+		SetBitsSie((1 << sExternInt));
+	});
+}
+
+
+void
+HartInterruptSource::DisableIoInterrupt(int vector)
+{
+	call_all_cpus_sync([](int cpu) {
+		ClearBitsSie((1 << sExternInt));
+	});
+}
+
+
+//#pragma mark -
+
 status_t
 arch_int_init(kernel_args* args)
 {
-	dprintf("arch_int_init()\n");
-
-	for (uint32 i = 0; i < args->num_cpus; i++) {
-		dprintf("  CPU %" B_PRIu32 ":\n", i);
-		dprintf("    hartId: %" B_PRIu32 "\n", args->arch_args.hartIds[i]);
-		dprintf("    plicContext: %" B_PRIu32 "\n", args->arch_args.plicContexts[i]);
-	}
-
-	for (uint32 i = 0; i < args->num_cpus; i++)
-		sPlicContexts[i] = args->arch_args.plicContexts[i];
-
-	// TODO: read from FDT
-	reserve_io_interrupt_vectors(128, 0, INTERRUPT_TYPE_IRQ);
-
-	for (uint32 i = 0; i < args->num_cpus; i++)
-		gPlicRegs->contexts[sPlicContexts[i]].priorityThreshold = 0;
-
+	new((char*)&sHartInterruptSource) HartInterruptSource();
+	reserve_io_interrupt_vectors_ex(1, kHartExternIntVector, INTERRUPT_TYPE_LOCAL_IRQ, &sHartInterruptSource);
 	return B_OK;
 }
 
@@ -601,32 +595,6 @@ status_t
 arch_int_init_io(kernel_args* args)
 {
 	return B_OK;
-}
-
-
-void
-arch_int_enable_io_interrupt(int32 irq)
-{
-	dprintf("arch_int_enable_io_interrupt(%" B_PRId32 ")\n", irq);
-	gPlicRegs->priority[irq] = 1;
-	gPlicRegs->enable[sPlicContexts[0]][irq / 32] |= 1 << (irq % 32);
-}
-
-
-void
-arch_int_disable_io_interrupt(int32 irq)
-{
-	dprintf("arch_int_disable_io_interrupt(%" B_PRId32 ")\n", irq);
-	gPlicRegs->priority[irq] = 0;
-	gPlicRegs->enable[sPlicContexts[0]][irq / 32] &= ~(1 << (irq % 32));
-}
-
-
-int32
-arch_int_assign_to_cpu(int32 irq, int32 cpu)
-{
-	// Not yet supported.
-	return 0;
 }
 
 

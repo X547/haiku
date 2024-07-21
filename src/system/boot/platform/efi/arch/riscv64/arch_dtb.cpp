@@ -47,6 +47,15 @@ arch_handle_fdt(const void* fdt, int node)
 			if (!(fdt_getprop(fdt, node, "mmu-type", NULL) != NULL))
 				return;
 
+			int compatibleLen;
+			const char* compatible = (const char*)fdt_getprop(fdt, node,
+				"compatible", &compatibleLen);
+
+			// VisionFive 2 monitor core, unusable for OS.
+			if (compatible != NULL && dtb_has_fdt_string(compatible, compatibleLen, "sifive,s7")) {
+				return;
+			}
+
 			platform_cpu_info* info;
 			arch_smp_register_cpu(&info);
 			if (info == NULL)

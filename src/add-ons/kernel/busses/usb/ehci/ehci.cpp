@@ -1,0 +1,3077 @@
+/*
+ * Copyright 2006-2011, Haiku Inc. All rights reserved.
+ * Distributed under the terms of the MIT License.
+ *
+ * Authors:
+ *		Michael Lotz <mmlr@mlotz.ch>
+ *		Jérôme Duval <korli@users.berlios.de>
+ */
+
+
+#include <stdio.h>
+
+#include <driver_settings.h>
+#include <bus/PCI.h>
+#include <USB3.h>
+#include <KernelExport.h>
+
+#include "ehci.h"
+
+
+#define CALLED(x...)	TRACE_MODULE("CALLED %s\n", __PRETTY_FUNCTION__)
+
+#define USB_MODULE_NAME	"ehci"
+
+
+device_manager_info* gDeviceManager;
+static usb_for_controller_interface* gUSB;
+
+
+#define EHCI_PCI_DEVICE_MODULE_NAME "busses/usb/ehci/pci/driver_v1"
+#define EHCI_PCI_USB_BUS_MODULE_NAME "busses/usb/ehci/device_v1"
+
+
+typedef struct {
+	EHCI* ehci;
+	pci_device_module_info* pci;
+	pci_device* device;
+
+	pci_info pciinfo;
+
+	device_node* node;
+	device_node* driver_node;
+} ehci_pci_sim_info;
+
+
+//	#pragma mark -
+
+
+static status_t
+init_bus(device_node* node, void** bus_cookie)
+{
+	CALLED();
+
+	driver_module_info* driver;
+	ehci_pci_sim_info* bus;
+	device_node* parent = gDeviceManager->get_parent_node(node);
+	gDeviceManager->get_driver(parent, &driver, (void**)&bus);
+	gDeviceManager->put_node(parent);
+
+	Stack *stack;
+	if (gUSB->get_stack((void**)&stack) != B_OK)
+		return B_ERROR;
+
+	EHCI *ehci = new(std::nothrow) EHCI(&bus->pciinfo, bus->pci, bus->device, stack, node);
+	if (ehci == NULL) {
+		return B_NO_MEMORY;
+	}
+
+	if (ehci->InitCheck() < B_OK) {
+		TRACE_MODULE_ERROR("bus failed init check\n");
+		delete ehci;
+		return B_ERROR;
+	}
+
+	if (ehci->Start() != B_OK) {
+		delete ehci;
+		return B_ERROR;
+	}
+
+	*bus_cookie = ehci;
+
+	return B_OK;
+}
+
+
+static void
+uninit_bus(void* bus_cookie)
+{
+	CALLED();
+	EHCI* ehci = (EHCI*)bus_cookie;
+	delete ehci;
+}
+
+
+static status_t
+register_child_devices(void* cookie)
+{
+	CALLED();
+	ehci_pci_sim_info* bus = (ehci_pci_sim_info*)cookie;
+	device_node* node = bus->driver_node;
+
+	char prettyName[25];
+	sprintf(prettyName, "EHCI Controller %" B_PRIu16, 0);
+
+	device_attr attrs[] = {
+		// properties of this controller for the usb bus manager
+		{ B_DEVICE_PRETTY_NAME, B_STRING_TYPE,
+			{ .string = prettyName }},
+		{ B_DEVICE_FIXED_CHILD, B_STRING_TYPE,
+			{ .string = USB_FOR_CONTROLLER_MODULE_NAME }},
+
+		// private data to identify the device
+		{ NULL }
+	};
+
+	return gDeviceManager->register_node(node, EHCI_PCI_USB_BUS_MODULE_NAME,
+		attrs, NULL, NULL);
+}
+
+
+static status_t
+init_device(device_node* node, void** device_cookie)
+{
+	CALLED();
+	ehci_pci_sim_info* bus = (ehci_pci_sim_info*)calloc(1,
+		sizeof(ehci_pci_sim_info));
+	if (bus == NULL)
+		return B_NO_MEMORY;
+
+	pci_device_module_info* pci;
+	pci_device* device;
+	{
+		device_node* pciParent = gDeviceManager->get_parent_node(node);
+		gDeviceManager->get_driver(pciParent, (driver_module_info**)&pci,
+			(void**)&device);
+		gDeviceManager->put_node(pciParent);
+	}
+
+	bus->pci = pci;
+	bus->device = device;
+	bus->driver_node = node;
+
+	pci_info *pciInfo = &bus->pciinfo;
+	pci->get_pci_info(device, pciInfo);
+
+	*device_cookie = bus;
+	return B_OK;
+}
+
+
+static void
+uninit_device(void* device_cookie)
+{
+	CALLED();
+	ehci_pci_sim_info* bus = (ehci_pci_sim_info*)device_cookie;
+	free(bus);
+
+}
+
+
+static status_t
+register_device(device_node* parent)
+{
+	CALLED();
+	device_attr attrs[] = {
+		{B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "EHCI PCI"}},
+		{}
+	};
+
+	return gDeviceManager->register_node(parent,
+		EHCI_PCI_DEVICE_MODULE_NAME, attrs, NULL, NULL);
+}
+
+
+static float
+supports_device(device_node* parent)
+{
+	CALLED();
+	const char* bus;
+	uint16 type, subType, api;
+
+	// make sure parent is a EHCI PCI device node
+	if (gDeviceManager->get_attr_string(parent, B_DEVICE_BUS, &bus, false)
+		< B_OK) {
+		return -1;
+	}
+
+	if (strcmp(bus, "pci") != 0)
+		return 0.0f;
+
+	if (gDeviceManager->get_attr_uint16(parent, B_DEVICE_SUB_TYPE, &subType,
+			false) < B_OK
+		|| gDeviceManager->get_attr_uint16(parent, B_DEVICE_TYPE, &type,
+			false) < B_OK
+		|| gDeviceManager->get_attr_uint16(parent, B_DEVICE_INTERFACE, &api,
+			false) < B_OK) {
+		TRACE_MODULE("Could not find type/subtype/interface attributes\n");
+		return -1;
+	}
+
+	if (type == PCI_serial_bus && subType == PCI_usb && api == PCI_usb_ehci) {
+		pci_device_module_info* pci;
+		pci_device* device;
+		gDeviceManager->get_driver(parent, (driver_module_info**)&pci,
+			(void**)&device);
+		TRACE_MODULE("EHCI Device found!\n");
+
+		return 0.8f;
+	}
+
+	return 0.0f;
+}
+
+
+module_dependency module_dependencies[] = {
+	{ USB_FOR_CONTROLLER_MODULE_NAME, (module_info**)&gUSB },
+	{ B_DEVICE_MANAGER_MODULE_NAME, (module_info**)&gDeviceManager },
+	{}
+};
+
+
+static usb_bus_interface gEHCIPCIDeviceModule = {
+	{
+		{
+			EHCI_PCI_USB_BUS_MODULE_NAME,
+			0,
+			NULL
+		},
+		NULL,  // supports device
+		NULL,  // register device
+		init_bus,
+		uninit_bus,
+		NULL,  // register child devices
+		NULL,  // rescan
+		NULL,  // device removed
+	},
+};
+
+// Root device that binds to the PCI bus. It will register an usb_bus_interface
+// node for each device.
+static driver_module_info sEHCIDevice = {
+	{
+		EHCI_PCI_DEVICE_MODULE_NAME,
+		0,
+		NULL
+	},
+	supports_device,
+	register_device,
+	init_device,
+	uninit_device,
+	register_child_devices,
+	NULL, // rescan
+	NULL, // device removed
+};
+
+module_info* modules[] = {
+	(module_info* )&sEHCIDevice,
+	(module_info* )&gEHCIPCIDeviceModule,
+	NULL
+};
+
+
+//
+// #pragma mark -
+//
+
+
+#ifdef TRACE_USB
+
+void
+print_descriptor_chain(ehci_qtd *descriptor)
+{
+	while (descriptor) {
+		dprintf(" %08" B_PRIx32 " n%08" B_PRIx32 " a%08" B_PRIx32 " t%08"
+			B_PRIx32 " %08" B_PRIx32 " %08" B_PRIx32 " %08" B_PRIx32 " %08"
+			B_PRIx32 " %08" B_PRIx32 " s%" B_PRIuSIZE "\n",
+			descriptor->this_phy, descriptor->next_phy,
+			descriptor->alt_next_phy, descriptor->token,
+			descriptor->buffer_phy[0], descriptor->buffer_phy[1],
+			descriptor->buffer_phy[2], descriptor->buffer_phy[3],
+			descriptor->buffer_phy[4], descriptor->buffer_size);
+
+		if (descriptor->next_phy & EHCI_ITEM_TERMINATE)
+			break;
+
+		descriptor = descriptor->next_log;
+	}
+}
+
+
+void
+print_queue(ehci_qh *queueHead)
+{
+	dprintf("queue:    t%08" B_PRIx32 " n%08" B_PRIx32 " ch%08" B_PRIx32
+		" ca%08" B_PRIx32 " cu%08" B_PRIx32 "\n",
+		queueHead->this_phy, queueHead->next_phy, queueHead->endpoint_chars,
+		queueHead->endpoint_caps, queueHead->current_qtd_phy);
+	dprintf("overlay:  n%08" B_PRIx32 " a%08" B_PRIx32 " t%08" B_PRIx32
+		" %08" B_PRIx32 " %08" B_PRIx32 " %08" B_PRIx32 " %08" B_PRIx32
+		" %08" B_PRIx32 "\n", queueHead->overlay.next_phy,
+		queueHead->overlay.alt_next_phy, queueHead->overlay.token,
+		queueHead->overlay.buffer_phy[0], queueHead->overlay.buffer_phy[1],
+		queueHead->overlay.buffer_phy[2], queueHead->overlay.buffer_phy[3],
+		queueHead->overlay.buffer_phy[4]);
+	print_descriptor_chain(queueHead->element_log);
+}
+
+
+#endif // TRACE_USB
+
+
+//
+// #pragma mark -
+//
+
+
+EHCI::EHCI(pci_info *info, pci_device_module_info* pci, pci_device* device, Stack *stack,
+	device_node* node)
+	:	BusManager(stack, node),
+		fCapabilityRegisters(NULL),
+		fOperationalRegisters(NULL),
+		fRegisterArea(-1),
+		fPCIInfo(info),
+		fPci(pci),
+		fDevice(device),
+		fStack(stack),
+		fEnabledInterrupts(0),
+		fThreshold(0),
+		fPeriodicFrameListArea(-1),
+		fPeriodicFrameList(NULL),
+		fInterruptEntries(NULL),
+		fItdEntries(NULL),
+		fSitdEntries(NULL),
+		fAsyncQueueHead(NULL),
+		fAsyncAdvanceSem(-1),
+		fFirstTransfer(NULL),
+		fLastTransfer(NULL),
+		fFinishTransfersSem(-1),
+		fFinishThread(-1),
+		fProcessingPipe(NULL),
+		fFreeListHead(NULL),
+		fCleanupSem(-1),
+		fCleanupThread(-1),
+		fStopThreads(false),
+		fNextStartingFrame(-1),
+		fFrameBandwidth(NULL),
+		fFirstIsochronousTransfer(NULL),
+		fLastIsochronousTransfer(NULL),
+		fFinishIsochronousTransfersSem(-1),
+		fFinishIsochronousThread(-1),
+		fRootHub(NULL),
+		fRootHubAddress(0),
+		fPortCount(0),
+		fPortResetChange(0),
+		fPortSuspendChange(0),
+		fInterruptPollThread(-1),
+		fIRQ(0),
+		fUseMSI(false)
+{
+	// Create a lock for the isochronous transfer list
+	mutex_init(&fIsochronousLock, "EHCI isochronous lock");
+
+	if (BusManager::InitCheck() != B_OK) {
+		TRACE_ERROR("bus manager failed to init\n");
+		return;
+	}
+
+	TRACE("constructing new EHCI host controller driver\n");
+	fInitOK = false;
+
+	// ATI/AMD SB600/SB700 periodic list cache workaround
+	// Logic kindly borrowed from NetBSD PR 40056
+	if (fPCIInfo->vendor_id == AMD_SBX00_VENDOR) {
+		bool applyWorkaround = false;
+
+		if (fPCIInfo->device_id == AMD_SB600_EHCI_CONTROLLER) {
+			// always apply on SB600
+			applyWorkaround = true;
+		} else if (fPCIInfo->device_id == AMD_SB700_SB800_EHCI_CONTROLLER) {
+			// only apply on certain chipsets, determined by SMBus revision
+			device_node *pciNode = NULL;
+			device_node* deviceRoot = gDeviceManager->get_root_node();
+			device_attr acpiAttrs[] = {
+				{ B_DEVICE_BUS, B_STRING_TYPE, { .string = "pci" }},
+				{ B_DEVICE_VENDOR_ID, B_UINT16_TYPE, { .ui16 = AMD_SBX00_VENDOR }},
+				{ B_DEVICE_ID, B_UINT16_TYPE, { .ui16 = AMD_SBX00_SMBUS_CONTROLLER }},
+				{ NULL }
+			};
+			if (gDeviceManager->find_child_node(deviceRoot, acpiAttrs,
+					&pciNode) == B_OK) {
+				pci_device_module_info *pci;
+				pci_device *pciDevice;
+				if (gDeviceManager->get_driver(pciNode, (driver_module_info **)&pci,
+					(void **)&pciDevice) == B_OK) {
+
+					pci_info smbus;
+					pci->get_pci_info(pciDevice, &smbus);
+					// Only applies to chipsets < SB710 (rev A14)
+					if (smbus.revision == 0x3a || smbus.revision == 0x3b)
+						applyWorkaround = true;
+				}
+			}
+		}
+
+		if (applyWorkaround) {
+			// According to AMD errata of SB700 and SB600 register documentation
+			// this disables the Periodic List Cache on SB600 and the Advanced
+			// Periodic List Cache on early SB700. Both the BSDs and Linux use
+			// this workaround.
+
+			TRACE_ALWAYS("disabling SB600/SB700 periodic list cache\n");
+			uint32 workaround = fPci->read_pci_config(fDevice,
+				AMD_SBX00_EHCI_MISC_REGISTER, 4);
+
+			fPci->write_pci_config(fDevice, AMD_SBX00_EHCI_MISC_REGISTER, 4,
+				workaround | AMD_SBX00_EHCI_MISC_DISABLE_PERIODIC_LIST_CACHE);
+		}
+	}
+
+	// enable busmaster and memory mapped access
+	uint16 command = fPci->read_pci_config(fDevice, PCI_command, 2);
+	command &= ~PCI_command_io;
+	command |= PCI_command_master | PCI_command_memory;
+
+	fPci->write_pci_config(fDevice, PCI_command, 2, command);
+
+	// map the registers
+	uint32 offset = fPCIInfo->u.h0.base_registers[0] & (B_PAGE_SIZE - 1);
+	phys_addr_t physicalAddress = fPCIInfo->u.h0.base_registers[0] - offset;
+	size_t mapSize = (fPCIInfo->u.h0.base_register_sizes[0] + offset
+		+ B_PAGE_SIZE - 1) & ~(B_PAGE_SIZE - 1);
+
+	TRACE("map physical memory 0x%08" B_PRIx32 " (base: 0x%08" B_PRIxPHYSADDR
+		"; offset: %" B_PRIx32 "); size: %" B_PRIu32 "\n",
+		fPCIInfo->u.h0.base_registers[0], physicalAddress, offset,
+		fPCIInfo->u.h0.base_register_sizes[0]);
+
+	fRegisterArea = map_physical_memory("EHCI memory mapped registers",
+		physicalAddress, mapSize, B_ANY_KERNEL_BLOCK_ADDRESS,
+		B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA,
+		(void **)&fCapabilityRegisters);
+	if (fRegisterArea < 0) {
+		TRACE_ERROR("failed to map register memory\n");
+		return;
+	}
+
+	fCapabilityRegisters += offset;
+	fOperationalRegisters = fCapabilityRegisters + ReadCapReg8(EHCI_CAPLENGTH);
+	TRACE("mapped capability registers: 0x%p\n", fCapabilityRegisters);
+	TRACE("mapped operational registers: 0x%p\n", fOperationalRegisters);
+
+	TRACE("structural parameters: 0x%08" B_PRIx32 "\n",
+		ReadCapReg32(EHCI_HCSPARAMS));
+	TRACE("capability parameters: 0x%08" B_PRIx32 "\n",
+		ReadCapReg32(EHCI_HCCPARAMS));
+
+	if (EHCI_HCCPARAMS_FRAME_CACHE(ReadCapReg32(EHCI_HCCPARAMS)))
+		fThreshold = 2 + 8;
+	else
+		fThreshold = 2 + EHCI_HCCPARAMS_IPT(ReadCapReg32(EHCI_HCCPARAMS));
+
+	// read port count from capability register
+	fPortCount = ReadCapReg32(EHCI_HCSPARAMS) & 0x0f;
+
+	uint32 extendedCapPointer = ReadCapReg32(EHCI_HCCPARAMS) >> EHCI_ECP_SHIFT;
+	extendedCapPointer &= EHCI_ECP_MASK;
+	if (extendedCapPointer > 0) {
+		TRACE("extended capabilities register at %" B_PRIu32 "\n",
+			extendedCapPointer);
+
+		uint32 legacySupport = fPci->read_pci_config(fDevice, extendedCapPointer, 4);
+		if ((legacySupport & EHCI_LEGSUP_CAPID_MASK) == EHCI_LEGSUP_CAPID) {
+			if ((legacySupport & EHCI_LEGSUP_BIOSOWNED) != 0) {
+				TRACE_ALWAYS("the host controller is bios owned, claiming"
+					" ownership\n");
+
+				fPci->write_pci_config(fDevice, extendedCapPointer + 3, 1, 1);
+
+				for (int32 i = 0; i < 20; i++) {
+					legacySupport = fPci->read_pci_config(fDevice,
+						extendedCapPointer, 4);
+
+					if ((legacySupport & EHCI_LEGSUP_BIOSOWNED) == 0)
+						break;
+
+					TRACE_ALWAYS("controller is still bios owned, waiting\n");
+					snooze(50000);
+				}
+			}
+
+			if (legacySupport & EHCI_LEGSUP_BIOSOWNED) {
+				TRACE_ERROR("bios won't give up control over the host "
+					"controller (ignoring)\n");
+			} else if (legacySupport & EHCI_LEGSUP_OSOWNED) {
+				TRACE_ALWAYS(
+					"successfully took ownership of the host controller\n");
+			}
+
+			// Force off the BIOS owned flag, and clear all SMIs. Some BIOSes
+			// do indicate a successful handover but do not remove their SMIs
+			// and then freeze the system when interrupts are generated.
+			fPci->write_pci_config(fDevice, extendedCapPointer + 2, 1, 0);
+			fPci->write_pci_config(fDevice, extendedCapPointer + 4, 4, 0);
+		} else {
+			TRACE_ALWAYS(
+				"extended capability is not a legacy support register\n");
+		}
+	} else {
+		TRACE_ALWAYS("no extended capabilities register\n");
+	}
+
+	// disable interrupts
+	WriteOpReg(EHCI_USBINTR, 0);
+
+	// reset the host controller
+	if (ControllerReset() != B_OK) {
+		TRACE_ERROR("host controller failed to reset\n");
+		return;
+	}
+
+	// reset the segment register
+	WriteOpReg(EHCI_CTRDSSEGMENT, 0);
+
+	// create semaphores the finisher thread will wait for
+	fAsyncAdvanceSem = create_sem(0, "EHCI Async Advance");
+	fFinishTransfersSem = create_sem(0, "EHCI Finish Transfers");
+	fCleanupSem = create_sem(0, "EHCI Cleanup");
+	if (fFinishTransfersSem < 0 || fAsyncAdvanceSem < 0 || fCleanupSem < 0) {
+		TRACE_ERROR("failed to create semaphores\n");
+		return;
+	}
+
+	// create finisher service thread
+	fFinishThread = spawn_kernel_thread(FinishThread, "ehci finish thread",
+		B_NORMAL_PRIORITY, (void *)this);
+	resume_thread(fFinishThread);
+
+	// Create semaphore the isochronous finisher thread will wait for
+	fFinishIsochronousTransfersSem = create_sem(0,
+		"EHCI Isochronous Finish Transfers");
+	if (fFinishIsochronousTransfersSem < 0) {
+		TRACE_ERROR("failed to create isochronous finisher semaphore\n");
+		return;
+	}
+
+	// Create the isochronous finisher service thread
+	fFinishIsochronousThread = spawn_kernel_thread(FinishIsochronousThread,
+		"ehci isochronous finish thread", B_URGENT_DISPLAY_PRIORITY,
+		(void *)this);
+	resume_thread(fFinishIsochronousThread);
+
+	// create cleanup service thread
+	fCleanupThread = spawn_kernel_thread(CleanupThread, "ehci cleanup thread",
+		B_NORMAL_PRIORITY, (void *)this);
+	resume_thread(fCleanupThread);
+
+	// set up interrupts or interrupt polling now that the controller is ready
+	bool polling = false;
+	void *settings = load_driver_settings(B_SAFEMODE_DRIVER_SETTINGS);
+	if (settings != NULL) {
+		polling = get_driver_boolean_parameter(settings, "ehci_polling", false,
+			false);
+		unload_driver_settings(settings);
+	}
+
+	if (polling) {
+		// create and run the polling thread
+		TRACE_ALWAYS("enabling ehci polling\n");
+		fInterruptPollThread = spawn_kernel_thread(InterruptPollThread,
+			"ehci interrupt poll thread", B_NORMAL_PRIORITY, (void *)this);
+		resume_thread(fInterruptPollThread);
+	} else {
+		// Find the right interrupt vector, using MSIs if available.
+		fIRQ = fPCIInfo->u.h0.interrupt_line;
+		if (fPci->get_msi_count(fDevice) >= 1) {
+			uint8 msiVector = 0;
+			if (fPci->configure_msi(fDevice, 1, &msiVector) == B_OK
+				&& fPci->enable_msi(fDevice) == B_OK) {
+				TRACE_ALWAYS("using message signaled interrupts\n");
+				fIRQ = msiVector;
+				fUseMSI = true;
+			}
+		}
+
+		if (fIRQ == 0 || fIRQ == 0xFF) {
+			TRACE_MODULE_ERROR("device PCI:%d:%d:%d was assigned an invalid IRQ\n",
+				fPCIInfo->bus, fPCIInfo->device, fPCIInfo->function);
+			return;
+		}
+
+		// install the interrupt handler and enable interrupts
+		install_io_interrupt_handler(fIRQ, InterruptHandler,
+			(void *)this, 0);
+	}
+
+	// ensure that interrupts are en-/disabled on the PCI device
+	command = fPci->read_pci_config(fDevice, PCI_command, 2);
+	if ((polling || fUseMSI) == ((command & PCI_command_int_disable) == 0)) {
+		if (polling || fUseMSI)
+			command &= ~PCI_command_int_disable;
+		else
+			command |= PCI_command_int_disable;
+
+		fPci->write_pci_config(fDevice, PCI_command, 2, command);
+	}
+
+	fEnabledInterrupts = EHCI_USBINTR_HOSTSYSERR | EHCI_USBINTR_USBERRINT
+		| EHCI_USBINTR_USBINT | EHCI_USBINTR_INTONAA;
+	WriteOpReg(EHCI_USBINTR, fEnabledInterrupts);
+
+	// structures don't span page boundaries
+	size_t itdListSize = EHCI_VFRAMELIST_ENTRIES_COUNT
+		/ (B_PAGE_SIZE / sizeof(itd_entry)) * B_PAGE_SIZE;
+	size_t sitdListSize = EHCI_VFRAMELIST_ENTRIES_COUNT
+		/ (B_PAGE_SIZE / sizeof(sitd_entry)) * B_PAGE_SIZE;
+	size_t frameListSize = B_PAGE_SIZE + B_PAGE_SIZE + itdListSize
+		+ sitdListSize;
+
+	// allocate the periodic frame list
+	fPeriodicFrameListArea = fStack->AllocateArea((void **)&fPeriodicFrameList,
+		&physicalAddress, frameListSize, "USB EHCI Periodic Framelist");
+	if (fPeriodicFrameListArea < 0) {
+		TRACE_ERROR("unable to allocate periodic framelist\n");
+		return;
+	}
+
+	if ((physicalAddress & 0xfff) != 0) {
+		panic("EHCI_PERIODICLISTBASE not aligned on 4k: 0x%" B_PRIxPHYSADDR
+			"\n", physicalAddress);
+	}
+
+	// set the periodic frame list base on the controller
+	WriteOpReg(EHCI_PERIODICLISTBASE, (uint32)physicalAddress);
+
+	// create the interrupt entries to support different polling intervals
+	TRACE("creating interrupt entries\n");
+	uint32_t physicalBase = physicalAddress + B_PAGE_SIZE;
+	uint8 *logicalBase = (uint8 *)fPeriodicFrameList + B_PAGE_SIZE;
+	memset(logicalBase, 0, B_PAGE_SIZE);
+
+	fInterruptEntries = (interrupt_entry *)logicalBase;
+	for (int32 i = 0; i < EHCI_INTERRUPT_ENTRIES_COUNT; i++) {
+		ehci_qh *queueHead = &fInterruptEntries[i].queue_head;
+		queueHead->this_phy = physicalBase | EHCI_ITEM_TYPE_QH;
+		queueHead->current_qtd_phy = 0;
+		queueHead->overlay.next_phy = EHCI_ITEM_TERMINATE;
+		queueHead->overlay.alt_next_phy = EHCI_ITEM_TERMINATE;
+		queueHead->overlay.token = EHCI_QTD_STATUS_HALTED;
+
+		// set dummy endpoint information
+		queueHead->endpoint_chars = EHCI_QH_CHARS_EPS_HIGH
+			| (3 << EHCI_QH_CHARS_RL_SHIFT) | (64 << EHCI_QH_CHARS_MPL_SHIFT)
+			| EHCI_QH_CHARS_TOGGLE;
+		queueHead->endpoint_caps = (1 << EHCI_QH_CAPS_MULT_SHIFT)
+			| (0xff << EHCI_QH_CAPS_ISM_SHIFT);
+
+		physicalBase += sizeof(interrupt_entry);
+		if ((physicalBase & 0x1f) != 0) {
+			panic("physical base for interrupt entry %" B_PRId32
+				" not aligned on 32, interrupt entry structure size %lu\n",
+					i, sizeof(interrupt_entry));
+		}
+	}
+
+	// create the itd and sitd entries
+	TRACE("build up iso entries\n");
+	uint32_t itdPhysicalBase = physicalAddress + B_PAGE_SIZE + B_PAGE_SIZE;
+	itd_entry* itds = (itd_entry *)((uint8 *)fPeriodicFrameList + B_PAGE_SIZE
+		+ B_PAGE_SIZE);
+	memset(itds, 0, itdListSize);
+
+	uint32_t sitdPhysicalBase = itdPhysicalBase + itdListSize;
+	sitd_entry* sitds = (sitd_entry *)((uint8 *)fPeriodicFrameList + B_PAGE_SIZE
+		+ B_PAGE_SIZE + itdListSize);
+	memset(sitds, 0, sitdListSize);
+
+	fItdEntries = new(std::nothrow) ehci_itd *[EHCI_VFRAMELIST_ENTRIES_COUNT];
+	fSitdEntries = new(std::nothrow) ehci_sitd *[EHCI_VFRAMELIST_ENTRIES_COUNT];
+
+	dprintf("sitd entry size %lu, itd entry size %lu\n", sizeof(sitd_entry),
+		sizeof(itd_entry));
+	for (int32 i = 0; i < EHCI_VFRAMELIST_ENTRIES_COUNT; i++) {
+		ehci_sitd *sitd = &sitds[i].sitd;
+		sitd->this_phy = sitdPhysicalBase | EHCI_ITEM_TYPE_SITD;
+		sitd->back_phy = EHCI_ITEM_TERMINATE;
+		fSitdEntries[i] = sitd;
+		TRACE("sitd entry %" B_PRId32 " %p 0x%" B_PRIx32 "\n", i, sitd,
+			sitd->this_phy);
+
+		ehci_itd *itd = &itds[i].itd;
+		itd->this_phy = itdPhysicalBase | EHCI_ITEM_TYPE_ITD;
+		itd->next_phy = sitd->this_phy;
+		fItdEntries[i] = itd;
+		TRACE("itd entry %" B_PRId32 " %p 0x%" B_PRIx32 "\n", i, itd,
+			itd->this_phy);
+
+		sitdPhysicalBase += sizeof(sitd_entry);
+		itdPhysicalBase += sizeof(itd_entry);
+		if ((sitdPhysicalBase & 0x10) != 0 || (itdPhysicalBase & 0x10) != 0)
+			panic("physical base for entry %" B_PRId32 " not aligned on 32\n",
+				i);
+	}
+
+	// build flat interrupt tree
+	TRACE("build up interrupt links\n");
+	uint32 interval = EHCI_VFRAMELIST_ENTRIES_COUNT;
+	uint32 intervalIndex = EHCI_INTERRUPT_ENTRIES_COUNT - 1;
+	while (interval > 1) {
+		for (uint32 insertIndex = interval / 2;
+			insertIndex < EHCI_VFRAMELIST_ENTRIES_COUNT;
+			insertIndex += interval) {
+			fSitdEntries[insertIndex]->next_phy
+				= fInterruptEntries[intervalIndex].queue_head.this_phy;
+		}
+
+		intervalIndex--;
+		interval /= 2;
+	}
+
+	// setup the empty slot in the list and linking of all -> first
+	ehci_qh *firstLogical = &fInterruptEntries[0].queue_head;
+	fSitdEntries[0]->next_phy = firstLogical->this_phy;
+	for (int32 i = 1; i < EHCI_INTERRUPT_ENTRIES_COUNT; i++) {
+		fInterruptEntries[i].queue_head.next_phy = firstLogical->this_phy;
+		fInterruptEntries[i].queue_head.next_log = firstLogical;
+		fInterruptEntries[i].queue_head.prev_log = NULL;
+	}
+
+	// terminate the first entry
+	firstLogical->next_phy = EHCI_ITEM_TERMINATE;
+	firstLogical->next_log = NULL;
+	firstLogical->prev_log = NULL;
+
+	for (int32 i = 0; i < EHCI_FRAMELIST_ENTRIES_COUNT; i++) {
+		fPeriodicFrameList[i]
+			= fItdEntries[i & (EHCI_VFRAMELIST_ENTRIES_COUNT - 1)]->this_phy;
+		TRACE("periodic entry %" B_PRId32 " linked to 0x%" B_PRIx32 "\n", i,
+			fPeriodicFrameList[i]);
+	}
+
+	// Create the array that will keep bandwidth information
+	fFrameBandwidth = new(std::nothrow) uint16[EHCI_VFRAMELIST_ENTRIES_COUNT];
+	for (int32 i = 0; i < EHCI_VFRAMELIST_ENTRIES_COUNT; i++) {
+		fFrameBandwidth[i] = MAX_AVAILABLE_BANDWIDTH;
+	}
+
+	// allocate a queue head that will always stay in the async frame list
+	fAsyncQueueHead = CreateQueueHead();
+	if (!fAsyncQueueHead) {
+		TRACE_ERROR("unable to allocate stray async queue head\n");
+		return;
+	}
+
+	fAsyncQueueHead->next_phy = fAsyncQueueHead->this_phy;
+	fAsyncQueueHead->next_log = fAsyncQueueHead;
+	fAsyncQueueHead->prev_log = fAsyncQueueHead;
+	fAsyncQueueHead->endpoint_chars = EHCI_QH_CHARS_EPS_HIGH
+		| EHCI_QH_CHARS_RECHEAD;
+	fAsyncQueueHead->endpoint_caps = 1 << EHCI_QH_CAPS_MULT_SHIFT;
+	fAsyncQueueHead->overlay.next_phy = EHCI_ITEM_TERMINATE;
+
+	WriteOpReg(EHCI_ASYNCLISTADDR, (uint32)fAsyncQueueHead->this_phy);
+	TRACE("set the async list addr to 0x%08" B_PRIx32 "\n",
+		ReadOpReg(EHCI_ASYNCLISTADDR));
+
+	fInitOK = true;
+	TRACE("EHCI host controller driver constructed\n");
+}
+
+
+EHCI::~EHCI()
+{
+	TRACE("tear down EHCI host controller driver\n");
+
+	WriteOpReg(EHCI_USBCMD, 0);
+	WriteOpReg(EHCI_CONFIGFLAG, 0);
+	CancelAllPendingTransfers();
+
+	int32 result = 0;
+	fStopThreads = true;
+	delete_sem(fAsyncAdvanceSem);
+	delete_sem(fFinishTransfersSem);
+	delete_sem(fFinishIsochronousTransfersSem);
+	delete_sem(fCleanupSem);
+	wait_for_thread(fFinishThread, &result);
+	wait_for_thread(fCleanupThread, &result);
+	wait_for_thread(fFinishIsochronousThread, &result);
+
+	if (fInterruptPollThread >= 0)
+		wait_for_thread(fInterruptPollThread, &result);
+	else
+		remove_io_interrupt_handler(fIRQ, InterruptHandler, (void *)this);
+
+	LockIsochronous();
+	isochronous_transfer_data *isoTransfer = fFirstIsochronousTransfer;
+	while (isoTransfer) {
+		isochronous_transfer_data *next = isoTransfer->link;
+		delete isoTransfer;
+		isoTransfer = next;
+	}
+	mutex_destroy(&fIsochronousLock);
+
+	delete fRootHub;
+	delete [] fFrameBandwidth;
+	delete [] fItdEntries;
+	delete [] fSitdEntries;
+	delete_area(fPeriodicFrameListArea);
+	delete_area(fRegisterArea);
+
+	if (fUseMSI) {
+		fPci->disable_msi(fDevice);
+		fPci->unconfigure_msi(fDevice);
+	}
+
+}
+
+
+status_t
+EHCI::Start()
+{
+	TRACE("starting EHCI host controller\n");
+	TRACE("usbcmd: 0x%08" B_PRIx32 "; usbsts: 0x%08" B_PRIx32 "\n",
+		ReadOpReg(EHCI_USBCMD), ReadOpReg(EHCI_USBSTS));
+
+	bool hasPerPortChangeEvent = (ReadCapReg32(EHCI_HCCPARAMS)
+		& EHCI_HCCPARAMS_PPCEC) != 0;
+
+	uint32 config = ReadOpReg(EHCI_USBCMD);
+	config &= ~((EHCI_USBCMD_ITC_MASK << EHCI_USBCMD_ITC_SHIFT)
+		| EHCI_USBCMD_PPCEE);
+	uint32 frameListSize = (config >> EHCI_USBCMD_FLS_SHIFT)
+		& EHCI_USBCMD_FLS_MASK;
+
+	WriteOpReg(EHCI_USBCMD, config | EHCI_USBCMD_RUNSTOP
+		| (hasPerPortChangeEvent ? EHCI_USBCMD_PPCEE : 0)
+		| EHCI_USBCMD_ASENABLE | EHCI_USBCMD_PSENABLE
+		| (frameListSize << EHCI_USBCMD_FLS_SHIFT)
+		| (1 << EHCI_USBCMD_ITC_SHIFT));
+
+	switch (frameListSize) {
+		case 0:
+			TRACE("frame list size 1024\n");
+			break;
+		case 1:
+			TRACE("frame list size 512\n");
+			break;
+		case 2:
+			TRACE("frame list size 256\n");
+			break;
+		default:
+			TRACE_ALWAYS("unknown frame list size\n");
+	}
+
+	bool running = false;
+	for (int32 i = 0; i < 10; i++) {
+		uint32 status = ReadOpReg(EHCI_USBSTS);
+		TRACE("try %" B_PRId32 ": status 0x%08" B_PRIx32 "\n", i, status);
+
+		if (status & EHCI_USBSTS_HCHALTED) {
+			snooze(10000);
+		} else {
+			running = true;
+			break;
+		}
+	}
+
+	if (!running) {
+		TRACE_ERROR("host controller didn't start\n");
+		return B_ERROR;
+	}
+
+	// route all ports to us
+	WriteOpReg(EHCI_CONFIGFLAG, EHCI_CONFIGFLAG_FLAG);
+	snooze(10000);
+
+	fRootHubAddress = AllocateAddress();
+	fRootHub = new(std::nothrow) EHCIRootHub(RootObject(), fRootHubAddress);
+	if (!fRootHub) {
+		TRACE_ERROR("no memory to allocate root hub\n");
+		return B_NO_MEMORY;
+	}
+
+	if (fRootHub->InitCheck() != B_OK) {
+		TRACE_ERROR("root hub failed init check\n");
+		return fRootHub->InitCheck();
+	}
+
+	SetRootHub(fRootHub);
+
+	fRootHub->RegisterNode(Node());
+
+	TRACE_ALWAYS("successfully started the controller\n");
+	return BusManager::Start();
+}
+
+
+status_t
+EHCI::StartDebugTransfer(Transfer *transfer)
+{
+	static transfer_data transferData;
+
+	transferData.queue_head = CreateQueueHead();
+	if (transferData.queue_head == NULL)
+		return B_NO_MEMORY;
+
+	Pipe *pipe = transfer->TransferPipe();
+	status_t result = InitQueueHead(transferData.queue_head, pipe);
+	if (result != B_OK) {
+		FreeQueueHead(transferData.queue_head);
+		return result;
+	}
+
+	if ((pipe->Type() & USB_OBJECT_CONTROL_PIPE) != 0) {
+		result = FillQueueWithRequest(transfer, transferData.queue_head,
+			&transferData.data_descriptor, &transferData.incoming, false);
+	} else {
+		result = FillQueueWithData(transfer, transferData.queue_head,
+			&transferData.data_descriptor, &transferData.incoming, false);
+	}
+
+	if (result != B_OK) {
+		FreeQueueHead(transferData.queue_head);
+		return result;
+	}
+
+	if ((pipe->Type() & USB_OBJECT_INTERRUPT_PIPE) != 0)
+		LinkPeriodicDebugQueueHead(transferData.queue_head, pipe);
+	else
+		LinkAsyncDebugQueueHead(transferData.queue_head);
+
+	// we abuse the callback cookie to hold our transfer data
+	transfer->SetCallback(NULL, &transferData);
+	return B_OK;
+}
+
+
+void
+EHCI::LinkAsyncDebugQueueHead(ehci_qh *queueHead)
+{
+	ehci_qh *prevHead = fAsyncQueueHead->prev_log;
+	queueHead->next_phy = fAsyncQueueHead->this_phy;
+	queueHead->next_log = fAsyncQueueHead;
+	queueHead->prev_log = prevHead;
+	fAsyncQueueHead->prev_log = queueHead;
+	prevHead->next_log = queueHead;
+	prevHead->next_phy = queueHead->this_phy;
+}
+
+
+void
+EHCI::LinkPeriodicDebugQueueHead(ehci_qh *queueHead, Pipe *pipe)
+{
+	if (pipe->Speed() == USB_SPEED_HIGHSPEED)
+		queueHead->endpoint_caps |= (0xff << EHCI_QH_CAPS_ISM_SHIFT);
+	else {
+		queueHead->endpoint_caps |= (0x01 << EHCI_QH_CAPS_ISM_SHIFT);
+		queueHead->endpoint_caps |= (0x1c << EHCI_QH_CAPS_SCM_SHIFT);
+	}
+
+	ehci_qh *interruptQueue = &fInterruptEntries[0].queue_head;
+	queueHead->next_phy = interruptQueue->next_phy;
+	queueHead->next_log = interruptQueue->next_log;
+	queueHead->prev_log = interruptQueue;
+	if (interruptQueue->next_log)
+		interruptQueue->next_log->prev_log = queueHead;
+	interruptQueue->next_log = queueHead;
+	interruptQueue->next_phy = queueHead->this_phy;
+}
+
+
+status_t
+EHCI::CheckDebugTransfer(Transfer *transfer)
+{
+	bool transferOK = false;
+	bool transferError = false;
+	transfer_data *transferData = (transfer_data *)transfer->CallbackCookie();
+	ehci_qtd *descriptor = transferData->queue_head->element_log;
+
+	while (descriptor) {
+		uint32 status = descriptor->token;
+		if ((status & EHCI_QTD_STATUS_ACTIVE) != 0) {
+			// still in progress
+			break;
+		}
+
+		if ((status & EHCI_QTD_STATUS_ERRMASK) != 0) {
+			transferError = true;
+			break;
+		}
+
+		if ((descriptor->next_phy & EHCI_ITEM_TERMINATE) != 0) {
+			// we arrived at the last (stray) descriptor, we're done
+			transferOK = true;
+			break;
+		}
+
+		if (((status >> EHCI_QTD_PID_SHIFT) & EHCI_QTD_PID_MASK)
+				== EHCI_QTD_PID_IN
+			&& ((status >> EHCI_QTD_BYTES_SHIFT) & EHCI_QTD_BYTES_MASK) != 0) {
+			// a short packet condition existed on this descriptor
+			if (descriptor->alt_next_log != NULL) {
+				descriptor = descriptor->alt_next_log;
+				continue;
+			}
+
+			transferOK = true;
+			break;
+		}
+
+		descriptor = descriptor->next_log;
+	}
+
+	if (!transferOK && !transferError) {
+		spin(75);
+		return B_DEV_PENDING;
+	}
+
+	if (transferOK) {
+		bool nextDataToggle = false;
+		if (transferData->data_descriptor != NULL && transferData->incoming) {
+			// data to read out
+			generic_io_vec *vector = transfer->Vector();
+			size_t vectorCount = transfer->VectorCount();
+
+			ReadDescriptorChain(transferData->data_descriptor,
+				vector, vectorCount, transfer->IsPhysical(), &nextDataToggle);
+		} else if (transferData->data_descriptor != NULL)
+			ReadActualLength(transferData->data_descriptor, &nextDataToggle);
+
+		transfer->TransferPipe()->SetDataToggle(nextDataToggle);
+	}
+
+	CleanupDebugTransfer(transfer);
+	return transferOK ? B_OK : B_IO_ERROR;
+}
+
+
+void
+EHCI::CancelDebugTransfer(Transfer *transfer)
+{
+	transfer_data *transferData = (transfer_data *)transfer->CallbackCookie();
+
+	// clear the active bit so the descriptors are canceled
+	ehci_qtd *descriptor = transferData->queue_head->element_log;
+	while (descriptor != NULL) {
+		descriptor->token &= ~EHCI_QTD_STATUS_ACTIVE;
+		descriptor = descriptor->next_log;
+	}
+
+	transfer->Finished(B_CANCELED, 0);
+	CleanupDebugTransfer(transfer);
+}
+
+
+void
+EHCI::CleanupDebugTransfer(Transfer *transfer)
+{
+	transfer_data *transferData = (transfer_data *)transfer->CallbackCookie();
+	ehci_qh *queueHead = transferData->queue_head;
+	ehci_qh *prevHead = queueHead->prev_log;
+	if (prevHead != NULL) {
+		prevHead->next_phy = queueHead->next_phy;
+		prevHead->next_log = queueHead->next_log;
+	}
+
+	ehci_qh *nextHead = queueHead->next_log;
+	if (nextHead != NULL)
+		nextHead->prev_log = queueHead->prev_log;
+
+	queueHead->next_phy = fAsyncQueueHead->this_phy;
+	queueHead->prev_log = NULL;
+	queueHead->next_log = NULL;
+
+	// wait for async advance to ensure the controller does not access this
+	// queue head anymore.
+	spin(125);
+
+	FreeQueueHead(queueHead);
+}
+
+
+status_t
+EHCI::SubmitTransfer(Transfer *transfer)
+{
+	// short circuit the root hub
+	if (transfer->TransferPipe()->DeviceAddress() == fRootHubAddress)
+		return fRootHub->ProcessTransfer(this, transfer);
+
+	Pipe *pipe = transfer->TransferPipe();
+	if ((pipe->Type() & USB_OBJECT_ISO_PIPE) != 0)
+		return SubmitIsochronous(transfer);
+
+	status_t result = transfer->InitKernelAccess();
+	if (result != B_OK)
+		return result;
+
+	ehci_qh *queueHead = CreateQueueHead();
+	if (!queueHead) {
+		TRACE_ERROR("failed to allocate queue head\n");
+		return B_NO_MEMORY;
+	}
+
+	result = InitQueueHead(queueHead, pipe);
+	if (result != B_OK) {
+		TRACE_ERROR("failed to init queue head\n");
+		FreeQueueHead(queueHead);
+		return result;
+	}
+
+	bool directionIn;
+	ehci_qtd *dataDescriptor;
+	if ((pipe->Type() & USB_OBJECT_CONTROL_PIPE) != 0) {
+		result = FillQueueWithRequest(transfer, queueHead, &dataDescriptor,
+			&directionIn, true);
+	} else {
+		result = FillQueueWithData(transfer, queueHead, &dataDescriptor,
+			&directionIn, true);
+	}
+
+	if (result != B_OK) {
+		TRACE_ERROR("failed to fill transfer queue with data\n");
+		FreeQueueHead(queueHead);
+		return result;
+	}
+
+	result = AddPendingTransfer(transfer, queueHead, dataDescriptor,
+		directionIn);
+	if (result != B_OK) {
+		TRACE_ERROR("failed to add pending transfer\n");
+		FreeQueueHead(queueHead);
+		return result;
+	}
+
+#ifdef TRACE_USB
+	TRACE("linking queue\n");
+	print_queue(queueHead);
+#endif
+
+	if ((pipe->Type() & USB_OBJECT_INTERRUPT_PIPE) != 0)
+		result = LinkInterruptQueueHead(queueHead, pipe);
+	else
+		result = LinkQueueHead(queueHead);
+
+	if (result != B_OK) {
+		TRACE_ERROR("failed to link queue head\n");
+		FreeQueueHead(queueHead);
+		return result;
+	}
+
+	return B_OK;
+}
+
+
+status_t
+EHCI::SubmitIsochronous(Transfer *transfer)
+{
+	Pipe *pipe = transfer->TransferPipe();
+	bool directionIn = (pipe->Direction() == Pipe::In);
+	usb_isochronous_data *isochronousData = transfer->IsochronousData();
+	size_t packetSize = transfer->DataLength();
+#ifdef TRACE_USB
+	size_t restSize = packetSize % isochronousData->packet_count;
+#endif
+	packetSize /= isochronousData->packet_count;
+	uint16 currentFrame;
+
+	if (packetSize > pipe->MaxPacketSize()) {
+		TRACE_ERROR(
+			"isochronous packetSize is bigger than pipe MaxPacketSize\n");
+		return B_BAD_VALUE;
+	}
+
+	status_t result = transfer->InitKernelAccess();
+	if (result != B_OK)
+		return result;
+
+	// Ignore the fact that the last descriptor might need less bandwidth.
+	// The overhead is not worthy.
+	uint16 bandwidth = transfer->Bandwidth() / isochronousData->packet_count;
+
+	TRACE("isochronous transfer descriptor bandwidth %d\n", bandwidth);
+
+	// The following holds the list of transfer descriptor of the
+	// isochronous request. It is used to quickly remove all the isochronous
+	// descriptors from the frame list, as descriptors are not link to each
+	// other in a queue like for every other transfer.
+	ehci_itd **isoRequest
+		= new(std::nothrow) ehci_itd *[isochronousData->packet_count];
+	if (isoRequest == NULL) {
+		TRACE("failed to create isoRequest array!\n");
+		return B_NO_MEMORY;
+	}
+
+	TRACE("isochronous submitted size=%" B_PRIuSIZE " bytes, TDs=%" B_PRIu32
+		", maxPacketSize=%" B_PRIuSIZE ", packetSize=%" B_PRIuSIZE
+		", restSize=%" B_PRIuSIZE "\n", transfer->DataLength(),
+		isochronousData->packet_count, pipe->MaxPacketSize(), packetSize,
+		restSize);
+
+	// Find the entry where to start inserting the first Isochronous descriptor
+	if ((isochronousData->flags & USB_ISO_ASAP) != 0 ||
+		isochronousData->starting_frame_number == NULL) {
+
+		if (fFirstIsochronousTransfer != NULL && fNextStartingFrame != -1)
+			currentFrame = fNextStartingFrame;
+		else {
+			uint32 threshold = fThreshold;
+			TRACE("threshold: %" B_PRIu32 "\n", threshold);
+
+			// find the first available frame with enough bandwidth.
+			// This should always be the case, as defining the starting frame
+			// number in the driver makes no sense for many reason, one of which
+			// is that frame numbers value are host controller specific, and the
+			// driver does not know which host controller is running.
+			currentFrame = ((ReadOpReg(EHCI_FRINDEX) + threshold) / 8)
+				& (EHCI_FRAMELIST_ENTRIES_COUNT - 1);
+		}
+
+		// Make sure that:
+		// 1. We are at least 5ms ahead the controller
+		// 2. We stay in the range 0-127
+		// 3. There is enough bandwidth in the first entry
+		currentFrame &= EHCI_VFRAMELIST_ENTRIES_COUNT - 1;
+	} else {
+		// Find out if the frame number specified has enough bandwidth,
+		// otherwise find the first next available frame with enough bandwidth
+		currentFrame = *isochronousData->starting_frame_number;
+	}
+
+	TRACE("isochronous starting frame=%d\n", currentFrame);
+
+	uint16 itdIndex = 0;
+	size_t dataLength = transfer->DataLength();
+	void* bufferLog;
+	phys_addr_t bufferPhy;
+	if (fStack->AllocateChunk(&bufferLog, &bufferPhy, dataLength) != B_OK) {
+		TRACE_ERROR("unable to allocate itd buffer\n");
+		delete[] isoRequest;
+		return B_NO_MEMORY;
+	}
+
+	memset(bufferLog, 0, dataLength);
+
+	phys_addr_t currentPhy = bufferPhy;
+	uint32 frameCount = 0;
+	while (dataLength > 0) {
+		ehci_itd* itd = CreateItdDescriptor();
+		isoRequest[itdIndex++] = itd;
+		uint16 pg = 0;
+		itd->buffer_phy[pg] = currentPhy & 0xfffff000;
+		uint32 offset = currentPhy & 0xfff;
+		TRACE("isochronous created itd, filling it with phy %" B_PRIxPHYSADDR
+			"\n", currentPhy);
+		for (int32 i = 0; i < 8 && dataLength > 0; i++) {
+			size_t length = min_c(dataLength, packetSize);
+			itd->token[i] = (EHCI_ITD_STATUS_ACTIVE << EHCI_ITD_STATUS_SHIFT)
+				| (length << EHCI_ITD_TLENGTH_SHIFT) | (pg << EHCI_ITD_PG_SHIFT)
+				| (offset << EHCI_ITD_TOFFSET_SHIFT);
+			itd->last_token = i;
+			TRACE("isochronous filled slot %" B_PRId32 " 0x%" B_PRIx32 "\n", i,
+				itd->token[i]);
+			dataLength -= length;
+			offset += length;
+			if (dataLength > 0 && offset > 0xfff) {
+				offset -= B_PAGE_SIZE;
+				currentPhy += B_PAGE_SIZE;
+				itd->buffer_phy[pg + 1] = currentPhy & 0xfffff000;
+				pg++;
+			}
+			if (dataLength <= 0)
+				itd->token[i] |= EHCI_ITD_IOC;
+		}
+
+		currentPhy += (offset & 0xfff) - (currentPhy & 0xfff);
+
+		itd->buffer_phy[0]
+			|= (pipe->EndpointAddress() << EHCI_ITD_ENDPOINT_SHIFT)
+				| (pipe->DeviceAddress() << EHCI_ITD_ADDRESS_SHIFT);
+		itd->buffer_phy[1]
+			|= (pipe->MaxPacketSize() & EHCI_ITD_MAXPACKETSIZE_MASK)
+				| (directionIn << EHCI_ITD_DIR_SHIFT);
+		itd->buffer_phy[2]
+			|= ((((pipe->MaxPacketSize() >> EHCI_ITD_MAXPACKETSIZE_LENGTH) + 1)
+				& EHCI_ITD_MUL_MASK) << EHCI_ITD_MUL_SHIFT);
+
+		TRACE("isochronous filled itd buffer_phy[0,1,2] 0x%" B_PRIx32 ", 0x%"
+			B_PRIx32 " 0x%" B_PRIx32 "\n",
+			itd->buffer_phy[0], itd->buffer_phy[1], itd->buffer_phy[2]);
+
+		if (!LockIsochronous())
+			continue;
+		LinkITDescriptors(itd, &fItdEntries[currentFrame]);
+		UnlockIsochronous();
+		fFrameBandwidth[currentFrame] -= bandwidth;
+		currentFrame = (currentFrame + 1) & (EHCI_VFRAMELIST_ENTRIES_COUNT - 1);
+		frameCount++;
+	}
+
+	TRACE("isochronous filled itds count %d\n", itdIndex);
+
+	// Add transfer to the list
+	result = AddPendingIsochronousTransfer(transfer, isoRequest,
+		itdIndex - 1, directionIn, bufferPhy, bufferLog,
+		transfer->DataLength());
+	if (result != B_OK) {
+		TRACE_ERROR("failed to add pending isochronous transfer\n");
+		for (uint32 i = 0; i < itdIndex; i++)
+			FreeDescriptor(isoRequest[i]);
+		delete[] isoRequest;
+		return result;
+	}
+
+	TRACE("appended isochronous transfer by starting at frame number %d\n",
+		currentFrame);
+	fNextStartingFrame = currentFrame + 1;
+
+	// Wake up the isochronous finisher thread
+	release_sem_etc(fFinishIsochronousTransfersSem, 1 /*frameCount*/,
+		B_DO_NOT_RESCHEDULE);
+
+	return B_OK;
+}
+
+
+isochronous_transfer_data *
+EHCI::FindIsochronousTransfer(ehci_itd *itd)
+{
+	// Simply check every last descriptor of the isochronous transfer list
+	isochronous_transfer_data *transfer = fFirstIsochronousTransfer;
+	if (transfer) {
+		while (transfer->descriptors[transfer->last_to_process]
+			!= itd) {
+			transfer = transfer->link;
+			if (!transfer)
+				break;
+		}
+	}
+	return transfer;
+}
+
+
+status_t
+EHCI::NotifyPipeChange(Pipe *pipe, usb_change change)
+{
+	TRACE("pipe change %d for pipe %p\n", change, pipe);
+	switch (change) {
+		case USB_CHANGE_CREATED:
+		case USB_CHANGE_DESTROYED: {
+			// ToDo: we should create and keep a single queue head
+			// for all transfers to/from this pipe
+			break;
+		}
+
+		case USB_CHANGE_PIPE_POLICY_CHANGED: {
+			// ToDo: for isochronous pipes we might need to adapt to new
+			// pipe policy settings here
+			break;
+		}
+	}
+
+	return B_OK;
+}
+
+
+status_t
+EHCI::GetPortStatus(uint8 index, usb_port_status *status)
+{
+	if (index >= fPortCount)
+		return B_BAD_INDEX;
+
+	status->status = status->change = 0;
+	uint32 portStatus = ReadOpReg(EHCI_PORTSC + index * sizeof(uint32));
+
+	// build the status
+	if (portStatus & EHCI_PORTSC_CONNSTATUS)
+		status->status |= PORT_STATUS_CONNECTION;
+	if (portStatus & EHCI_PORTSC_ENABLE)
+		status->status |= PORT_STATUS_ENABLE;
+	if (portStatus & EHCI_PORTSC_ENABLE)
+		status->status |= PORT_STATUS_HIGH_SPEED;
+	if (portStatus & EHCI_PORTSC_OCACTIVE)
+		status->status |= PORT_STATUS_OVER_CURRENT;
+	if (portStatus & EHCI_PORTSC_PORTRESET)
+		status->status |= PORT_STATUS_RESET;
+	if (portStatus & EHCI_PORTSC_PORTPOWER)
+		status->status |= PORT_STATUS_POWER;
+	if (portStatus & EHCI_PORTSC_SUSPEND)
+		status->status |= PORT_STATUS_SUSPEND;
+	if (portStatus & EHCI_PORTSC_DMINUS)
+		status->status |= PORT_STATUS_LOW_SPEED;
+
+	// build the change
+	if (portStatus & EHCI_PORTSC_CONNCHANGE)
+		status->change |= PORT_STATUS_CONNECTION;
+	if (portStatus & EHCI_PORTSC_ENABLECHANGE)
+		status->change |= PORT_STATUS_ENABLE;
+	if (portStatus & EHCI_PORTSC_OCCHANGE)
+		status->change |= PORT_STATUS_OVER_CURRENT;
+
+	// there are no bits to indicate suspend and reset change
+	if (fPortResetChange & (1 << index))
+		status->change |= PORT_STATUS_RESET;
+	if (fPortSuspendChange & (1 << index))
+		status->change |= PORT_STATUS_SUSPEND;
+
+	return B_OK;
+}
+
+
+status_t
+EHCI::SetPortFeature(uint8 index, uint16 feature)
+{
+	if (index >= fPortCount)
+		return B_BAD_INDEX;
+
+	uint32 portRegister = EHCI_PORTSC + index * sizeof(uint32);
+	uint32 portStatus = ReadOpReg(portRegister) & EHCI_PORTSC_DATAMASK;
+
+	switch (feature) {
+		case PORT_SUSPEND:
+			return SuspendPort(index);
+
+		case PORT_RESET:
+			return ResetPort(index);
+
+		case PORT_POWER:
+			WriteOpReg(portRegister, portStatus | EHCI_PORTSC_PORTPOWER);
+			return B_OK;
+	}
+
+	return B_BAD_VALUE;
+}
+
+
+status_t
+EHCI::ClearPortFeature(uint8 index, uint16 feature)
+{
+	if (index >= fPortCount)
+		return B_BAD_INDEX;
+
+	uint32 portRegister = EHCI_PORTSC + index * sizeof(uint32);
+	uint32 portStatus = ReadOpReg(portRegister) & EHCI_PORTSC_DATAMASK;
+
+	switch (feature) {
+		case PORT_ENABLE:
+			WriteOpReg(portRegister, portStatus & ~EHCI_PORTSC_ENABLE);
+			return B_OK;
+
+		case PORT_POWER:
+			WriteOpReg(portRegister, portStatus & ~EHCI_PORTSC_PORTPOWER);
+			return B_OK;
+
+		case C_PORT_CONNECTION:
+			WriteOpReg(portRegister, portStatus | EHCI_PORTSC_CONNCHANGE);
+			return B_OK;
+
+		case C_PORT_ENABLE:
+			WriteOpReg(portRegister, portStatus | EHCI_PORTSC_ENABLECHANGE);
+			return B_OK;
+
+		case C_PORT_OVER_CURRENT:
+			WriteOpReg(portRegister, portStatus | EHCI_PORTSC_OCCHANGE);
+			return B_OK;
+
+		case C_PORT_RESET:
+			fPortResetChange &= ~(1 << index);
+			return B_OK;
+
+		case C_PORT_SUSPEND:
+			fPortSuspendChange &= ~(1 << index);
+			return B_OK;
+	}
+
+	return B_BAD_VALUE;
+}
+
+
+status_t
+EHCI::ResetPort(uint8 index)
+{
+	TRACE("reset port %d\n", index);
+	uint32 portRegister = EHCI_PORTSC + index * sizeof(uint32);
+	uint32 portStatus = ReadOpReg(portRegister) & EHCI_PORTSC_DATAMASK;
+
+	if (portStatus & EHCI_PORTSC_DMINUS) {
+		TRACE_ALWAYS("lowspeed device connected, giving up port ownership\n");
+		// there is a lowspeed device connected.
+		// we give the ownership to a companion controller.
+		WriteOpReg(portRegister, portStatus | EHCI_PORTSC_PORTOWNER);
+		fPortResetChange |= (1 << index);
+		return B_OK;
+	}
+
+	// enable reset signaling
+	WriteOpReg(portRegister, (portStatus & ~EHCI_PORTSC_ENABLE)
+		| EHCI_PORTSC_PORTRESET);
+	snooze(50000);
+
+	// disable reset signaling
+	portStatus = ReadOpReg(portRegister) & EHCI_PORTSC_DATAMASK;
+	WriteOpReg(portRegister, portStatus & ~EHCI_PORTSC_PORTRESET);
+	snooze(2000);
+
+	portStatus = ReadOpReg(portRegister) & EHCI_PORTSC_DATAMASK;
+	if (portStatus & EHCI_PORTSC_PORTRESET) {
+		TRACE_ERROR("port reset won't complete\n");
+		return B_ERROR;
+	}
+
+	if ((portStatus & EHCI_PORTSC_ENABLE) == 0) {
+		TRACE_ALWAYS("fullspeed device connected, giving up port ownership\n");
+		// the port was not enabled, this means that no high speed device is
+		// attached to this port. we give up ownership to a companion controler
+		WriteOpReg(portRegister, portStatus | EHCI_PORTSC_PORTOWNER);
+	}
+
+	fPortResetChange |= (1 << index);
+	return B_OK;
+}
+
+
+status_t
+EHCI::SuspendPort(uint8 index)
+{
+	uint32 portRegister = EHCI_PORTSC + index * sizeof(uint32);
+	uint32 portStatus = ReadOpReg(portRegister) & EHCI_PORTSC_DATAMASK;
+	WriteOpReg(portRegister, portStatus | EHCI_PORTSC_SUSPEND);
+	fPortSuspendChange |= (1 << index);
+	return B_OK;
+}
+
+
+status_t
+EHCI::ControllerReset()
+{
+	// halt the controller first
+	WriteOpReg(EHCI_USBCMD, 0);
+	snooze(10000);
+
+	// then reset it
+	WriteOpReg(EHCI_USBCMD, EHCI_USBCMD_HCRESET);
+
+	int32 tries = 5;
+	while (ReadOpReg(EHCI_USBCMD) & EHCI_USBCMD_HCRESET) {
+		snooze(10000);
+		if (tries-- < 0)
+			return B_ERROR;
+	}
+
+	return B_OK;
+}
+
+
+status_t
+EHCI::LightReset()
+{
+	return B_ERROR;
+}
+
+
+int32
+EHCI::InterruptHandler(void *data)
+{
+	return ((EHCI *)data)->Interrupt();
+}
+
+
+int32
+EHCI::Interrupt()
+{
+	static spinlock lock = B_SPINLOCK_INITIALIZER;
+	acquire_spinlock(&lock);
+
+	// check if any interrupt was generated
+	uint32 status = ReadOpReg(EHCI_USBSTS) & EHCI_USBSTS_INTMASK;
+	if ((status & fEnabledInterrupts) == 0) {
+		if (status != 0) {
+			TRACE("discarding not enabled interrupts 0x%08" B_PRIx32 "\n",
+				status);
+			WriteOpReg(EHCI_USBSTS, status);
+		}
+
+		release_spinlock(&lock);
+		return B_UNHANDLED_INTERRUPT;
+	}
+
+	bool asyncAdvance = false;
+	bool finishTransfers = false;
+	int32 result = B_HANDLED_INTERRUPT;
+
+	if (status & EHCI_USBSTS_USBINT) {
+		TRACE("transfer finished\n");
+		result = B_INVOKE_SCHEDULER;
+		finishTransfers = true;
+	}
+
+	if (status & EHCI_USBSTS_USBERRINT) {
+		TRACE("transfer error\n");
+		result = B_INVOKE_SCHEDULER;
+		finishTransfers = true;
+	}
+
+	if (status & EHCI_USBSTS_FLROLLOVER)
+		TRACE("frame list rollover\n");
+
+	if (status & EHCI_USBSTS_PORTCHANGE)
+		TRACE("port change detected\n");
+
+	if (status & EHCI_USBSTS_INTONAA) {
+		TRACE("interrupt on async advance\n");
+		asyncAdvance = true;
+		result = B_INVOKE_SCHEDULER;
+	}
+
+	if (status & EHCI_USBSTS_HOSTSYSERR)
+		TRACE_ERROR("host system error!\n");
+
+	WriteOpReg(EHCI_USBSTS, status);
+	release_spinlock(&lock);
+
+	if (asyncAdvance)
+		release_sem_etc(fAsyncAdvanceSem, 1, B_DO_NOT_RESCHEDULE);
+	if (finishTransfers)
+		release_sem_etc(fFinishTransfersSem, 1, B_DO_NOT_RESCHEDULE);
+
+	return result;
+}
+
+
+int32
+EHCI::InterruptPollThread(void *data)
+{
+	EHCI *ehci = (EHCI *)data;
+
+	while (!ehci->fStopThreads) {
+		// TODO: this could be handled much better by only polling when there
+		// are actual transfers going on...
+		snooze(1000);
+
+		cpu_status status = disable_interrupts();
+		ehci->Interrupt();
+		restore_interrupts(status);
+	}
+
+	return 0;
+}
+
+
+status_t
+EHCI::AddPendingTransfer(Transfer *transfer, ehci_qh *queueHead,
+	ehci_qtd *dataDescriptor, bool directionIn)
+{
+	transfer_data *data = new(std::nothrow) transfer_data;
+	if (!data)
+		return B_NO_MEMORY;
+
+	data->transfer = transfer;
+	data->queue_head = queueHead;
+	data->data_descriptor = dataDescriptor;
+	data->incoming = directionIn;
+	data->canceled = false;
+	data->link = NULL;
+
+	if (!Lock()) {
+		delete data;
+		return B_ERROR;
+	}
+
+	// We do not support queuing other transfers in tandem with a fragmented one.
+	transfer_data *it = fFirstTransfer;
+	while (it) {
+		if (it->transfer && it->transfer->TransferPipe() == transfer->TransferPipe()
+				&& it->transfer->IsFragmented()) {
+			TRACE_ERROR("cannot submit transfer: a fragmented transfer is queued\n");
+
+			Unlock();
+			delete data;
+			return B_DEV_RESOURCE_CONFLICT;
+		}
+
+		it = it->link;
+	}
+
+	if (fLastTransfer)
+		fLastTransfer->link = data;
+	else
+		fFirstTransfer = data;
+
+	fLastTransfer = data;
+	Unlock();
+
+	return B_OK;
+}
+
+
+status_t
+EHCI::AddPendingIsochronousTransfer(Transfer *transfer, ehci_itd **isoRequest,
+	uint32 lastIndex, bool directionIn, addr_t bufferPhy, void* bufferLog,
+	size_t bufferSize)
+{
+	if (!transfer || !isoRequest)
+		return B_BAD_VALUE;
+
+	isochronous_transfer_data *data
+		= new(std::nothrow) isochronous_transfer_data;
+	if (!data)
+		return B_NO_MEMORY;
+
+	data->transfer = transfer;
+	data->descriptors = isoRequest;
+	data->last_to_process = lastIndex;
+	data->incoming = directionIn;
+	data->is_active = true;
+	data->link = NULL;
+	data->buffer_phy = bufferPhy;
+	data->buffer_log = bufferLog;
+	data->buffer_size = bufferSize;
+
+	// Put in the isochronous transfer list
+	if (!LockIsochronous()) {
+		delete data;
+		return B_ERROR;
+	}
+
+	if (fLastIsochronousTransfer)
+		fLastIsochronousTransfer->link = data;
+	else if (!fFirstIsochronousTransfer)
+		fFirstIsochronousTransfer = data;
+
+	fLastIsochronousTransfer = data;
+	UnlockIsochronous();
+	return B_OK;
+}
+
+
+status_t
+EHCI::CancelQueuedTransfers(Pipe *pipe, bool force)
+{
+	if ((pipe->Type() & USB_OBJECT_ISO_PIPE) != 0)
+		return CancelQueuedIsochronousTransfers(pipe, force);
+
+	if (!Lock())
+		return B_ERROR;
+
+	struct transfer_entry {
+		Transfer *			transfer;
+		transfer_entry *	next;
+	};
+
+	transfer_entry *list = NULL;
+	transfer_data *current = fFirstTransfer;
+	while (current) {
+		if (current->transfer && current->transfer->TransferPipe() == pipe) {
+			// clear the active bit so the descriptors are canceled
+			ehci_qtd *descriptor = current->queue_head->element_log;
+			while (descriptor) {
+				descriptor->token &= ~EHCI_QTD_STATUS_ACTIVE;
+				descriptor = descriptor->next_log;
+			}
+
+			if (!force) {
+				// if the transfer is canceled by force, the one causing the
+				// cancel is probably not the one who initiated the transfer
+				// and the callback is likely not safe anymore
+				transfer_entry *entry
+					= (transfer_entry *)malloc(sizeof(transfer_entry));
+				if (entry != NULL) {
+					entry->transfer = current->transfer;
+					current->transfer = NULL;
+					entry->next = list;
+					list = entry;
+				}
+			}
+
+			current->canceled = true;
+		}
+
+		current = current->link;
+	}
+
+	Unlock();
+
+	while (list != NULL) {
+		transfer_entry *next = list->next;
+		list->transfer->Finished(B_CANCELED, 0);
+		delete list->transfer;
+		free(list);
+		list = next;
+	}
+
+	// wait for any transfers that might have made it before canceling
+	while (fProcessingPipe == pipe)
+		snooze(1000);
+
+	// notify the finisher so it can clean up the canceled transfers
+	release_sem_etc(fFinishTransfersSem, 1, B_DO_NOT_RESCHEDULE);
+	return B_OK;
+}
+
+
+status_t
+EHCI::CancelQueuedIsochronousTransfers(Pipe *pipe, bool force)
+{
+	isochronous_transfer_data *current = fFirstIsochronousTransfer;
+
+	while (current) {
+		if (current->transfer->TransferPipe() == pipe) {
+			// TODO implement
+
+			// TODO: Use the force paramater in order to avoid calling
+			// invalid callbacks
+			current->is_active = false;
+		}
+
+		current = current->link;
+	}
+
+	TRACE_ERROR("no isochronous transfer found!\n");
+	return B_ERROR;
+}
+
+
+status_t
+EHCI::CancelAllPendingTransfers()
+{
+	if (!Lock())
+		return B_ERROR;
+
+	transfer_data *transfer = fFirstTransfer;
+	while (transfer) {
+		transfer->transfer->Finished(B_CANCELED, 0);
+		delete transfer->transfer;
+
+		transfer_data *next = transfer->link;
+		delete transfer;
+		transfer = next;
+	}
+
+	fFirstTransfer = NULL;
+	fLastTransfer = NULL;
+	Unlock();
+	return B_OK;
+}
+
+
+int32
+EHCI::FinishThread(void *data)
+{
+	((EHCI *)data)->FinishTransfers();
+	return B_OK;
+}
+
+
+void
+EHCI::FinishTransfers()
+{
+	while (!fStopThreads) {
+		if (acquire_sem(fFinishTransfersSem) != B_OK)
+			continue;
+
+		// eat up sems that have been released by multiple interrupts
+		int32 semCount = 0;
+		get_sem_count(fFinishTransfersSem, &semCount);
+		if (semCount > 0) {
+			acquire_sem_etc(fFinishTransfersSem, semCount, B_RELATIVE_TIMEOUT,
+				0);
+		}
+
+		if (!Lock())
+			continue;
+
+		TRACE("finishing transfers\n");
+		transfer_data *lastTransfer = NULL;
+		transfer_data *transfer = fFirstTransfer;
+		Unlock();
+
+		while (transfer) {
+			bool transferDone = false;
+			ehci_qtd *descriptor = transfer->queue_head->element_log;
+			status_t callbackStatus = B_OK;
+
+			while (descriptor) {
+				uint32 status = descriptor->token;
+				if (status & EHCI_QTD_STATUS_ACTIVE) {
+					// still in progress
+					TRACE("qtd (0x%08" B_PRIx32 ") still active\n",
+						descriptor->this_phy);
+					break;
+				}
+
+				if (status & EHCI_QTD_STATUS_ERRMASK) {
+					// a transfer error occured
+					TRACE_ERROR("qtd (0x%" B_PRIx32 ") error: 0x%08" B_PRIx32
+						"\n", descriptor->this_phy, status);
+
+					uint8 errorCount = status >> EHCI_QTD_ERRCOUNT_SHIFT;
+					errorCount &= EHCI_QTD_ERRCOUNT_MASK;
+					if (errorCount == 0) {
+						// the error counter counted down to zero, report why
+						int32 reasons = 0;
+						if (status & EHCI_QTD_STATUS_BUFFER) {
+							callbackStatus = transfer->incoming
+								? B_DEV_DATA_OVERRUN : B_DEV_DATA_UNDERRUN;
+							reasons++;
+						}
+						if (status & EHCI_QTD_STATUS_TERROR) {
+							callbackStatus = B_DEV_CRC_ERROR;
+							reasons++;
+						}
+						if ((transfer->queue_head->endpoint_chars
+								& EHCI_QH_CHARS_EPS_HIGH) == 0) {
+							// For full-/lowspeed endpoints the unused ping
+							// state bit is used as another error bit, it is
+							// unspecific however.
+							if ((status & EHCI_QTD_STATUS_LS_ERR) != 0) {
+								callbackStatus = B_DEV_STALLED;
+								reasons++;
+							}
+						}
+
+						if (reasons > 1)
+							callbackStatus = B_DEV_MULTIPLE_ERRORS;
+						else if (reasons == 0) {
+							TRACE_ERROR("error counter counted down to zero "
+								"but none of the error bits are set\n");
+							callbackStatus = B_DEV_STALLED;
+						}
+					} else if (status & EHCI_QTD_STATUS_BABBLE) {
+						// there is a babble condition
+						callbackStatus = transfer->incoming
+							? B_DEV_FIFO_OVERRUN : B_DEV_FIFO_UNDERRUN;
+					} else {
+						// if the error counter didn't count down to zero
+						// and there was no babble, then this halt was caused
+						// by a stall handshake
+						callbackStatus = B_DEV_STALLED;
+					}
+
+					transferDone = true;
+					break;
+				}
+
+				if (descriptor->next_phy & EHCI_ITEM_TERMINATE) {
+					// we arrived at the last (stray) descriptor, we're done
+					TRACE("qtd (0x%08" B_PRIx32 ") done\n",
+						descriptor->this_phy);
+					callbackStatus = B_OK;
+					transferDone = true;
+					break;
+				}
+
+				if (((status >> EHCI_QTD_PID_SHIFT) & EHCI_QTD_PID_MASK)
+						== EHCI_QTD_PID_IN
+					&& ((status >> EHCI_QTD_BYTES_SHIFT) & EHCI_QTD_BYTES_MASK)
+						!= 0) {
+					// a short packet condition existed on this descriptor,
+					// follow the alternate next pointer if set
+					if (descriptor->alt_next_log != NULL) {
+						descriptor = descriptor->alt_next_log;
+						continue;
+					}
+
+					// no alternate next, transfer is done
+					callbackStatus = B_OK;
+					transferDone = true;
+					break;
+				}
+
+				descriptor = descriptor->next_log;
+			}
+
+			if (!transferDone) {
+				lastTransfer = transfer;
+				transfer = transfer->link;
+				continue;
+			}
+
+			// remove the transfer from the list first so we are sure
+			// it doesn't get canceled while we still process it
+			transfer_data *next = transfer->link;
+			if (Lock()) {
+				if (lastTransfer)
+					lastTransfer->link = transfer->link;
+
+				if (transfer == fFirstTransfer)
+					fFirstTransfer = transfer->link;
+				if (transfer == fLastTransfer)
+					fLastTransfer = lastTransfer;
+
+				// store the currently processing pipe here so we can wait
+				// in cancel if we are processing something on the target pipe
+				if (!transfer->canceled)
+					fProcessingPipe = transfer->transfer->TransferPipe();
+
+				transfer->link = NULL;
+				Unlock();
+			}
+
+			// if canceled the callback has already been called
+			if (!transfer->canceled) {
+				size_t actualLength = 0;
+
+				if (callbackStatus == B_OK) {
+					bool nextDataToggle = false;
+					if (transfer->data_descriptor && transfer->incoming) {
+						// data to read out
+						generic_io_vec *vector = transfer->transfer->Vector();
+						size_t vectorCount = transfer->transfer->VectorCount();
+						callbackStatus = transfer->transfer->PrepareKernelAccess();
+						if (callbackStatus == B_OK) {
+							actualLength = ReadDescriptorChain(
+								transfer->data_descriptor,
+								vector, vectorCount, transfer->transfer->IsPhysical(),
+								&nextDataToggle);
+						}
+					} else if (transfer->data_descriptor) {
+						// calculate transfered length
+						actualLength = ReadActualLength(
+							transfer->data_descriptor, &nextDataToggle);
+					}
+
+					transfer->transfer->TransferPipe()->SetDataToggle(
+						nextDataToggle);
+				}
+
+				if (callbackStatus == B_OK && transfer->transfer->IsFragmented()) {
+					// this transfer may still have data left
+					transfer->transfer->AdvanceByFragment(actualLength);
+					if (transfer->transfer->FragmentLength() > 0) {
+						FreeDescriptorChain(transfer->data_descriptor);
+						status_t result = FillQueueWithData(
+							transfer->transfer,
+							transfer->queue_head,
+							&transfer->data_descriptor, NULL, true);
+
+						if (result == B_OK && Lock()) {
+							// reappend the transfer
+							if (fLastTransfer)
+								fLastTransfer->link = transfer;
+							if (!fFirstTransfer)
+								fFirstTransfer = transfer;
+
+							fLastTransfer = transfer;
+							Unlock();
+
+							transfer = next;
+							continue;
+						}
+					}
+
+					// the transfer is done, but we already set the
+					// actualLength with AdvanceByFragment()
+					actualLength = 0;
+				}
+
+				transfer->transfer->Finished(callbackStatus, actualLength);
+				fProcessingPipe = NULL;
+			}
+
+			// unlink hardware queue and delete the transfer
+			UnlinkQueueHead(transfer->queue_head, &fFreeListHead);
+			delete transfer->transfer;
+			delete transfer;
+			transfer = next;
+			release_sem(fCleanupSem);
+		}
+	}
+}
+
+
+int32
+EHCI::CleanupThread(void *data)
+{
+	((EHCI *)data)->Cleanup();
+	return B_OK;
+}
+
+
+void
+EHCI::Cleanup()
+{
+	ehci_qh *lastFreeListHead = NULL;
+
+	while (!fStopThreads) {
+		if (acquire_sem(fCleanupSem) != B_OK)
+			continue;
+
+		ehci_qh *freeListHead = fFreeListHead;
+		if (freeListHead == lastFreeListHead)
+			continue;
+
+		// set the doorbell and wait for the host controller to notify us
+		WriteOpReg(EHCI_USBCMD, ReadOpReg(EHCI_USBCMD) | EHCI_USBCMD_INTONAAD);
+		if (acquire_sem(fAsyncAdvanceSem) != B_OK)
+			continue;
+
+		ehci_qh *current = freeListHead;
+		while (current != lastFreeListHead) {
+			ehci_qh *next = current->next_log;
+			FreeQueueHead(current);
+			current = next;
+		}
+
+		lastFreeListHead = freeListHead;
+	}
+}
+
+
+int32
+EHCI::FinishIsochronousThread(void *data)
+{
+	((EHCI *)data)->FinishIsochronousTransfers();
+	return B_OK;
+}
+
+
+void
+EHCI::FinishIsochronousTransfers()
+{
+	/* This thread stays one position behind the controller and processes every
+	* isochronous descriptor. Once it finds the last isochronous descriptor
+	* of a transfer, it processes the entire transfer.
+	*/
+	while (!fStopThreads) {
+		// Go to sleep if there are no isochronous transfers to process
+		if (acquire_sem(fFinishIsochronousTransfersSem) != B_OK)
+			return;
+
+		bool transferDone = false;
+
+		uint32 frame = (ReadOpReg(EHCI_FRINDEX) / 8 )
+			& (EHCI_FRAMELIST_ENTRIES_COUNT - 1);
+		uint32 currentFrame = (frame + EHCI_VFRAMELIST_ENTRIES_COUNT - 5)
+			& (EHCI_VFRAMELIST_ENTRIES_COUNT - 1);
+		uint32 loop = 0;
+
+		// Process the frame list until one transfer is processed
+		while (!transferDone && loop++ < EHCI_VFRAMELIST_ENTRIES_COUNT) {
+			// wait 1ms in order to be sure to be one position behind
+			// the controller
+			while (currentFrame == (((ReadOpReg(EHCI_FRINDEX) / 8)
+				& (EHCI_VFRAMELIST_ENTRIES_COUNT - 1)))) {
+				snooze(1000);
+			}
+
+			ehci_itd *itd = fItdEntries[currentFrame];
+
+			TRACE("FinishIsochronousTransfers itd %p phy 0x%" B_PRIx32
+				" prev (%p/0x%" B_PRIx32 ") at frame %" B_PRId32 "\n", itd,
+				itd->this_phy, itd->prev, itd->prev != NULL
+					? itd->prev->this_phy : 0, currentFrame);
+
+			if (!LockIsochronous())
+				continue;
+
+			// Process the frame till it has isochronous descriptors in it.
+			while (!(itd->next_phy & EHCI_ITEM_TERMINATE) && itd->prev != NULL) {
+				TRACE("FinishIsochronousTransfers checking itd %p last_token"
+					" %" B_PRId32 "\n", itd, itd->last_token);
+				TRACE("FinishIsochronousTransfers tokens 0x%" B_PRIx32 " 0x%"
+					B_PRIx32 " 0x%" B_PRIx32 " 0x%" B_PRIx32 " 0x%" B_PRIx32
+					" 0x%" B_PRIx32 " 0x%" B_PRIx32 " 0x%" B_PRIx32 "\n",
+					itd->token[0], itd->token[1], itd->token[2], itd->token[3],
+					itd->token[4], itd->token[5], itd->token[6], itd->token[7]);
+				if (((itd->token[itd->last_token] >> EHCI_ITD_STATUS_SHIFT)
+					& EHCI_ITD_STATUS_ACTIVE) == EHCI_ITD_STATUS_ACTIVE) {
+					TRACE("FinishIsochronousTransfers unprocessed active itd\n");
+				}
+				UnlinkITDescriptors(itd, &fItdEntries[currentFrame]);
+
+				// Process the transfer if we found the last descriptor
+				isochronous_transfer_data *transfer
+					= FindIsochronousTransfer(itd);
+					// Process the descriptors only if it is still active and
+					// belongs to an inbound transfer. If the transfer is not
+					// active, it means the request has been removed, so simply
+					// remove the descriptors.
+				if (transfer && transfer->is_active) {
+					TRACE("FinishIsochronousTransfers active transfer\n");
+					size_t actualLength = 0;
+					status_t status = B_OK;
+					if (((itd->buffer_phy[1] >> EHCI_ITD_DIR_SHIFT) & 1) != 0) {
+						status = transfer->transfer->PrepareKernelAccess();
+						if (status == B_OK)
+							actualLength = ReadIsochronousDescriptorChain(transfer);
+					}
+
+					// Remove the transfer
+					if (transfer == fFirstIsochronousTransfer) {
+						fFirstIsochronousTransfer = transfer->link;
+						if (transfer == fLastIsochronousTransfer)
+							fLastIsochronousTransfer = NULL;
+					} else {
+						isochronous_transfer_data *temp
+							= fFirstIsochronousTransfer;
+						while (temp != NULL && transfer != temp->link)
+							temp = temp->link;
+
+						if (transfer == fLastIsochronousTransfer)
+							fLastIsochronousTransfer = temp;
+						if (temp != NULL && temp->link != NULL)
+							temp->link = temp->link->link;
+					}
+					transfer->link = NULL;
+
+					transfer->transfer->Finished(status, actualLength);
+
+					itd = itd->prev;
+
+					for (uint32 i = 0; i <= transfer->last_to_process; i++)
+						FreeDescriptor(transfer->descriptors[i]);
+
+					TRACE("FinishIsochronousTransfers descriptors freed\n");
+
+					delete [] transfer->descriptors;
+					delete transfer->transfer;
+					fStack->FreeChunk(transfer->buffer_log,
+						(phys_addr_t)transfer->buffer_phy,
+						transfer->buffer_size);
+					delete transfer;
+					transferDone = true;
+				} else {
+					TRACE("FinishIsochronousTransfers not end of transfer\n");
+					itd = itd->prev;
+				}
+			}
+
+			UnlockIsochronous();
+
+			TRACE("FinishIsochronousTransfers next frame\n");
+
+			// Make sure to reset the frame bandwidth
+			fFrameBandwidth[currentFrame] = MAX_AVAILABLE_BANDWIDTH;
+			currentFrame = (currentFrame + 1) % EHCI_VFRAMELIST_ENTRIES_COUNT;
+		}
+	}
+}
+
+
+ehci_qh *
+EHCI::CreateQueueHead()
+{
+	ehci_qh *result;
+	phys_addr_t physicalAddress;
+	if (fStack->AllocateChunk((void **)&result, &physicalAddress,
+			sizeof(ehci_qh)) != B_OK) {
+		TRACE_ERROR("failed to allocate queue head\n");
+		return NULL;
+	}
+
+	result->this_phy = (addr_t)physicalAddress | EHCI_ITEM_TYPE_QH;
+	result->next_phy = EHCI_ITEM_TERMINATE;
+	result->next_log = NULL;
+	result->prev_log = NULL;
+
+	ehci_qtd *descriptor = CreateDescriptor(0, 0);
+	if (!descriptor) {
+		TRACE_ERROR("failed to allocate initial qtd for queue head\n");
+		fStack->FreeChunk(result, physicalAddress, sizeof(ehci_qh));
+		return NULL;
+	}
+
+	descriptor->token &= ~EHCI_QTD_STATUS_ACTIVE;
+	result->stray_log = descriptor;
+	result->element_log = descriptor;
+	result->current_qtd_phy = 0;
+	result->overlay.next_phy = descriptor->this_phy;
+	result->overlay.alt_next_phy = EHCI_ITEM_TERMINATE;
+	result->overlay.token = 0;
+	for (int32 i = 0; i < 5; i++) {
+		result->overlay.buffer_phy[i] = 0;
+		result->overlay.ext_buffer_phy[i] = 0;
+	}
+
+	return result;
+}
+
+
+status_t
+EHCI::InitQueueHead(ehci_qh *queueHead, Pipe *pipe)
+{
+	switch (pipe->Speed()) {
+		case USB_SPEED_LOWSPEED:
+			queueHead->endpoint_chars = EHCI_QH_CHARS_EPS_LOW;
+			break;
+		case USB_SPEED_FULLSPEED:
+			queueHead->endpoint_chars = EHCI_QH_CHARS_EPS_FULL;
+			break;
+		case USB_SPEED_HIGHSPEED:
+			queueHead->endpoint_chars = EHCI_QH_CHARS_EPS_HIGH;
+			break;
+		default:
+			TRACE_ERROR("unknown pipe speed\n");
+			return B_ERROR;
+	}
+
+	queueHead->endpoint_chars |= (3 << EHCI_QH_CHARS_RL_SHIFT)
+		| (pipe->MaxPacketSize() << EHCI_QH_CHARS_MPL_SHIFT)
+		| (pipe->EndpointAddress() << EHCI_QH_CHARS_EPT_SHIFT)
+		| (pipe->DeviceAddress() << EHCI_QH_CHARS_DEV_SHIFT)
+		| EHCI_QH_CHARS_TOGGLE;
+
+	queueHead->endpoint_caps = (1 << EHCI_QH_CAPS_MULT_SHIFT);
+	if (pipe->Speed() != USB_SPEED_HIGHSPEED) {
+		if ((pipe->Type() & USB_OBJECT_CONTROL_PIPE) != 0)
+			queueHead->endpoint_chars |= EHCI_QH_CHARS_CONTROL;
+
+		queueHead->endpoint_caps |= (pipe->HubPort() << EHCI_QH_CAPS_PORT_SHIFT)
+			| (pipe->HubAddress() << EHCI_QH_CAPS_HUB_SHIFT);
+	}
+
+	return B_OK;
+}
+
+
+void
+EHCI::FreeQueueHead(ehci_qh *queueHead)
+{
+	if (!queueHead)
+		return;
+
+	FreeDescriptorChain(queueHead->element_log);
+	FreeDescriptor(queueHead->stray_log);
+	fStack->FreeChunk(queueHead, (phys_addr_t)queueHead->this_phy,
+		sizeof(ehci_qh));
+}
+
+
+status_t
+EHCI::LinkQueueHead(ehci_qh *queueHead)
+{
+	if (!Lock())
+		return B_ERROR;
+
+	ehci_qh *prevHead = fAsyncQueueHead->prev_log;
+	queueHead->next_phy = fAsyncQueueHead->this_phy;
+	queueHead->next_log = fAsyncQueueHead;
+	queueHead->prev_log = prevHead;
+	fAsyncQueueHead->prev_log = queueHead;
+	prevHead->next_log = queueHead;
+	prevHead->next_phy = queueHead->this_phy;
+
+	Unlock();
+	return B_OK;
+}
+
+
+status_t
+EHCI::LinkInterruptQueueHead(ehci_qh *queueHead, Pipe *pipe)
+{
+	uint8 interval = pipe->Interval();
+	if (pipe->Speed() == USB_SPEED_HIGHSPEED) {
+		// Allow interrupts to be scheduled on each possible micro frame.
+		queueHead->endpoint_caps |= (0xff << EHCI_QH_CAPS_ISM_SHIFT);
+	} else {
+		// As we do not yet support FSTNs to correctly reference low/full
+		// speed interrupt transfers, we simply put them into the 1 or 8 interval
+		// queue. This way we ensure that we reach them on every micro frame
+		// and can do the corresponding start/complete split transactions.
+		// ToDo: use FSTNs to correctly link non high speed interrupt transfers
+		if (pipe->Speed() == USB_SPEED_LOWSPEED) {
+			// Low speed devices can't be polled faster than 8ms, so just use
+			// that.
+			interval = 4;
+		} else
+			interval = 1;
+
+		// For now we also force start splits to be in micro frame 0 and
+		// complete splits to be in micro frame 2, 3 and 4.
+		queueHead->endpoint_caps |= (0x01 << EHCI_QH_CAPS_ISM_SHIFT);
+		queueHead->endpoint_caps |= (0x1c << EHCI_QH_CAPS_SCM_SHIFT);
+	}
+
+	// this should not happen
+	if (interval < 1)
+		interval = 1;
+
+	// this may happen as intervals can go up to 16; we limit the value to
+	// EHCI_INTERRUPT_ENTRIES_COUNT as you cannot support intervals above
+	// that with a frame list of just EHCI_VFRAMELIST_ENTRIES_COUNT entries...
+	if (interval > EHCI_INTERRUPT_ENTRIES_COUNT)
+		interval = EHCI_INTERRUPT_ENTRIES_COUNT;
+
+	if (!Lock())
+		return B_ERROR;
+
+	ehci_qh *interruptQueue = &fInterruptEntries[interval - 1].queue_head;
+	queueHead->next_phy = interruptQueue->next_phy;
+	queueHead->next_log = interruptQueue->next_log;
+	queueHead->prev_log = interruptQueue;
+	if (interruptQueue->next_log)
+		interruptQueue->next_log->prev_log = queueHead;
+	interruptQueue->next_log = queueHead;
+	interruptQueue->next_phy = queueHead->this_phy;
+
+	Unlock();
+	return B_OK;
+}
+
+
+status_t
+EHCI::UnlinkQueueHead(ehci_qh *queueHead, ehci_qh **freeListHead)
+{
+	if (!Lock())
+		return B_ERROR;
+
+	ehci_qh *prevHead = queueHead->prev_log;
+	ehci_qh *nextHead = queueHead->next_log;
+	if (prevHead) {
+		prevHead->next_phy = queueHead->next_phy;
+		prevHead->next_log = queueHead->next_log;
+	}
+
+	if (nextHead)
+		nextHead->prev_log = queueHead->prev_log;
+
+	queueHead->next_phy = fAsyncQueueHead->this_phy;
+	queueHead->prev_log = NULL;
+
+	queueHead->next_log = *freeListHead;
+	*freeListHead = queueHead;
+
+	Unlock();
+	return B_OK;
+}
+
+
+status_t
+EHCI::FillQueueWithRequest(Transfer *transfer, ehci_qh *queueHead,
+	ehci_qtd **_dataDescriptor, bool *_directionIn, bool prepareKernelAccess)
+{
+	Pipe *pipe = transfer->TransferPipe();
+	usb_request_data *requestData = transfer->RequestData();
+	bool directionIn = (requestData->RequestType & USB_REQTYPE_DEVICE_IN) > 0;
+
+	ehci_qtd *setupDescriptor = CreateDescriptor(sizeof(usb_request_data),
+		EHCI_QTD_PID_SETUP);
+	ehci_qtd *statusDescriptor = CreateDescriptor(0,
+		directionIn ? EHCI_QTD_PID_OUT : EHCI_QTD_PID_IN);
+
+	if (!setupDescriptor || !statusDescriptor) {
+		TRACE_ERROR("failed to allocate descriptors\n");
+		FreeDescriptor(setupDescriptor);
+		FreeDescriptor(statusDescriptor);
+		return B_NO_MEMORY;
+	}
+
+	generic_io_vec vector;
+	vector.base = (generic_addr_t)requestData;
+	vector.length = sizeof(usb_request_data);
+	WriteDescriptorChain(setupDescriptor, &vector, 1, false);
+
+	ehci_qtd *strayDescriptor = queueHead->stray_log;
+	statusDescriptor->token |= EHCI_QTD_IOC | EHCI_QTD_DATA_TOGGLE;
+
+	ehci_qtd *dataDescriptor = NULL;
+	if (transfer->VectorCount() > 0) {
+		ehci_qtd *lastDescriptor = NULL;
+		status_t result = CreateDescriptorChain(pipe, &dataDescriptor,
+			&lastDescriptor, statusDescriptor, transfer->FragmentLength(),
+			directionIn ? EHCI_QTD_PID_IN : EHCI_QTD_PID_OUT);
+
+		if (result != B_OK) {
+			FreeDescriptor(setupDescriptor);
+			FreeDescriptor(statusDescriptor);
+			return result;
+		}
+
+		if (!directionIn) {
+			if (prepareKernelAccess) {
+				result = transfer->PrepareKernelAccess();
+				if (result != B_OK) {
+					FreeDescriptor(setupDescriptor);
+					FreeDescriptor(statusDescriptor);
+					return result;
+				}
+			}
+			WriteDescriptorChain(dataDescriptor, transfer->Vector(),
+				transfer->VectorCount(), transfer->IsPhysical());
+		}
+
+		LinkDescriptors(setupDescriptor, dataDescriptor, strayDescriptor);
+		LinkDescriptors(lastDescriptor, statusDescriptor, statusDescriptor);
+	} else {
+		// no data: link setup and status descriptors directly
+		LinkDescriptors(setupDescriptor, statusDescriptor, strayDescriptor);
+	}
+
+	queueHead->element_log = setupDescriptor;
+	queueHead->overlay.next_phy = setupDescriptor->this_phy;
+	queueHead->overlay.alt_next_phy = EHCI_ITEM_TERMINATE;
+
+	*_dataDescriptor = dataDescriptor;
+	*_directionIn = directionIn;
+	return B_OK;
+}
+
+
+status_t
+EHCI::FillQueueWithData(Transfer *transfer, ehci_qh *queueHead,
+	ehci_qtd **_dataDescriptor, bool *_directionIn, bool prepareKernelAccess)
+{
+	Pipe *pipe = transfer->TransferPipe();
+	bool directionIn = (pipe->Direction() == Pipe::In);
+
+	ehci_qtd *firstDescriptor = NULL;
+	ehci_qtd *lastDescriptor = NULL;
+	ehci_qtd *strayDescriptor = queueHead->stray_log;
+	status_t result = CreateDescriptorChain(pipe, &firstDescriptor,
+		&lastDescriptor, strayDescriptor, transfer->FragmentLength(),
+		directionIn ? EHCI_QTD_PID_IN : EHCI_QTD_PID_OUT);
+
+	if (result != B_OK)
+		return result;
+
+	lastDescriptor->token |= EHCI_QTD_IOC;
+	if (!directionIn) {
+		if (prepareKernelAccess) {
+			result = transfer->PrepareKernelAccess();
+			if (result != B_OK) {
+				FreeDescriptorChain(firstDescriptor);
+				return result;
+			}
+		}
+		WriteDescriptorChain(firstDescriptor, transfer->Vector(),
+			transfer->VectorCount(), transfer->IsPhysical());
+	}
+
+	queueHead->element_log = firstDescriptor;
+	queueHead->overlay.next_phy = firstDescriptor->this_phy;
+	queueHead->overlay.alt_next_phy = EHCI_ITEM_TERMINATE;
+
+	*_dataDescriptor = firstDescriptor;
+	if (_directionIn)
+		*_directionIn = directionIn;
+	return B_OK;
+}
+
+
+ehci_qtd *
+EHCI::CreateDescriptor(size_t bufferSize, uint8 pid)
+{
+	ehci_qtd *result;
+	phys_addr_t physicalAddress;
+	if (fStack->AllocateChunk((void **)&result, &physicalAddress,
+			sizeof(ehci_qtd)) != B_OK) {
+		TRACE_ERROR("failed to allocate a qtd\n");
+		return NULL;
+	}
+
+	result->this_phy = (addr_t)physicalAddress;
+	result->next_phy = EHCI_ITEM_TERMINATE;
+	result->next_log = NULL;
+	result->alt_next_phy = EHCI_ITEM_TERMINATE;
+	result->alt_next_log = NULL;
+	result->buffer_size = bufferSize;
+	result->token = bufferSize << EHCI_QTD_BYTES_SHIFT;
+	result->token |= 3 << EHCI_QTD_ERRCOUNT_SHIFT;
+	result->token |= pid << EHCI_QTD_PID_SHIFT;
+	result->token |= EHCI_QTD_STATUS_ACTIVE;
+	if (bufferSize == 0) {
+		result->buffer_log = NULL;
+		for (int32 i = 0; i < 5; i++) {
+			result->buffer_phy[i] = 0;
+			result->ext_buffer_phy[i] = 0;
+		}
+
+		return result;
+	}
+
+	if (fStack->AllocateChunk(&result->buffer_log, &physicalAddress,
+			bufferSize) != B_OK) {
+		TRACE_ERROR("unable to allocate qtd buffer\n");
+		fStack->FreeChunk(result, (phys_addr_t)result->this_phy,
+			sizeof(ehci_qtd));
+		return NULL;
+	}
+
+	addr_t physicalBase = (addr_t)physicalAddress;
+	result->buffer_phy[0] = physicalBase;
+	result->ext_buffer_phy[0] = 0;
+	for (int32 i = 1; i < 5; i++) {
+		physicalBase += B_PAGE_SIZE;
+		result->buffer_phy[i] = physicalBase & EHCI_QTD_PAGE_MASK;
+		result->ext_buffer_phy[i] = 0;
+	}
+
+	return result;
+}
+
+
+status_t
+EHCI::CreateDescriptorChain(Pipe *pipe, ehci_qtd **_firstDescriptor,
+	ehci_qtd **_lastDescriptor, ehci_qtd *strayDescriptor, size_t bufferSize,
+	uint8 pid)
+{
+	size_t packetSize = B_PAGE_SIZE * 4;
+	int32 descriptorCount = (bufferSize + packetSize - 1) / packetSize;
+
+	bool dataToggle = pipe->DataToggle();
+	ehci_qtd *firstDescriptor = NULL;
+	ehci_qtd *lastDescriptor = *_firstDescriptor;
+	for (int32 i = 0; i < descriptorCount; i++) {
+		ehci_qtd *descriptor = CreateDescriptor(min_c(packetSize, bufferSize),
+			pid);
+
+		if (!descriptor) {
+			FreeDescriptorChain(firstDescriptor);
+			return B_NO_MEMORY;
+		}
+
+		if (dataToggle)
+			descriptor->token |= EHCI_QTD_DATA_TOGGLE;
+
+		if (lastDescriptor)
+			LinkDescriptors(lastDescriptor, descriptor, strayDescriptor);
+
+		bufferSize -= packetSize;
+		lastDescriptor = descriptor;
+		if (!firstDescriptor)
+			firstDescriptor = descriptor;
+	}
+
+	*_firstDescriptor = firstDescriptor;
+	*_lastDescriptor = lastDescriptor;
+	return B_OK;
+}
+
+
+void
+EHCI::FreeDescriptor(ehci_qtd *descriptor)
+{
+	if (!descriptor)
+		return;
+
+	if (descriptor->buffer_log) {
+		fStack->FreeChunk(descriptor->buffer_log,
+			(phys_addr_t)descriptor->buffer_phy[0], descriptor->buffer_size);
+	}
+
+	fStack->FreeChunk(descriptor, (phys_addr_t)descriptor->this_phy,
+		sizeof(ehci_qtd));
+}
+
+
+void
+EHCI::FreeDescriptorChain(ehci_qtd *topDescriptor)
+{
+	ehci_qtd *current = topDescriptor;
+	ehci_qtd *next = NULL;
+
+	while (current) {
+		next = current->next_log;
+		FreeDescriptor(current);
+		current = next;
+	}
+}
+
+
+ehci_itd *
+EHCI::CreateItdDescriptor()
+{
+	ehci_itd *result;
+	phys_addr_t physicalAddress;
+	if (fStack->AllocateChunk((void **)&result, &physicalAddress,
+			sizeof(ehci_itd)) != B_OK) {
+		TRACE_ERROR("failed to allocate a itd\n");
+		return NULL;
+	}
+
+	memset(result, 0, sizeof(ehci_itd));
+	result->this_phy = (addr_t)physicalAddress;
+	result->next_phy = EHCI_ITEM_TERMINATE;
+
+	return result;
+}
+
+
+ehci_sitd *
+EHCI::CreateSitdDescriptor()
+{
+	ehci_sitd *result;
+	phys_addr_t physicalAddress;
+	if (fStack->AllocateChunk((void **)&result, &physicalAddress,
+			sizeof(ehci_sitd)) != B_OK) {
+		TRACE_ERROR("failed to allocate a sitd\n");
+		return NULL;
+	}
+
+	memset(result, 0, sizeof(ehci_sitd));
+	result->this_phy = (addr_t)physicalAddress | EHCI_ITEM_TYPE_SITD;
+	result->next_phy = EHCI_ITEM_TERMINATE;
+
+	return result;
+}
+
+
+void
+EHCI::FreeDescriptor(ehci_itd *descriptor)
+{
+	if (!descriptor)
+		return;
+
+	fStack->FreeChunk(descriptor, (phys_addr_t)descriptor->this_phy,
+		sizeof(ehci_itd));
+}
+
+
+void
+EHCI::FreeDescriptor(ehci_sitd *descriptor)
+{
+	if (!descriptor)
+		return;
+
+	fStack->FreeChunk(descriptor, (phys_addr_t)descriptor->this_phy,
+		sizeof(ehci_sitd));
+}
+
+
+void
+EHCI::LinkDescriptors(ehci_qtd *first, ehci_qtd *last, ehci_qtd *alt)
+{
+	first->next_phy = last->this_phy;
+	first->next_log = last;
+
+	if (alt) {
+		first->alt_next_phy = alt->this_phy;
+		first->alt_next_log = alt;
+	} else {
+		first->alt_next_phy = EHCI_ITEM_TERMINATE;
+		first->alt_next_log = NULL;
+	}
+}
+
+
+void
+EHCI::LinkITDescriptors(ehci_itd *itd, ehci_itd **_last)
+{
+	ehci_itd *last = *_last;
+	itd->next_phy = last->next_phy;
+	itd->next = NULL;
+	itd->prev = last;
+	last->next = itd;
+	last->next_phy = itd->this_phy;
+	*_last = itd;
+}
+
+
+void
+EHCI::LinkSITDescriptors(ehci_sitd *sitd, ehci_sitd **_last)
+{
+	ehci_sitd *last = *_last;
+	sitd->next_phy = last->next_phy;
+	sitd->next = NULL;
+	sitd->prev = last;
+	last->next = sitd;
+	last->next_phy = sitd->this_phy;
+	*_last = sitd;
+}
+
+
+void
+EHCI::UnlinkITDescriptors(ehci_itd *itd, ehci_itd **last)
+{
+	itd->prev->next_phy = itd->next_phy;
+	itd->prev->next = itd->next;
+	if (itd->next != NULL)
+		itd->next->prev = itd->prev;
+	if (itd == *last)
+		*last = itd->prev;
+}
+
+
+void
+EHCI::UnlinkSITDescriptors(ehci_sitd *sitd, ehci_sitd **last)
+{
+	sitd->prev->next_phy = sitd->next_phy;
+	sitd->prev->next = sitd->next;
+	if (sitd->next != NULL)
+		sitd->next->prev = sitd->prev;
+	if (sitd == *last)
+		*last = sitd->prev;
+}
+
+
+size_t
+EHCI::WriteDescriptorChain(ehci_qtd *topDescriptor, generic_io_vec *vector,
+	size_t vectorCount, bool physical)
+{
+	ehci_qtd *current = topDescriptor;
+	size_t actualLength = 0;
+	size_t vectorIndex = 0;
+	size_t vectorOffset = 0;
+	size_t bufferOffset = 0;
+
+	while (current) {
+		if (!current->buffer_log)
+			break;
+
+		while (true) {
+			size_t length = min_c(current->buffer_size - bufferOffset,
+				vector[vectorIndex].length - vectorOffset);
+
+			status_t status = generic_memcpy(
+				(generic_addr_t)current->buffer_log + bufferOffset, false,
+				vector[vectorIndex].base + vectorOffset, physical, length);
+			ASSERT(status == B_OK);
+
+			actualLength += length;
+			vectorOffset += length;
+			bufferOffset += length;
+
+			if (vectorOffset >= vector[vectorIndex].length) {
+				if (++vectorIndex >= vectorCount) {
+					TRACE("wrote descriptor chain (%ld bytes, no more vectors)"
+						"\n", actualLength);
+					return actualLength;
+				}
+
+				vectorOffset = 0;
+			}
+
+			if (bufferOffset >= current->buffer_size) {
+				bufferOffset = 0;
+				break;
+			}
+		}
+
+		if (current->next_phy & EHCI_ITEM_TERMINATE)
+			break;
+
+		current = current->next_log;
+	}
+
+	TRACE("wrote descriptor chain (%ld bytes)\n", actualLength);
+	return actualLength;
+}
+
+
+size_t
+EHCI::ReadDescriptorChain(ehci_qtd *topDescriptor, generic_io_vec *vector,
+	size_t vectorCount, bool physical, bool *nextDataToggle)
+{
+	uint32 dataToggle = 0;
+	ehci_qtd *current = topDescriptor;
+	size_t actualLength = 0;
+	size_t vectorIndex = 0;
+	size_t vectorOffset = 0;
+	size_t bufferOffset = 0;
+
+	while (current && (current->token & EHCI_QTD_STATUS_ACTIVE) == 0) {
+		if (!current->buffer_log)
+			break;
+
+		dataToggle = current->token & EHCI_QTD_DATA_TOGGLE;
+		size_t bufferSize = current->buffer_size;
+		bufferSize -= (current->token >> EHCI_QTD_BYTES_SHIFT)
+			& EHCI_QTD_BYTES_MASK;
+
+		while (true) {
+			size_t length = min_c(bufferSize - bufferOffset,
+				vector[vectorIndex].length - vectorOffset);
+
+			status_t status = generic_memcpy(
+				vector[vectorIndex].base + vectorOffset, physical,
+				(generic_addr_t)current->buffer_log + bufferOffset, false, length);
+			ASSERT(status == B_OK);
+
+			actualLength += length;
+			vectorOffset += length;
+			bufferOffset += length;
+
+			if (vectorOffset >= vector[vectorIndex].length) {
+				if (++vectorIndex >= vectorCount) {
+					TRACE("read descriptor chain (%ld bytes, no more vectors)"
+						"\n", actualLength);
+					*nextDataToggle = dataToggle > 0 ? true : false;
+					return actualLength;
+				}
+
+				vectorOffset = 0;
+			}
+
+			if (bufferOffset >= bufferSize) {
+				bufferOffset = 0;
+				break;
+			}
+		}
+
+		if (current->next_phy & EHCI_ITEM_TERMINATE)
+			break;
+
+		current = current->next_log;
+	}
+
+	TRACE("read descriptor chain (%ld bytes)\n", actualLength);
+	*nextDataToggle = dataToggle > 0 ? true : false;
+	return actualLength;
+}
+
+
+size_t
+EHCI::ReadActualLength(ehci_qtd *topDescriptor, bool *nextDataToggle)
+{
+	size_t actualLength = 0;
+	ehci_qtd *current = topDescriptor;
+	uint32 dataToggle = 0;
+
+	while (current && (current->token & EHCI_QTD_STATUS_ACTIVE) == 0) {
+		dataToggle = current->token & EHCI_QTD_DATA_TOGGLE;
+		size_t length = current->buffer_size;
+		length -= (current->token >> EHCI_QTD_BYTES_SHIFT)
+			& EHCI_QTD_BYTES_MASK;
+		actualLength += length;
+
+		if (current->next_phy & EHCI_ITEM_TERMINATE)
+			break;
+
+		current = current->next_log;
+	}
+
+	TRACE("read actual length (%ld bytes)\n", actualLength);
+	*nextDataToggle = dataToggle > 0 ? true : false;
+	return actualLength;
+}
+
+
+size_t
+EHCI::WriteIsochronousDescriptorChain(isochronous_transfer_data *transfer)
+{
+	// TODO implement
+	return 0;
+}
+
+
+size_t
+EHCI::ReadIsochronousDescriptorChain(isochronous_transfer_data *transfer)
+{
+	generic_io_vec *vector = transfer->transfer->Vector();
+	size_t vectorCount = transfer->transfer->VectorCount();
+	const bool physical = transfer->transfer->IsPhysical();
+	size_t vectorOffset = 0;
+	size_t vectorIndex = 0;
+	usb_isochronous_data *isochronousData
+		= transfer->transfer->IsochronousData();
+	uint32 packet = 0;
+	size_t totalLength = 0;
+	size_t bufferOffset = 0;
+
+	size_t packetSize = transfer->transfer->DataLength();
+	packetSize /= isochronousData->packet_count;
+
+	for (uint32 i = 0; i <= transfer->last_to_process; i++) {
+		ehci_itd *itd = transfer->descriptors[i];
+		for (uint32 j = 0; j <= itd->last_token
+			&& packet < isochronousData->packet_count; j++) {
+
+			size_t bufferSize = (itd->token[j] >> EHCI_ITD_TLENGTH_SHIFT)
+				& EHCI_ITD_TLENGTH_MASK;
+			if (((itd->token[j] >> EHCI_ITD_STATUS_SHIFT)
+				& EHCI_ITD_STATUS_MASK) != 0) {
+				bufferSize = 0;
+			}
+			isochronousData->packet_descriptors[packet].actual_length
+				= bufferSize;
+
+			if (bufferSize > 0)
+				isochronousData->packet_descriptors[packet].status = B_OK;
+			else
+				isochronousData->packet_descriptors[packet].status = B_ERROR;
+
+			totalLength += bufferSize;
+
+			size_t offset = bufferOffset;
+			size_t skipSize = packetSize - bufferSize;
+			while (bufferSize > 0) {
+				size_t length = min_c(bufferSize,
+					vector[vectorIndex].length - vectorOffset);
+				status_t status = generic_memcpy(
+					vector[vectorIndex].base + vectorOffset, physical,
+					(generic_addr_t)transfer->buffer_log + bufferOffset, false, length);
+				ASSERT(status == B_OK);
+
+				offset += length;
+				vectorOffset += length;
+				bufferSize -= length;
+
+				if (vectorOffset >= vector[vectorIndex].length) {
+					if (++vectorIndex >= vectorCount) {
+						TRACE("read isodescriptor chain (%ld bytes, no more "
+							"vectors)\n", totalLength);
+						return totalLength;
+					}
+
+					vectorOffset = 0;
+				}
+			}
+
+			// skip to next packet offset
+			while (skipSize > 0) {
+				size_t length = min_c(skipSize,
+					vector[vectorIndex].length - vectorOffset);
+				vectorOffset += length;
+				skipSize -= length;
+				if (vectorOffset >= vector[vectorIndex].length) {
+					if (++vectorIndex >= vectorCount) {
+						TRACE("read isodescriptor chain (%ld bytes, no more "
+							"vectors)\n", totalLength);
+						return totalLength;
+					}
+
+					vectorOffset = 0;
+				}
+			}
+
+			bufferOffset += packetSize;
+			if (bufferOffset >= transfer->buffer_size)
+				return totalLength;
+
+			packet++;
+		}
+	}
+
+	TRACE("ReadIsochronousDescriptorChain packet count %" B_PRId32 "\n",
+		packet);
+
+	return totalLength;
+}
+
+
+bool
+EHCI::LockIsochronous()
+{
+	return (mutex_lock(&fIsochronousLock) == B_OK);
+}
+
+
+void
+EHCI::UnlockIsochronous()
+{
+	mutex_unlock(&fIsochronousLock);
+}
+
+
+inline void
+EHCI::WriteOpReg(uint32 reg, uint32 value)
+{
+	*(volatile uint32 *)(fOperationalRegisters + reg) = value;
+}
+
+
+inline uint32
+EHCI::ReadOpReg(uint32 reg)
+{
+	return *(volatile uint32 *)(fOperationalRegisters + reg);
+}
+
+
+inline uint8
+EHCI::ReadCapReg8(uint32 reg)
+{
+	return *(volatile uint8 *)(fCapabilityRegisters + reg);
+}
+
+
+inline uint16
+EHCI::ReadCapReg16(uint32 reg)
+{
+	return *(volatile uint16 *)(fCapabilityRegisters + reg);
+}
+
+
+inline uint32
+EHCI::ReadCapReg32(uint32 reg)
+{
+	return *(volatile uint32 *)(fCapabilityRegisters + reg);
+}

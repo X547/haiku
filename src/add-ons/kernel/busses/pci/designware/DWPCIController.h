@@ -9,9 +9,11 @@
 
 #include <bus/PCI.h>
 #include <arch/generic/msi.h>
+#include <arch/generic/generic_int.h>
 
 #include <AutoDeleterOS.h>
 #include <lock.h>
+#include <util/Bitmap.h>
 #include <util/Vector.h>
 
 
@@ -159,16 +161,20 @@ struct PciDbiRegs {
 };
 
 
-class MsiInterruptCtrlDW: public MSIInterface {
+class MsiInterruptCtrlDW: public MSIInterface, public InterruptSource {
 public:
 			virtual				~MsiInterruptCtrlDW() = default;
 
 			status_t			Init(PciDbiRegs volatile* dbiRegs, int32 msiIrq);
 
-			status_t			AllocateVectors(uint32 count, uint32& startVector, uint64& address,
-									uint32& data) final;
-			void				FreeVectors(uint32 count, uint32 startVector) final;
+			status_t			AllocateVectors(uint8 count, uint8& startVector, uint64& address,
+									uint16& data) final;
+			void				FreeVectors(uint8 count, uint8 startVector) final;
 
+			void				EnableIoInterrupt(int vector) final;
+			void				DisableIoInterrupt(int vector) final;
+			void				ConfigureIoInterrupt(int vector, uint32 config) final;
+			int32				AssignToCpu(int32 vector, int32 cpu) final;
 
 private:
 	static	int32				InterruptReceived(void* arg);
@@ -177,9 +183,10 @@ private:
 private:
 			PciDbiRegs volatile* fDbiRegs {};
 
-			uint32				fAllocatedMsiIrqs[1];
+			Bitmap				fAllocatedMsiIrqs;
+			int32				fMaxMsiCount {};
 			phys_addr_t			fMsiPhysAddr {};
-			int32				fMsiStartIrq {};
+			long				fMsiStartIrq {};
 			uint64				fMsiData {};
 };
 

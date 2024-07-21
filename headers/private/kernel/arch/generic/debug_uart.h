@@ -16,8 +16,10 @@
 
 class DebugUART {
 public:
-							DebugUART(addr_t base, int64 clock)
+							DebugUART(addr_t base, int64 clock, uint32 regIoWidth, uint32 regShift)
 								: fBase(base),
+								fRegIoWidth(regIoWidth),
+								fRegShift(regShift),
 								fClock(clock),
 								fEnabled(true) {};
 							~DebugUART() {};
@@ -46,6 +48,8 @@ protected:
 
 private:
 			addr_t			fBase;
+			uint32			fRegIoWidth;
+			uint32			fRegShift;
 			int64			fClock;
 			bool			fEnabled;
 };

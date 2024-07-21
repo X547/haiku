@@ -27,7 +27,8 @@ Transfer::Transfer(Pipe *pipe)
 		fCallbackCookie(NULL),
 		fRequestData(NULL),
 		fIsochronousData(NULL),
-		fBandwidth(0)
+		fBandwidth(0),
+		fBusTransferIface(*this)
 {
 }
 

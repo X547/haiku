@@ -56,6 +56,9 @@ struct file_descriptor {
 		struct fs_mount *mount;
 		struct net_socket *socket;
 		struct event_queue *queue;
+#ifdef __cplusplus
+		class DevFsNodeHandle *device;
+#endif
 	} u;
 	void	*cookie;
 	int32	open_mode;
@@ -74,7 +77,8 @@ enum fd_types {
 	FDTYPE_INDEX_DIR,
 	FDTYPE_QUERY,
 	FDTYPE_SOCKET,
-	FDTYPE_EVENT_QUEUE
+	FDTYPE_EVENT_QUEUE,
+	FDTYPE_DEVICE
 };
 
 // additional open mode - kernel special

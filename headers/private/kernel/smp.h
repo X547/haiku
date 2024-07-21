@@ -106,6 +106,20 @@ void call_single_cpu_sync(uint32 targetCPU, void (*func)(void*, int),
 #endif
 
 
+template<typename Func> static void
+call_single_cpu_sync(uint32 targetCPU, Func func)
+{
+	call_single_cpu_sync(targetCPU, [](void* arg, int cpu) {(*static_cast<Func*>(arg))(cpu);}, &func);
+}
+
+
+template<typename Func> static void
+call_all_cpus_sync(Func func)
+{
+	call_all_cpus_sync([](void* arg, int cpu) {(*static_cast<Func*>(arg))(cpu);}, &func);
+}
+
+
 inline
 CPUSet::CPUSet()
 {

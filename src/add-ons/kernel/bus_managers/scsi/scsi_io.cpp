@@ -19,10 +19,11 @@
 /** put request back in queue because of device/bus overflow */
 
 void
-scsi_requeue_request(scsi_ccb *request, bool bus_overflow)
+ScsiCcbImpl::Requeue(bool bus_overflow)
 {
-	scsi_bus_info *bus = request->bus;
-	scsi_device_info *device = request->device;
+	ScsiCcbImpl *request = this;
+	ScsiBusImpl *bus = static_cast<ScsiBusImpl*>(request->bus);
+	ScsiDeviceImpl *device = static_cast<ScsiDeviceImpl*>(request->device);
 	bool was_servicable, start_retry;
 
 	SHOW_FLOW0(3, "");
@@ -81,10 +82,11 @@ scsi_requeue_request(scsi_ccb *request, bool bus_overflow)
 /** restart request ASAP because something went wrong */
 
 void
-scsi_resubmit_request(scsi_ccb *request)
+ScsiCcbImpl::Resubmit()
 {
-	scsi_bus_info *bus = request->bus;
-	scsi_device_info *device = request->device;
+	ScsiCcbImpl *request = this;
+	ScsiBusImpl *bus = static_cast<ScsiBusImpl*>(request->bus);
+	ScsiDeviceImpl *device = static_cast<ScsiDeviceImpl*>(request->device);
 	bool was_servicable, start_retry;
 
 	SHOW_FLOW0(3, "");
@@ -137,9 +139,9 @@ scsi_resubmit_request(scsi_ccb *request)
 /** submit autosense for request */
 
 static void
-submit_autosense(scsi_ccb *request)
+submit_autosense(ScsiCcbImpl *request)
 {
-	scsi_device_info *device = request->device;
+	ScsiDeviceImpl *device = static_cast<ScsiDeviceImpl*>(request->device);
 
 	//snooze(1000000);
 
@@ -168,10 +170,10 @@ submit_autosense(scsi_ccb *request)
 /** finish special auto-sense request */
 
 static void
-finish_autosense(scsi_device_info *device)
+finish_autosense(ScsiDeviceImpl *device)
 {
-	scsi_ccb *orig_request = device->auto_sense_originator;
-	scsi_ccb *request = device->auto_sense_request;
+	ScsiCcb *orig_request = device->auto_sense_originator;
+	ScsiCcb *request = device->auto_sense_request;
 
 	SHOW_FLOW0(3, "");
 
@@ -201,10 +203,10 @@ finish_autosense(scsi_device_info *device)
 /** device refused request because command queue is full */
 
 static void
-scsi_device_queue_overflow(scsi_ccb *request, uint num_requests)
+scsi_device_queue_overflow(ScsiCcbImpl *request, uint num_requests)
 {
-	scsi_bus_info *bus = request->bus;
-	scsi_device_info *device = request->device;
+	ScsiBusImpl *bus = static_cast<ScsiBusImpl*>(request->bus);
+	ScsiDeviceImpl *device = static_cast<ScsiDeviceImpl*>(request->device);
 	int diff_max_slots;
 
 	// set maximum number of concurrent requests to number of
@@ -228,17 +230,18 @@ scsi_device_queue_overflow(scsi_ccb *request, uint num_requests)
 	mutex_unlock(&bus->mutex);
 
 	// requeue request, blocking further device requests
-	scsi_requeue_request(request, false);
+	request->Requeue(false);
 }
 
 
 /** finish scsi request */
 
 void
-scsi_request_finished(scsi_ccb *request, uint num_requests)
+ScsiCcbImpl::Finished(uint num_requests)
 {
-	scsi_device_info *device = request->device;
-	scsi_bus_info *bus = request->bus;
+	ScsiCcbImpl *request = this;
+	ScsiDeviceImpl *device = static_cast<ScsiDeviceImpl*>(request->device);
+	ScsiBusImpl *bus = static_cast<ScsiBusImpl*>(request->bus);
 	bool was_servicable, start_service, do_autosense;
 
 	SHOW_FLOW(3, "%p", request);
@@ -336,10 +339,10 @@ scsi_request_finished(scsi_ccb *request, uint num_requests)
  */
 
 static inline bool
-scsi_check_enqueue_request(scsi_ccb *request)
+scsi_check_enqueue_request(ScsiCcbImpl *request)
 {
-	scsi_bus_info *bus = request->bus;
-	scsi_device_info *device = request->device;
+	ScsiBusImpl *bus = static_cast<ScsiBusImpl*>(request->bus);
+	ScsiDeviceImpl *device = static_cast<ScsiDeviceImpl*>(request->device);
 	bool execute;
 
 	mutex_lock(&bus->mutex);
@@ -388,9 +391,10 @@ int func_group_len[8] = {
 /** execute scsi command asynchronously */
 
 void
-scsi_async_io(scsi_ccb *request)
+ScsiDeviceImpl::AsyncIo(ScsiCcb *inRequest)
 {
-	scsi_bus_info *bus = request->bus;
+	ScsiCcbImpl *request = static_cast<ScsiCcbImpl*>(inRequest);
+	ScsiBusImpl *bus = static_cast<ScsiBusImpl*>(request->bus);
 
 	//SHOW_FLOW( 0, "path_id=%d", bus->path_id );
 
@@ -410,7 +414,7 @@ scsi_async_io(scsi_ccb *request)
 		goto err;
 	}
 
-	if (!request->device->valid) {
+	if (!static_cast<ScsiDeviceImpl*>(request->device)->valid) {
 		SHOW_ERROR0( 3, "device got removed" );
 
 		// device got removed meanwhile
@@ -441,7 +445,7 @@ scsi_async_io(scsi_ccb *request)
 	}
 
 	// emulate command if not supported
-	if ((request->device->emulation_map[request->cdb[0] >> 3]
+	if ((static_cast<ScsiDeviceImpl*>(request->device)->emulation_map[request->cdb[0] >> 3]
 		& (1 << (request->cdb[0] & 7))) != 0) {
 		request->emulated = true;
 
@@ -462,7 +466,7 @@ scsi_async_io(scsi_ccb *request)
 		// abuse TUR to find proper spot in command packet for LUN
 		scsi_cmd_tur *cmd = (scsi_cmd_tur *)request->cdb;
 
-		cmd->lun = request->device->target_lun;
+		cmd->lun = static_cast<ScsiDeviceImpl*>(request->device)->target_lun;
 	}
 
 	request->ordered = (request->flags & SCSI_ORDERED_QTAG) != 0;
@@ -476,10 +480,10 @@ scsi_async_io(scsi_ccb *request)
 	if (!scsi_check_enqueue_request(request))
 		return;
 
-	bus = request->bus;
+	bus = static_cast<ScsiBusImpl*>(request->bus);
 
 	request->state = SCSI_STATE_SENT;
-	bus->interface->scsi_io(bus->sim_cookie, request);
+	bus->interface->ScsiIo(request);
 	return;
 
 err2:
@@ -494,7 +498,7 @@ err:
 /** execute SCSI command synchronously */
 
 void
-scsi_sync_io(scsi_ccb *request)
+ScsiDeviceImpl::SyncIo(ScsiCcb *request)
 {
 	bool tmp_sg = false;
 
@@ -511,7 +515,7 @@ scsi_sync_io(scsi_ccb *request)
 		}
 	}
 
-	scsi_async_io(request);
+	AsyncIo(request);
 	acquire_sem(request->completion_sem);
 
 	if (tmp_sg)
@@ -520,18 +524,19 @@ scsi_sync_io(scsi_ccb *request)
 
 
 uchar
-scsi_term_io(scsi_ccb *ccb_to_terminate)
+ScsiDeviceImpl::TermIo(ScsiCcb *ccb_to_terminate)
 {
-	scsi_bus_info *bus = ccb_to_terminate->bus;
+	ScsiBusImpl *bus = static_cast<ScsiBusImpl*>(ccb_to_terminate->bus);
 
-	return bus->interface->term_io(bus->sim_cookie, ccb_to_terminate);
+	return bus->interface->TermIo(ccb_to_terminate);
 }
 
 
 uchar
-scsi_abort(scsi_ccb *req_to_abort)
+ScsiDeviceImpl::Abort(ScsiCcb *inRequest)
 {
-	scsi_bus_info *bus = req_to_abort->bus;
+	ScsiCcbImpl *req_to_abort = static_cast<ScsiCcbImpl*>(inRequest);
+	ScsiBusImpl *bus = static_cast<ScsiBusImpl*>(req_to_abort->bus);
 
 	if (bus == NULL) {
 		// checking the validity of the request to abort is a nightmare
@@ -586,14 +591,14 @@ scsi_abort(scsi_ccb *req_to_abort)
 /** submit pending request (at most one!) */
 
 bool
-scsi_check_exec_service(scsi_bus_info *bus)
+scsi_check_exec_service(ScsiBusImpl *bus)
 {
 	SHOW_FLOW0(3, "");
 	mutex_lock(&bus->mutex);
 
 	if (scsi_can_service_bus(bus)) {
-		scsi_ccb *request;
-		scsi_device_info *device;
+		ScsiCcbImpl *request;
+		ScsiDeviceImpl *device;
 
 		SHOW_FLOW0(3, "servicing bus");
 
@@ -626,7 +631,7 @@ scsi_check_exec_service(scsi_bus_info *bus)
 		mutex_unlock(&bus->mutex);
 
 		request->state = SCSI_STATE_SENT;
-		bus->interface->scsi_io(bus->sim_cookie, request);
+		bus->interface->ScsiIo(request);
 
 		return true;
 	}

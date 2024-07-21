@@ -98,8 +98,7 @@ static struct pci_module_info sOldPCIModule = {
 			return (uint32)0;
 		return gPCI->GetMSICount(dev);
 	},
-	.configure_msi = [](uint8 bus, uint8 device, uint8 function, uint32 count,
-			uint32 *startVector) {
+	.configure_msi = [](uint8 bus, uint8 device, uint8 function, uint32 count, uint32 *startVector) {
 		PCIDev* dev;
 		CHECK_RET(ResolveBDF(bus, device, function, dev));
 		return gPCI->ConfigureMSI(dev, count, startVector);
@@ -125,8 +124,7 @@ static struct pci_module_info sOldPCIModule = {
 			return (uint32)0;
 		return gPCI->GetMSIXCount(dev);
 	},
-	.configure_msix = [](uint8 bus, uint8 device, uint8 function, uint32 count,
-			uint32 *startVector) {
+	.configure_msix = [](uint8 bus, uint8 device, uint8 function, uint32 count, uint32 *startVector) {
 		PCIDev* dev;
 		CHECK_RET(ResolveBDF(bus, device, function, dev));
 		return gPCI->ConfigureMSIX(dev, count, startVector);
@@ -140,7 +138,6 @@ static struct pci_module_info sOldPCIModule = {
 
 
 module_dependency module_dependencies[] = {
-	{B_DEVICE_MANAGER_MODULE_NAME, (module_info **)&gDeviceManager},
 	{}
 };
 
@@ -155,8 +152,7 @@ driver_module_info gPCILegacyDriverModule = {
 
 module_info *modules[] = {
 	(module_info *)&sOldPCIModule,
-	(module_info *)&gPCIRootModule,
-	(module_info *)&gPCIDeviceModule,
+	(module_info *)&gPciBusDriverModule,
 	(module_info *)&gPCILegacyDriverModule,
 	NULL
 };

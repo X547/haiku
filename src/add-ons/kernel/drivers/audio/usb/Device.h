@@ -16,7 +16,7 @@ class Device {
 	friend	class			Stream;
 
 public:
-							Device(usb_device device);
+							Device(UsbDevice* device);
 	virtual					~Device();
 
 			status_t		InitCheck() { return fStatus; };
@@ -34,10 +34,10 @@ public:
 			void			Removed();
 			bool			IsRemoved() { return fRemoved; };
 
-			status_t		CompareAndReattach(usb_device device);
+			status_t		CompareAndReattach(UsbDevice* device);
 	virtual	status_t		SetupDevice(bool deviceReplugged);
 
-			usb_device		USBDevice() { return fDevice; }
+			UsbDevice*		USBDevice() { return fDevice; }
 
 			AudioControlInterface&
 							AudioControl() { return fAudioControl; }
@@ -57,7 +57,7 @@ private:
 			status_t		fStatus;
 			bool			fOpen;
 			bool			fRemoved;
-			usb_device		fDevice;
+			UsbDevice*		fDevice;
 			uint16			fUSBVersion;
 			uint16			fVendorID;
 			uint16			fProductID;

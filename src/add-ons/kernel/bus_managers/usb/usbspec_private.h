@@ -11,7 +11,7 @@
 
 
 #include <KernelExport.h>
-#include <USB3.h>
+#include <dm2/bus/USB.h>
 
 
 #define USB_MAX_AREAS					8
@@ -56,19 +56,6 @@ struct usb_isochronous_data {
 	uint32 flags;
 };
 
-
-struct usb_hub_descriptor {
-	uint8 length;
-	uint8 descriptor_type;
-	uint8 num_ports;
-	uint16 characteristics;
-	uint8 power_on_to_power_good;
-	uint8 max_power;
-	uint8 device_removeable;	//Should be variable!!!
-	uint8 power_control_mask;	//Deprecated
-} _PACKED;
-
-#define USB_DESCRIPTOR_HUB 0x29
 
 
 struct usb_endpoint_ss_companion_descriptor {

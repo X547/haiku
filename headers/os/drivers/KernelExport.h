@@ -79,7 +79,8 @@ typedef int32 (*interrupt_handler)(void *data);
 
 /* Flags that can be passed to install_io_interrupt_handler() */
 #define B_NO_ENABLE_COUNTER		1
-
+// Do not automatically enable interrut on inatall. Use `enable_io_interrupt` to enable.
+#define B_DISABLED_INTERRUPT	2
 
 /* timer interrupts services */
 
@@ -172,6 +173,9 @@ extern status_t		install_io_interrupt_handler(int32 interrupt_number,
 						interrupt_handler handler, void *data, uint32 flags);
 extern status_t		remove_io_interrupt_handler(int32 interrupt_number,
 						interrupt_handler handler, void	*data);
+extern void			enable_io_interrupt(int32 interrupt_number);
+extern void			disable_io_interrupt(int32 interrupt_number);
+extern void			configure_io_interrupt(int32 vector, uint32 config);
 
 extern status_t		add_timer(timer *t, timer_hook hook, bigtime_t period,
 						int32 flags);

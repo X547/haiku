@@ -176,7 +176,6 @@ ConditionVariableEntry::Wait(uint32 flags, bigtime_t timeout)
 
 	if ((flags & B_RELATIVE_TIMEOUT) != 0 && timeout <= 0) {
 		_RemoveFromVariable();
-
 		if (fWaitStatus <= 0)
 			return fWaitStatus;
 		return B_WOULD_BLOCK;
@@ -328,6 +327,20 @@ ConditionVariable::Wait(recursive_lock* lock, uint32 flags, bigtime_t timeout)
 	for (int32 i = 0; i < recursion; i++)
 		recursive_lock_lock(lock);
 
+	return res;
+}
+
+
+status_t
+ConditionVariable::Wait(spinlock* lock, uint32 flags, bigtime_t timeout)
+{
+	ConditionVariableEntry entry;
+	Add(&entry);
+	release_spinlock(lock);
+	enable_interrupts();
+	status_t res = entry.Wait(flags, timeout);
+	disable_interrupts();
+	acquire_spinlock(lock);
 	return res;
 }
 

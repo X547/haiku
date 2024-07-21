@@ -44,7 +44,7 @@ command_recompress(int argc, const char* const* argv)
 {
 	bool quiet = false;
 	bool verbose = false;
-	int32 compressionLevel = BPackageKit::BHPKG::B_HPKG_COMPRESSION_LEVEL_BEST;
+	int32 compressionLevel = 5;
 	int32 compression = parse_compression_argument(NULL);
 
 	while (true) {

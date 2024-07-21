@@ -6,14 +6,12 @@ class InterruptController;
 #include <drivers/bus/FDT.h>
 #include <private/kernel/int.h>
 #include <private/kernel/timer.h>
+#include <arch/generic/generic_int.h>
 
 // ------------------------------------------------------ InterruptController
 
-class InterruptController {
+class InterruptController : public InterruptSource {
 public:
-	virtual void EnableInterrupt(int32 irq) = 0;
-	virtual void DisableInterrupt(int32 irq) = 0;
-
 	virtual void HandleInterrupt() = 0;
 
 	static InterruptController* Get() {

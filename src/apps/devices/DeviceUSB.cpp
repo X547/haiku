@@ -18,8 +18,10 @@
 #undef B_TRANSLATION_CONTEXT
 #define B_TRANSLATION_CONTEXT "DeviceUSB"
 
-extern "C" {
+#include <dm2/bus/PCI.h>
+
 #include "dm_wrapper.h"
+extern "C" {
 #include "usb-utils.h"
 }
 
@@ -54,15 +56,15 @@ DeviceUSB::InitFromAttributes()
 	fClassBaseId = atoi(fAttributeMap[USB_DEVICE_CLASS].String());
 	fClassSubId = atoi(fAttributeMap[USB_DEVICE_SUBCLASS].String());
 	fClassProtoId = atoi(fAttributeMap[USB_DEVICE_PROTOCOL].String());
-	fVendorId = atoi(fAttributeMap[B_DEVICE_VENDOR_ID].String());
-	fDeviceId = atoi(fAttributeMap[B_DEVICE_ID].String());
+	fVendorId = atoi(fAttributeMap[B_PCI_DEVICE_VENDOR_ID].String());
+	fDeviceId = atoi(fAttributeMap[B_PCI_DEVICE_ID].String());
 
 	// Looks better in Hex, so rewrite
 	fAttributeMap[USB_DEVICE_CLASS] = ToHex(fClassBaseId);
 	fAttributeMap[USB_DEVICE_SUBCLASS] = ToHex(fClassSubId);
 	fAttributeMap[USB_DEVICE_PROTOCOL] = ToHex(fClassProtoId);
-	fAttributeMap[B_DEVICE_VENDOR_ID] = ToHex(fVendorId);
-	fAttributeMap[B_DEVICE_ID] = ToHex(fDeviceId);
+	fAttributeMap[B_PCI_DEVICE_VENDOR_ID] = ToHex(fVendorId);
+	fAttributeMap[B_PCI_DEVICE_ID] = ToHex(fDeviceId);
 
 	// Fetch ClassInfo
 	char classInfo[128];

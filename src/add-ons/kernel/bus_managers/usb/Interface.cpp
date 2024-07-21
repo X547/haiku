@@ -9,9 +9,11 @@
 #include "usb_private.h"
 
 
-Interface::Interface(Object *parent, uint8 interfaceIndex)
-	:	Object(parent),
-		fInterfaceIndex(interfaceIndex)
+Interface::Interface(Device *parent, uint8 interfaceIndex)
+	:	Object(parent->GetBusManager()),
+		fParent(parent),
+		fInterfaceIndex(interfaceIndex),
+		fInterfaceIface(*this)
 {
 	TRACE("creating interface\n");
 }

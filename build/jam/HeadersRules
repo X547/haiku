@@ -445,8 +445,15 @@ rule FStandardOSHeaders
 }
 
 
-rule FStandardHeaders architecture : language
+rule FStandardHeaders architecture : isCpp
 {
+	local osIncludes = add-ons add-ons/file_system add-ons/graphics
+					   add-ons/input_server add-ons/registrar
+					   add-ons/screen_saver
+					   add-ons/tracker app device drivers game interface
+					   kernel locale media mail midi midi2 net storage
+					   support translation ;
+
 	local headers = ;
 
 	if $(HAIKU_CC_IS_CLANG_$(architecture)) = 1 {
@@ -456,8 +463,8 @@ rule FStandardHeaders architecture : language
 	# Ordering here is important. We fill out things like limits.h and
 	# gcc only overrides if undefined.
 
-	if $(language) = C++ {
-		# The C++ headers.
+	if $(isCpp) = 1 {
+		# The c++ headers.
 		headers += [ C++HeaderDirectories $(architecture) ] ;
 	}
 
@@ -474,7 +481,8 @@ rule FStandardHeaders architecture : language
 	headers += [ FDirName $(HAIKU_TOP) headers ] ;
 
 	# Use public OS header directories
-	headers += [ FStandardOSHeaders ] ;
+	headers += [ FDirName $(HAIKU_TOP) headers os ] ;
+	headers += [ PublicHeaders $(osIncludes) ] ;
 
 	# Use the root of the private headers -- not so nice, but simplifies things.
 	headers += [ PrivateHeaders $(DOT) ] ;

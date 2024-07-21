@@ -34,9 +34,9 @@
 
 /*!	Check whether S/G list of request is supported DMA controller */
 static bool
-is_sg_list_dma_safe(scsi_ccb *request)
+is_sg_list_dma_safe(ScsiCcb *request)
 {
-	scsi_bus_info *bus = request->bus;
+	ScsiBusImpl *bus = static_cast<ScsiBusImpl*>(request->bus);
 	const physical_entry *sg_list = request->sg_list;
 	uint32 sg_count = request->sg_count;
 	uint32 dma_boundary = bus->dma_params.dma_boundary;
@@ -96,7 +96,7 @@ is_sg_list_dma_safe(scsi_ccb *request)
 /** copy data from/to DMA buffer */
 
 static bool
-scsi_copy_dma_buffer(scsi_ccb *request, uint32 size, bool to_buffer)
+scsi_copy_dma_buffer(ScsiCcb *request, uint32 size, bool to_buffer)
 {
 	dma_buffer *buffer = request->dma_buffer;
 	const physical_entry *sg_list = buffer->sg_list_orig;
@@ -323,7 +323,7 @@ dump_sg_table(const physical_entry *sg_list,
 /**	compose S/G list to original data of request */
 
 static bool
-scsi_dma_buffer_compose_sg_orig(dma_buffer *buffer, scsi_ccb *request)
+scsi_dma_buffer_compose_sg_orig(dma_buffer *buffer, ScsiCcb *request)
 {
 	// enlarge buffer is required
 	if (buffer->sg_count_max_orig < request->sg_count) {
@@ -346,9 +346,9 @@ scsi_dma_buffer_compose_sg_orig(dma_buffer *buffer, scsi_ccb *request)
  */
 
 bool
-scsi_get_dma_buffer(scsi_ccb *request)
+scsi_get_dma_buffer(ScsiCcbImpl *request)
 {
-	scsi_device_info *device = request->device;
+	ScsiDeviceImpl *device = static_cast<ScsiDeviceImpl*>(request->device);
 	dma_buffer *buffer;
 
 	request->buffered = false;
@@ -429,9 +429,9 @@ err:
 	you must have called cleanup_tmp_sg before
 */
 void
-scsi_release_dma_buffer(scsi_ccb *request)
+scsi_release_dma_buffer(ScsiCcbImpl *request)
 {
-	scsi_device_info *device = request->device;
+	ScsiDeviceImpl *device = static_cast<ScsiDeviceImpl*>(request->device);
 	dma_buffer *buffer = request->dma_buffer;
 
 	SHOW_FLOW(1, "Buffering finished, %x, %" B_PRIx32,
@@ -467,7 +467,7 @@ scsi_release_dma_buffer(scsi_ccb *request)
 void
 scsi_dma_buffer_daemon(void *dev, int counter)
 {
-	scsi_device_info *device = (scsi_device_info*)dev;
+	ScsiDeviceImpl *device = (ScsiDeviceImpl*)dev;
 	dma_buffer *buffer;
 
 	mutex_lock(&device->dma_buffer_lock);

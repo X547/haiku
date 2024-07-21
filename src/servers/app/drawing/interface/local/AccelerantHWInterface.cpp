@@ -166,8 +166,8 @@ AccelerantHWInterface::AccelerantHWInterface()
 	fBlitParams(new (nothrow) blit_params[kDefaultParamsCount]),
 	fBlitParamsCount(kDefaultParamsCount)
 {
-	fDisplayMode.virtual_width = 0;
-	fDisplayMode.virtual_height = 0;
+	fDisplayMode.virtual_width = 320;
+	fDisplayMode.virtual_height = 240;
 	fDisplayMode.space = B_RGB32;
 
 	// NOTE: I have no clue what I'm doing here.
@@ -219,11 +219,6 @@ AccelerantHWInterface::Initialize()
 }
 
 
-/*!	Proceeds with a recursive scan, avoiding vesa and framebuffer devices.
-
-
-	\return Whether a device path matching the \a deviceNumber is found.
-*/
 bool
 AccelerantHWInterface::_RecursiveScan(const char* directory, int deviceNumber, int &count,
 	char *_path)

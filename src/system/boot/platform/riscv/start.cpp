@@ -14,6 +14,7 @@
 #include <string.h>
 
 #include "console.h"
+#include "serial.h"
 #include "cpu.h"
 #include "mmu.h"
 #include "smp.h"
@@ -150,6 +151,29 @@ convert_kernel_args()
 }
 
 
+static void
+get_kernel_regions(addr_range& text, addr_range& data)
+{
+	if (gKernelArgs.kernel_image->elf_class == ELFCLASS64) {
+		preloaded_elf64_image *image = static_cast<preloaded_elf64_image *>(
+			gKernelArgs.kernel_image.Pointer());
+		text.start = image->text_region.start;
+		text.size = image->text_region.size;
+		data.start = image->data_region.start;
+		data.size = image->data_region.size;
+		return;
+	} else if (gKernelArgs.kernel_image->elf_class == ELFCLASS32) {
+		preloaded_elf32_image *image = static_cast<preloaded_elf32_image *>(
+			gKernelArgs.kernel_image.Pointer());
+		text.start = image->text_region.start;
+		text.size = image->text_region.size;
+		data.start = image->data_region.start;
+		data.size = image->data_region.size;
+		return;
+	}
+	panic("Unknown kernel format! Not 32-bit or 64-bit!");
+}
+
 extern "C" void
 platform_start_kernel(void)
 {
@@ -170,14 +194,18 @@ platform_start_kernel(void)
 
 	fdt_set_kernel_args();
 
+	addr_range textRegion = {.start = 0, .size = 0}, dataRegion = {.start = 0, .size = 0};
+	get_kernel_regions(textRegion, dataRegion);
+	dprintf("kernel:\n");
+	dprintf("  text: %#" B_PRIx64 ", %#" B_PRIx64 "\n", textRegion.start, textRegion.size);
+	dprintf("  data: %#" B_PRIx64 ", %#" B_PRIx64 "\n", dataRegion.start, dataRegion.size);
+	dprintf("  entry: %#lx\n", image->elf_header.e_entry);
+
 	convert_kernel_args();
 	uint64 satp;
 	mmu_init_for_kernel(satp);
 
 	smp_boot_other_cpus(satp, image->elf_header.e_entry);
-
-	dprintf("kernel entry: %lx\n", image->elf_header.e_entry);
-	dprintf("args: %lx\n", (addr_t)args);
 
 	addr_t stackTop
 		= gKernelArgs.cpu_kstack[0].start + gKernelArgs.cpu_kstack[0].size;
@@ -198,9 +226,22 @@ platform_exit(void)
 extern "C" void
 _start(int hartId, void* fdt)
 {
-	HtifOutString("haiku_loader entry point\n");
+	// enable FPU for vsnprintf used in dprintf
+	MstatusReg status{.val = Mstatus()};
+	status.fs = extStatusInitial;
+	SetMstatus(status.val);
 
 	clear_bss();
+	uart_info uart {
+		.kind = "8250",
+		.regs = {
+			.start = 0x10000000,
+			.size = 0x100
+		},
+		.reg_io_width = 1,
+		.reg_shift = 0
+	};
+	serial_init(&uart);
 	fdt_init(fdt);
 	call_ctors();
 
@@ -209,9 +250,9 @@ _start(int hartId, void* fdt)
 	args.arguments = NULL;
 
 	traps_init();
+	cpu_init();
 	// console_init();
 	// virtio_init();
-	cpu_init();
 	mmu_init();
 	//apm_init();
 	smp_init();

@@ -16,36 +16,37 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <new>
 
 
 status_t
-scsi_alloc_dpc(scsi_dpc_info **dpc)
+ScsiBusImpl::AllocDpc(ScsiBusDpc **dpc)
 {
 	SHOW_FLOW0(3, "");
 
-	*dpc = (scsi_dpc_info *)malloc(sizeof(scsi_dpc_info));
+	*dpc = new(std::nothrow) ScsiDpcImpl();
 	if (*dpc == NULL)
 		return B_NO_MEMORY;
 
-	memset(*dpc, 0, sizeof(scsi_dpc_info));
 	return B_OK;
 }
 
 
-status_t
-scsi_free_dpc(scsi_dpc_info *dpc)
+void
+ScsiDpcImpl::Free()
 {
 	SHOW_FLOW0(3, "");
 
-	free(dpc);
-	return B_OK;
+	delete this;
 }
 
 
 status_t
-scsi_schedule_dpc(scsi_bus_info *bus, scsi_dpc_info *dpc, /*int flags,*/
+ScsiBusImpl::ScheduleDpc(ScsiBusDpc *inDpc, /*int flags,*/
 	void (*func)(void *arg), void *arg)
 {
+	ScsiBusImpl *bus = this;
+	ScsiDpcImpl *dpc = static_cast<ScsiDpcImpl*>(inDpc);
 	SHOW_FLOW(3, "bus=%p, dpc=%p", bus, dpc);
 	acquire_spinlock_irq(&bus->dpc_lock);
 
@@ -70,13 +71,13 @@ scsi_schedule_dpc(scsi_bus_info *bus, scsi_dpc_info *dpc, /*int flags,*/
 /** execute pending DPCs */
 
 bool
-scsi_check_exec_dpc(scsi_bus_info *bus)
+scsi_check_exec_dpc(ScsiBusImpl *bus)
 {
 	SHOW_FLOW(3, "bus=%p, dpc_list=%p", bus, bus->dpc_list);
 	acquire_spinlock_irq(&bus->dpc_lock);
 
 	if (bus->dpc_list) {
-		scsi_dpc_info *dpc;
+		ScsiDpcImpl *dpc;
 		void (*dpc_func)(void *);
 		void *dpc_arg;
 
@@ -91,7 +92,7 @@ scsi_check_exec_dpc(scsi_bus_info *bus)
 
 		dpc_func(dpc_arg);
 		return true;
-	} 
+	}
 
 	release_spinlock_irq(&bus->dpc_lock);
 	return false;

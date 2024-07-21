@@ -4,6 +4,7 @@
  */
 
 #include "traps.h"
+#include "serial.h"
 #include <KernelExport.h>
 #include <arch_cpu_defs.h>
 #include <arch_int.h>
@@ -99,7 +100,7 @@ MTrap(iframe* frame)
 			uint64 op = frame->a0;
 			switch (op) {
 				case kMSyscallSwitchToSmode: {
-					HtifOutString("switchToSmodeMmodeSyscall()\n");
+					serial_puts("switchToSmodeMmodeSyscall()\n");
 					if (cause != causeMEcall) {
 						frame->a0 = B_NOT_ALLOWED;
 						return;
@@ -110,9 +111,11 @@ MTrap(iframe* frame)
 						0xffff & ~((1 << causeMEcall) | (1 << causeSEcall)));
 					SetMideleg(0xffff & ~(1 << mTimerInt));
 					SetMstatus(status.val);
+#if 0
 					dprintf("modeM stack: 0x%" B_PRIxADDR ", 0x%" B_PRIxADDR
 						"\n", (addr_t)sMStack,
 						(addr_t)(sMStack + sizeof(sMStack)));
+#endif
 					SetMscratch((addr_t)(sMStack + sizeof(sMStack)));
 					SetMtvec((uint64)MVecS);
 					frame->a0 = B_OK;
@@ -147,7 +150,7 @@ MTrap(iframe* frame)
 			return;
 		}
 	}
-	HtifOutString("unhandled MTrap\n");
+	serial_puts("unhandled MTrap\n");
 	HtifShutdown();
 }
 
@@ -160,5 +163,7 @@ traps_init()
 	mstatus.ie = 1 << modeM;
 	SetMstatus(mstatus.val);
 	InitPmp();
+	SetMcounteren(CounterenReg{.time = true}.val);
+	SetScounteren(CounterenReg{.time = true}.val);
 	MSyscall(kMSyscallSwitchToSmode);
 }

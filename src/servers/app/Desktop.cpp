@@ -1558,13 +1558,12 @@ Desktop::ResizeWindowBy(Window* window, float x, float y)
 		return;
 	}
 
-	// The dirty region for the inside of the window is constructed by the window itself in
-	// ResizeBy()
+	// the dirty region for the inside of the window is
+	// constructed by the window itself in ResizeBy()
 	BRegion newDirtyRegion;
-	// Track the dirty region outside the window in case it is shrunk in "previouslyOccupiedRegion"
+	// track the dirty region outside the window in case
+	// it is shrunk in "previouslyOccupiedRegion"
 	BRegion previouslyOccupiedRegion(window->VisibleRegion());
-	// Track the region that was drawn in previous update sessions, so we can compute the newly
-	// exposed areas by excluding this from the update region.
 	BRegion previousVisibleContentRegion(window->VisibleContentRegion());
 
 	// stop direct frame buffer access

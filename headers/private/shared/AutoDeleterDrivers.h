@@ -13,7 +13,6 @@
 #include <vfs.h>
 #include <fs/fd.h>
 #include <vm/VMAddressSpace.h>
-#include <device_manager.h>
 #endif
 
 
@@ -30,27 +29,6 @@ typedef CObjectDeleter<file_descriptor, void, put_fd> FileDescriptorPutter;
 typedef MethodDeleter<VMAddressSpace, void, &VMAddressSpace::Put>
 	VMAddressSpacePutter;
 
-#if __GNUC__ >= 4
-
-template <device_manager_info **deviceManager>
-using DeviceNodePutter = MethodObjectDeleter<device_node, device_manager_info,
-	deviceManager, void, &device_manager_info::put_node>;
-
-#else
-
-template <device_manager_info **deviceManager>
-struct DeviceNodePutter : MethodObjectDeleter<device_node, device_manager_info,
-	deviceManager, void, &device_manager_info::put_node>
-{
-	typedef MethodObjectDeleter<device_node, device_manager_info,
-		deviceManager, void, &device_manager_info::put_node> Base;
-
-	DeviceNodePutter() : Base() {}
-	DeviceNodePutter(device_node* object) : Base(object) {}
-};
-
-#endif
-
 #endif
 
 
@@ -64,7 +42,6 @@ using ::BPrivate::DriverSettingsUnloader;
 using ::BPrivate::VnodePutter;
 using ::BPrivate::FileDescriptorPutter;
 using ::BPrivate::VMAddressSpacePutter;
-using ::BPrivate::DeviceNodePutter;
 
 #endif
 

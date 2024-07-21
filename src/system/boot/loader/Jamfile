@@ -79,7 +79,8 @@ for platform in [ MultiBootSubDirSetup ] {
 				}
 				case "riscv64" :
 				{
-					DEFINES += BOOT_SUPPORT_ELF64 ;
+					DEFINES += BOOT_SUPPORT_ELF64
+						BOOT_SUPPORT_PARTITION_EFI ;
 				}
 				case "m68k" :
 				{

@@ -14,6 +14,10 @@
 
 #define NUM_IO_VECTORS	4096
 
+enum {
+	kHartExternIntVector = NUM_IO_VECTORS - 1,
+};
+
 
 #ifdef __cplusplus
 

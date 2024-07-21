@@ -22,6 +22,7 @@
 #include <KernelExport.h>
 
 #include <AutoDeleterDrivers.h>
+#include <ScopeExit.h>
 
 #include <symbol_versioning.h>
 
@@ -2159,17 +2160,14 @@ _vm_map_file(team_id team, const char* name, void** _address,
 	if (addressSpec != B_EXACT_ADDRESS)
 		unmapAddressRange = false;
 
-	uint32 mappingFlags = 0;
-	if (unmapAddressRange)
-		mappingFlags |= CREATE_AREA_UNMAP_ADDRESS_RANGE;
-
 	if (fd < 0) {
+		uint32 flags = unmapAddressRange ? CREATE_AREA_UNMAP_ADDRESS_RANGE : 0;
 		virtual_address_restrictions virtualRestrictions = {};
 		virtualRestrictions.address = *_address;
 		virtualRestrictions.address_specification = addressSpec;
 		physical_address_restrictions physicalRestrictions = {};
 		return vm_create_anonymous_area(team, name, size, B_NO_LOCK, protection,
-			mappingFlags, 0, &virtualRestrictions, &physicalRestrictions, kernel,
+			flags, 0, &virtualRestrictions, &physicalRestrictions, kernel,
 			_address);
 	}
 
@@ -2190,16 +2188,11 @@ _vm_map_file(team_id team, const char* name, void** _address,
 	}
 
 	uint32 protectionMax = 0;
-	if (mapping == REGION_NO_PRIVATE_MAP) {
+	if (mapping != REGION_PRIVATE_MAP) {
 		if ((openMode & O_ACCMODE) == O_RDWR)
 			protectionMax = protection | B_USER_PROTECTION;
 		else
 			protectionMax = protection | (B_USER_PROTECTION & ~B_WRITE_AREA);
-	} else if (mapping == REGION_PRIVATE_MAP) {
-		// For privately mapped read-only regions, skip committing memory.
-		// (If protections are changed later on, memory will be committed then.)
-		if ((protection & B_WRITE_AREA) == 0)
-			mappingFlags |= CREATE_AREA_DONT_COMMIT_MEMORY;
 	}
 
 	// get the vnode for the object, this also grabs a ref to it
@@ -2229,21 +2222,10 @@ _vm_map_file(team_id team, const char* name, void** _address,
 				? VM_PRIORITY_SYSTEM : VM_PRIORITY_USER);
 	}
 
-	struct PageUnreserver {
-		PageUnreserver(vm_page_reservation* reservation)
-			:
-			fReservation(reservation)
-		{
-		}
-
-		~PageUnreserver()
-		{
-			if (fReservation != NULL)
-				vm_page_unreserve_pages(fReservation);
-		}
-
-		vm_page_reservation* fReservation;
-	} pageUnreserver(reservedPreMapPages > 0 ? &reservation : NULL);
+	ScopeExit pageUnreserver([reservation = reservedPreMapPages > 0 ? &reservation : NULL] {
+		if (reservation != NULL)
+			vm_page_unreserve_pages(reservation);
+	});
 
 	// Lock the address space and, if the specified address range shall be
 	// unmapped, ensure it is not wired.
@@ -2268,7 +2250,8 @@ _vm_map_file(team_id team, const char* name, void** _address,
 	addressRestrictions.address = *_address;
 	addressRestrictions.address_specification = addressSpec;
 	status = map_backing_store(locker.AddressSpace(), cache, offset, name, size,
-		0, protection, protectionMax, mapping, mappingFlags,
+		0, protection, protectionMax, mapping,
+		unmapAddressRange ? CREATE_AREA_UNMAP_ADDRESS_RANGE : 0,
 		&addressRestrictions, kernel, &area, _address);
 
 	if (status != B_OK || mapping == REGION_PRIVATE_MAP) {
@@ -2782,22 +2765,10 @@ vm_copy_area(team_id team, const char* name, void** _address,
 	} while (restart);
 
 	// unreserve pages later
-	struct PagesUnreserver {
-		PagesUnreserver(vm_page_reservation* reservation)
-			:
-			fReservation(reservation)
-		{
-		}
-
-		~PagesUnreserver()
-		{
-			if (fReservation != NULL)
-				vm_page_unreserve_pages(fReservation);
-		}
-
-	private:
-		vm_page_reservation*	fReservation;
-	} pagesUnreserver(wiredPages > 0 ? &wiredPagesReservation : NULL);
+	ScopeExit pagesUnreserver([reservation = wiredPages > 0 ? &wiredPagesReservation : NULL] {
+		if (reservation != NULL)
+			vm_page_unreserve_pages(reservation);
+	});
 
 	bool writableCopy
 		= (source->protection & (B_KERNEL_WRITE_AREA | B_WRITE_AREA)) != 0;
@@ -2925,15 +2896,15 @@ vm_set_area_protection(team_id team, area_id areaID, uint32 newProtection,
 			return B_NOT_ALLOWED;
 		}
 
+		if (area->protection == newProtection)
+			return B_OK;
+
 		if (team != VMAddressSpace::KernelID()
 			&& area->address_space->ID() != team) {
 			// unless you're the kernel, you are only allowed to set
 			// the protection of your own areas
 			return B_NOT_ALLOWED;
 		}
-
-		if (area->protection == newProtection)
-			return B_OK;
 
 		isWritable
 			= (area->protection & (B_WRITE_AREA | B_KERNEL_WRITE_AREA)) != 0;
@@ -4234,11 +4205,6 @@ is_page_in_physical_memory_range(kernel_args* args, phys_addr_t address)
 page_num_t
 vm_allocate_early_physical_page(kernel_args* args)
 {
-	if (args->num_physical_allocated_ranges == 0) {
-		panic("early physical page allocations no longer possible!");
-		return 0;
-	}
-
 	for (uint32 i = 0; i < args->num_physical_allocated_ranges; i++) {
 		phys_addr_t nextPage;
 
@@ -4311,12 +4277,9 @@ vm_allocate_early(kernel_args* args, size_t virtualSize, size_t physicalSize,
 
 		//dprintf("vm_allocate_early: paddr 0x%lx\n", physicalAddress);
 
-		status_t status = arch_vm_translation_map_early_map(args,
-			virtualBase + i * B_PAGE_SIZE,
+		arch_vm_translation_map_early_map(args, virtualBase + i * B_PAGE_SIZE,
 			physicalAddress * B_PAGE_SIZE, attributes,
 			&vm_allocate_early_physical_page);
-		if (status != B_OK)
-			panic("error mapping early page!");
 	}
 
 	return virtualBase;
@@ -5211,11 +5174,6 @@ vm_try_reserve_memory(size_t amount, int priority, bigtime_t timeout)
 	if (sAvailableMemory >= (off_t)(amount + reserve)) {
 		sAvailableMemory -= amount;
 		return B_OK;
-	}
-
-	if (amount >= (vm_page_num_pages() * B_PAGE_SIZE)) {
-		// Do not wait for something that will never happen.
-		return B_NO_MEMORY;
 	}
 
 	if (timeout <= 0)
@@ -6571,7 +6529,7 @@ _user_get_next_area_info(team_id team, ssize_t* userCookie, area_info* userInfo)
 status_t
 _user_set_area_protection(area_id area, uint32 newProtection)
 {
-	if ((newProtection & ~(B_USER_PROTECTION | B_CLONEABLE_AREA)) != 0)
+	if ((newProtection & ~B_USER_PROTECTION) != 0)
 		return B_BAD_VALUE;
 
 	return vm_set_area_protection(VMAddressSpace::CurrentID(), area,
@@ -6878,7 +6836,6 @@ _user_set_memory_protection(void* _address, size_t size, uint32 protection)
 			if (area->protection == protection)
 				continue;
 			if (offset == 0 && rangeSize == area->Size()) {
-				// The whole area is covered: let set_area_protection handle it.
 				status_t status = vm_set_area_protection(area->address_space->ID(),
 					area->id, protection, false);
 				if (status != B_OK)
@@ -6896,35 +6853,6 @@ _user_set_memory_protection(void* _address, size_t size, uint32 protection)
 		VMCache* topCache = vm_area_get_locked_cache(area);
 		VMCacheChainLocker cacheChainLocker(topCache);
 		cacheChainLocker.LockAllSourceCaches();
-
-		// Adjust the committed size, if necessary.
-		if (topCache->source != NULL && topCache->temporary) {
-			const bool becomesWritable = (protection & B_WRITE_AREA) != 0;
-			ssize_t commitmentChange = 0;
-			for (addr_t pageAddress = area->Base() + offset;
-					pageAddress < currentAddress; pageAddress += B_PAGE_SIZE) {
-				if (topCache->LookupPage(pageAddress) != NULL) {
-					// This page should already be accounted for in the commitment.
-					continue;
-				}
-
-				const bool isWritable
-					= (get_area_page_protection(area, pageAddress) & B_WRITE_AREA) != 0;
-
-				if (becomesWritable && !isWritable)
-					commitmentChange += B_PAGE_SIZE;
-				else if (!becomesWritable && isWritable)
-					commitmentChange -= B_PAGE_SIZE;
-			}
-
-			if (commitmentChange != 0) {
-				const off_t newCommitment = topCache->committed_size + commitmentChange;
-				ASSERT(newCommitment <= (topCache->virtual_end - topCache->virtual_base));
-				status_t status = topCache->Commit(newCommitment, VM_PRIORITY_USER);
-				if (status != B_OK)
-					return status;
-			}
-		}
 
 		for (addr_t pageAddress = area->Base() + offset;
 				pageAddress < currentAddress; pageAddress += B_PAGE_SIZE) {

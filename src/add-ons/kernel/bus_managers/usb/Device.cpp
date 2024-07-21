@@ -12,31 +12,40 @@
 
 #include <StackOrHeapArray.h>
 
+#define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
-Device::Device(Object* parent, int8 hubAddress, uint8 hubPort,
-	usb_device_descriptor& desc, int8 deviceAddress, usb_speed speed,
-	bool isRootHub, void* controllerCookie)
+// !!!
+#define B_DEVICE_VENDOR_ID	"usb/vendor"		/* uint16 */
+#define B_DEVICE_ID			"usb/id"			/* uint16 */
+
+
+Device::Device(BusManager *busManager, Device* parent, int8 hubAddress, uint8 hubPort,
+	int8 deviceAddress, usb_speed speed,
+	void* controllerCookie)
 	:
-	Object(parent),
-	fDeviceDescriptor(desc),
-	fInitOK(false),
-	fAvailable(true),
-	fIsRootHub(isRootHub),
-	fConfigurations(NULL),
-	fCurrentConfiguration(NULL),
+	Object(busManager),
+	fParent(parent),
+	fIsRootHub(parent == NULL),
 	fSpeed(speed),
 	fDeviceAddress(deviceAddress),
 	fHubAddress(hubAddress),
 	fHubPort(hubPort),
 	fControllerCookie(controllerCookie),
-	fNode(NULL)
+	fDeviceIface(*this),
+	fBusDeviceIface(*this)
 {
-	TRACE("creating device\n");
+}
+
+
+status_t
+Device::Init()
+{
+	TRACE_ALWAYS("creating device\n");
 
 	fDefaultPipe = new(std::nothrow) ControlPipe(this);
 	if (fDefaultPipe == NULL) {
 		TRACE_ERROR("could not allocate default pipe\n");
-		return;
+		return B_NO_MEMORY;
 	}
 
 	fDefaultPipe->InitCommon(fDeviceAddress, 0, fSpeed, Pipe::Default,
@@ -50,7 +59,7 @@ Device::Device(Object* parent, int8 hubAddress, uint8 hubPort,
 
 	if (status < B_OK || actualLength != sizeof(fDeviceDescriptor)) {
 		TRACE_ERROR("error while getting the device descriptor\n");
-		return;
+		return B_ERROR;
 	}
 
 	TRACE("full device descriptor for device %d:\n", fDeviceAddress);
@@ -69,12 +78,14 @@ Device::Device(Object* parent, int8 hubAddress, uint8 hubPort,
 	TRACE("\tserial_number:.......0x%02x\n", fDeviceDescriptor.serial_number);
 	TRACE("\tnum_configurations:..%d\n", fDeviceDescriptor.num_configurations);
 
+	GetBusManager()->InitDevice(this, fDeviceDescriptor);
+
 	// Get the configurations
 	fConfigurations = (usb_configuration_info*)malloc(
 		fDeviceDescriptor.num_configurations * sizeof(usb_configuration_info));
 	if (fConfigurations == NULL) {
 		TRACE_ERROR("out of memory during config creations!\n");
-		return;
+		return B_NO_MEMORY;
 	}
 
 	memset(fConfigurations, 0, fDeviceDescriptor.num_configurations
@@ -88,7 +99,7 @@ Device::Device(Object* parent, int8 hubAddress, uint8 hubPort,
 		if (status < B_OK
 			|| actualLength != sizeof(usb_configuration_descriptor)) {
 			TRACE_ERROR("error fetching configuration %" B_PRId32 "\n", i);
-			return;
+			return B_ERROR;
 		}
 
 		TRACE("configuration %" B_PRId32 "\n", i);
@@ -108,7 +119,7 @@ Device::Device(Object* parent, int8 hubAddress, uint8 hubPort,
 		uint8* configData = (uint8*)malloc(configDescriptor.total_length);
 		if (configData == NULL) {
 			TRACE_ERROR("out of memory when reading config\n");
-			return;
+			return B_NO_MEMORY;
 		}
 
 		status = GetDescriptor(USB_DESCRIPTOR_CONFIGURATION, i, 0,
@@ -119,7 +130,7 @@ Device::Device(Object* parent, int8 hubAddress, uint8 hubPort,
 				" descriptor %" B_PRId32 " got %" B_PRIuSIZE " expected %"
 				B_PRIu16 "\n", i, actualLength, configDescriptor.total_length);
 			free(configData);
-			return;
+			return B_ERROR;
 		}
 
 		usb_configuration_descriptor* configuration
@@ -130,7 +141,7 @@ Device::Device(Object* parent, int8 hubAddress, uint8 hubPort,
 			configuration->number_interfaces * sizeof(usb_interface_list));
 		if (fConfigurations[i].interface == NULL) {
 			TRACE_ERROR("out of memory when creating interfaces\n");
-			return;
+			return B_NO_MEMORY;
 		}
 
 		memset(fConfigurations[i].interface, 0,
@@ -184,7 +195,7 @@ Device::Device(Object* parent, int8 hubAddress, uint8 hubPort,
 						TRACE_ERROR("out of memory allocating"
 							" alternate interface\n");
 						interfaceList->alt_count--;
-						return;
+						return B_NO_MEMORY;
 					}
 
 					interfaceList->alt = newAlternates;
@@ -206,10 +217,10 @@ Device::Device(Object* parent, int8 hubAddress, uint8 hubPort,
 					if (interface == NULL) {
 						TRACE_ERROR("failed to allocate"
 							" interface object\n");
-						return;
+						return B_NO_MEMORY;
 					}
 
-					interfaceInfo->handle = interface->USBID();
+					interfaceInfo->handle = interface->GetInterfaceIface();
 					currentInterface = interfaceInfo;
 					break;
 				}
@@ -244,7 +255,7 @@ Device::Device(Object* parent, int8 hubAddress, uint8 hubPort,
 					if (newEndpoints == NULL) {
 						TRACE_ERROR("out of memory allocating new endpoint\n");
 						currentInterface->endpoint_count--;
-						return;
+						return B_NO_MEMORY;
 					}
 
 					currentInterface->endpoint = newEndpoints;
@@ -300,7 +311,7 @@ Device::Device(Object* parent, int8 hubAddress, uint8 hubPort,
 						TRACE_ERROR("out of memory allocating"
 							" generic descriptor\n");
 						currentInterface->generic_count--;
-						return;
+						return B_NO_MEMORY;
 					}
 
 					currentInterface->generic = newGenerics;
@@ -320,15 +331,25 @@ Device::Device(Object* parent, int8 hubAddress, uint8 hubPort,
 	TRACE("setting default configuration\n");
 	if (SetConfigurationAt(0) != B_OK) {
 		TRACE_ERROR("failed to set default configuration\n");
-		return;
+		return B_ERROR;
 	}
 
-	fInitOK = true;
+	return B_OK;
 }
 
 
 Device::~Device()
 {
+	if (fNode != NULL) {
+		DeviceNode* parentNode = fNode->GetParent();
+		status_t error = parentNode->UnregisterNode(fNode);
+		parentNode->ReleaseReference();
+		if (error != B_OK && error != B_BUSY)
+			TRACE_ERROR("failed to unregister device node\n");
+		fNode->ReleaseReference();
+		fNode = NULL;
+	}
+
 	// Cancel transfers on the default pipe and put its USBID to prevent
 	// further transfers from being queued.
 	if (fDefaultPipe != NULL) {
@@ -340,13 +361,6 @@ Device::~Device()
 	// Destroy open endpoints. Do not send a device request to unconfigure
 	// though, since we may be deleted because the device was unplugged already.
 	Unconfigure(false);
-
-	if (fNode != NULL) {
-		status_t error = gDeviceManager->unregister_node(fNode);
-		if (error != B_OK && error != B_BUSY)
-			TRACE_ERROR("failed to unregister device node\n");
-		fNode = NULL;
-	}
 
 	// Destroy all Interfaces in the Configurations hierarchy.
 	for (int32 i = 0; fConfigurations != NULL
@@ -362,8 +376,7 @@ Device::~Device()
 
 			for (size_t k = 0; k < interfaceList->alt_count; k++) {
 				usb_interface_info* interface = &interfaceList->alt[k];
-				Interface* interfaceObject =
-					(Interface*)GetStack()->GetObject(interface->handle);
+				Interface* interfaceObject = interface->handle == NULL ? NULL : static_cast<UsbInterfaceImpl*>(interface->handle)->Base();
 				if (interfaceObject != NULL)
 					interfaceObject->SetBusy(false);
 				delete interfaceObject;
@@ -375,6 +388,9 @@ Device::~Device()
 	// Remove ourselves from the stack before deleting public structures.
 	PutUSBID();
 	delete fDefaultPipe;
+
+	if (fParent == NULL)
+		Stack::Instance().RemoveRootHub(this);
 
 	if (fConfigurations == NULL) {
 		// we didn't get far in device setup, so everything below is unneeded
@@ -409,16 +425,6 @@ Device::~Device()
 	}
 
 	free(fConfigurations);
-}
-
-
-status_t
-Device::InitCheck()
-{
-	if (fInitOK)
-		return B_OK;
-
-	return B_ERROR;
 }
 
 
@@ -555,7 +561,7 @@ Device::InitEndpoints(int32 interfaceIndex)
 				}
 				if (comp_descr == NULL) {
 					TRACE_ERROR("SuperSpeed device without an endpoint companion "
-						"descriptor!");
+						"descriptor!\n");
 				}
 			}
 
@@ -596,7 +602,7 @@ Device::InitEndpoints(int32 interfaceIndex)
 				pipe->InitSuperSpeed(comp_descr->max_burst,
 					comp_descr->bytes_per_interval);
 			}
-			endpoint->handle = pipe->USBID();
+			endpoint->handle = pipe->GetPipeIface();
 		}
 	}
 }
@@ -646,13 +652,33 @@ Device::ClearEndpoints(int32 interfaceIndex)
 
 		for (size_t i = 0; i < interfaceInfo->endpoint_count; i++) {
 			usb_endpoint_info* endpoint = &interfaceInfo->endpoint[i];
-			Pipe* pipe = (Pipe*)GetStack()->GetObject(endpoint->handle);
+			Pipe* pipe = endpoint->handle == NULL ? NULL : static_cast<UsbPipeImpl*>(endpoint->handle)->Base();
 			if (pipe != NULL)
 				pipe->SetBusy(false);
 			delete pipe;
 			endpoint->handle = 0;
 		}
 	}
+}
+
+
+status_t
+Device::BuildDeviceName(char *string, uint32 &index, size_t bufferSize, bool isLeaf)
+{
+	if (fParent != NULL) {
+		fParent->BuildDeviceName(string, index, bufferSize, false);
+	} else {
+		index += sprintf(string + index, "bus/usb");
+	}
+
+	bool isHub = fDeviceDescriptor.device_class == 9;
+	if (isLeaf && isHub) {
+		index += sprintf(string + index, "/%" B_PRIu8 "/hub", fHubPort);
+	} else {
+		index += sprintf(string + index, "/%" B_PRIu8, fHubPort);
+	}
+
+	return B_OK;
 }
 
 
@@ -690,114 +716,14 @@ Device::DeviceDescriptor() const
 }
 
 
-status_t
-Device::ReportDevice(usb_support_descriptor* supportDescriptors,
-	uint32 supportDescriptorCount, const usb_notify_hooks* hooks,
-	usb_driver_cookie** cookies, bool added, bool recursive)
+void
+Device::DumpPath() const
 {
-	TRACE("reporting device\n");
-	bool supported = false;
-	if (supportDescriptorCount == 0 || supportDescriptors == NULL)
-		supported = true;
-
-	for (uint32 i = 0; !supported && i < supportDescriptorCount; i++) {
-		if ((supportDescriptors[i].vendor != 0
-				&& fDeviceDescriptor.vendor_id != supportDescriptors[i].vendor)
-			|| (supportDescriptors[i].product != 0
-				&& fDeviceDescriptor.product_id
-					!= supportDescriptors[i].product))
-			continue;
-
-		if ((supportDescriptors[i].dev_class == 0
-				|| fDeviceDescriptor.device_class
-					== supportDescriptors[i].dev_class)
-			&& (supportDescriptors[i].dev_subclass == 0
-				|| fDeviceDescriptor.device_subclass
-					== supportDescriptors[i].dev_subclass)
-			&& (supportDescriptors[i].dev_protocol == 0
-				|| fDeviceDescriptor.device_protocol
-					== supportDescriptors[i].dev_protocol)) {
-			supported = true;
-		}
-
-		// we have to check all interfaces for matching class/subclass/protocol
-		for (uint32 j = 0;
-				!supported && j < fDeviceDescriptor.num_configurations; j++) {
-			for (uint32 k = 0;
-					!supported && k < fConfigurations[j].interface_count; k++) {
-				for (uint32 l = 0; !supported
-					&& l < fConfigurations[j].interface[k].alt_count; l++) {
-					usb_interface_descriptor* descriptor
-						= fConfigurations[j].interface[k].alt[l].descr;
-					if ((supportDescriptors[i].dev_class == 0
-							|| descriptor->interface_class
-								== supportDescriptors[i].dev_class)
-						&& (supportDescriptors[i].dev_subclass == 0
-							|| descriptor->interface_subclass
-								== supportDescriptors[i].dev_subclass)
-						&& (supportDescriptors[i].dev_protocol == 0
-							|| descriptor->interface_protocol
-								== supportDescriptors[i].dev_protocol)) {
-						supported = true;
-					}
-				}
-			}
-		}
+	if (Parent() != NULL && (Parent()->Type() & USB_OBJECT_DEVICE) != 0) {
+		Parent()->DumpPath();
+		dprintf("/");
 	}
-
-	if (!supported)
-		return B_UNSUPPORTED;
-
-	if ((added && hooks->device_added == NULL)
-		|| (!added && hooks->device_removed == NULL)) {
-		// hooks are not installed, but report success to indicate that
-		// the driver supports the device
-		return B_OK;
-	}
-
-	usb_id id = USBID();
-	if (added) {
-		usb_driver_cookie* cookie = new(std::nothrow) usb_driver_cookie;
-		if (hooks->device_added(id, &cookie->cookie) >= B_OK) {
-			cookie->device = id;
-			cookie->link = *cookies;
-			*cookies = cookie;
-		} else
-			delete cookie;
-	} else {
-		usb_driver_cookie** pointer = cookies;
-		usb_driver_cookie* cookie = *cookies;
-		while (cookie != NULL) {
-			if (cookie->device == id)
-				break;
-			pointer = &cookie->link;
-			cookie = cookie->link;
-		}
-
-		if (cookie == NULL) {
-			// the device is supported, but there is no cookie. this most
-			// probably means that the device_added hook above failed.
-			return B_OK;
-		}
-
-		hooks->device_removed(cookie->cookie);
-		*pointer = cookie->link;
-		delete cookie;
-	}
-
-	return B_OK;
-}
-
-
-status_t
-Device::BuildDeviceName(char* string, uint32* index, size_t bufferSize,
-	Device* device)
-{
-	if (!Parent() || (Parent()->Type() & USB_OBJECT_HUB) == 0)
-		return B_ERROR;
-
-	((Hub*)Parent())->BuildDeviceName(string, index, bufferSize, this);
-	return B_OK;
+	dprintf("dev(%" B_PRIu8 ")", fHubPort);
 }
 
 
@@ -840,8 +766,8 @@ Device::GetStatus(uint16* status)
 }
 
 
-device_node*
-Device::RegisterNode(device_node *parent)
+DeviceNode*
+Device::RegisterNode(DeviceNode *parent)
 {
 	usb_id id = USBID();
 	if (parent == NULL)
@@ -862,8 +788,8 @@ Device::RegisterNode(device_node *parent)
 
 	// location
 	attrs[1] = { USB_DEVICE_ID_ITEM, B_UINT32_TYPE, { .ui32 = id } };
-	attrs[2] = { B_DEVICE_FLAGS, B_UINT32_TYPE, { .ui32 = B_FIND_MULTIPLE_CHILDREN } };
-	attrs[3] = { B_DEVICE_PRETTY_NAME, B_STRING_TYPE, { .string = "USB device" } };
+	attrs[2] = { B_DEVICE_FLAGS, B_UINT32_TYPE, { .ui32 = 0 /*B_FIND_MULTIPLE_CHILDREN*/ } };
+	attrs[3] = { B_DEVICE_PRETTY_NAME, B_STRING_TYPE, { .string = ((Type() & USB_OBJECT_HUB) != 0) ? "USB Hub" : "USB device" } };
 
 	uint32 attrCount = 4;
 
@@ -940,11 +866,12 @@ Device::RegisterNode(device_node *parent)
 	attrs[attrCount].value.string = NULL;
 	attrCount++;
 
-	device_node* node = NULL;
-	if (gDeviceManager->register_node(parent, USB_DEVICE_MODULE_NAME, attrs,
-			NULL, &node) != B_OK) {
+	DeviceNode* node = NULL;
+	if (parent->RegisterNode(NULL, &fDeviceIface, attrs, &node) != B_OK) {
 		TRACE_ERROR("failed to register device node\n");
-	} else
+	} else {
 		fNode = node;
+		fDeviceIface.Init();
+	}
 	return node;
 }

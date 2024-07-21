@@ -7,12 +7,17 @@
 #include <KernelExport.h>
 
 #include <arch/cpu.h>
+#include <arch/generic/cache_controller.h>
 #include <boot/kernel_args.h>
 #include <vm/VMAddressSpace.h>
+#include <vm/vm_priv.h>
 #include <commpage.h>
 #include <elf.h>
 #include <Htif.h>
 #include <platform/sbi/sbi_syscalls.h>
+#include <util/AutoLock.h>
+#include <AutoDeleterDrivers.h>
+#include "RISCV64VMTranslationMap.h"
 
 #include <algorithm>
 
@@ -20,6 +25,30 @@
 extern "C" void SVec();
 
 extern uint32 gPlatform;
+
+
+static CacheController* sCacheController {};
+uint32 sCacheBlockSize;
+
+
+status_t
+install_cache_controller(CacheController* ctrl)
+{
+	if (sCacheController != NULL)
+		return B_ERROR;
+
+	sCacheController = ctrl;
+	sCacheBlockSize = sCacheController->CacheBlockSize();
+	return TRUE;
+}
+
+
+void
+uninstall_cache_controller(CacheController* ctrl)
+{
+	if (sCacheController == ctrl)
+		sCacheController = NULL;
+}
 
 
 status_t
@@ -39,7 +68,7 @@ arch_cpu_init_percpu(kernel_args *args, int curr_cpu)
 	sstatus.fs = extStatusInitial; // enable FPU
 	sstatus.xs = extStatusOff;
 	SetSstatus(sstatus.val);
-	SetBitsSie((1 << sTimerInt) | (1 << sSoftInt) | (1 << sExternInt));
+	SetBitsSie((1 << sTimerInt) | (1 << sSoftInt));
 
 	return B_OK;
 }
@@ -86,6 +115,42 @@ status_t
 arch_cpu_init_post_modules(kernel_args *args)
 {
 	return B_OK;
+}
+
+
+void
+arch_cpu_flush_dcache(void *address, size_t len)
+{
+	if (sCacheController == NULL)
+		return;
+
+	VMAddressSpacePutter addressSpace(VMAddressSpace::GetCurrent());
+	auto map = (RISCV64VMTranslationMap*)addressSpace->TranslationMap();
+
+	memory_full_barrier();
+	addr_t begin = ROUNDDOWN((addr_t)address, sCacheBlockSize);
+	addr_t end = ROUNDUP((addr_t)address + len, sCacheBlockSize);
+	phys_addr_t physAdr = 0;
+	uint32 pageFlags = 0;
+	for (addr_t line = begin; line != end; line += sCacheBlockSize) {
+		if (line == begin || (line % B_PAGE_SIZE) == 0) {
+			map->Lock();
+			map->Query(ROUNDDOWN(line, B_PAGE_SIZE), &physAdr, &pageFlags);
+			map->Unlock();
+		}
+		if ((PAGE_PRESENT & pageFlags) == 0)
+			continue;
+
+		sCacheController->FlushCache(physAdr + (line % B_PAGE_SIZE));
+		memory_full_barrier();
+	}
+}
+
+
+void
+arch_cpu_invalidate_dcache(void *address, size_t len)
+{
+	arch_cpu_flush_dcache(address, len);
 }
 
 

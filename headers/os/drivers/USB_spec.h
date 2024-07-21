@@ -38,6 +38,7 @@
 #define USB_REQUEST_GET_INTERFACE			10
 #define USB_REQUEST_SET_INTERFACE			11
 #define USB_REQUEST_SYNCH_FRAME				12
+#define USB_REQUEST_SET_HUB_DEPTH			12
 
 /* Used by {set|get}_descriptor() */
 #define USB_DESCRIPTOR_DEVICE				0x01
@@ -45,6 +46,8 @@
 #define USB_DESCRIPTOR_STRING				0x03
 #define USB_DESCRIPTOR_INTERFACE			0x04
 #define USB_DESCRIPTOR_ENDPOINT				0x05
+#define USB_DESCRIPTOR_HUB					0x29
+#define USB_DESCRIPTOR_SS_HUB				0x2A
 /* conventional class-specific descriptors */
 #define USB_DESCRIPTOR_CS_DEVICE			0x21
 #define USB_DESCRIPTOR_CS_CONFIGURATION		0x22
@@ -150,6 +153,17 @@ typedef union usb_descriptor {
 	usb_configuration_descriptor	configuration;
 	usb_string_descriptor			string;
 } usb_descriptor;
+
+struct usb_hub_descriptor {
+	uint8 length;
+	uint8 descriptor_type;
+	uint8 num_ports;
+	uint16 characteristics;
+	uint8 power_on_to_power_good;
+	uint8 max_power;
+	uint8 device_removeable;	//Should be variable!!!
+	uint8 power_control_mask;	//Deprecated
+} _PACKED;
 
 
 #endif	/* _USB_SPEC_H */

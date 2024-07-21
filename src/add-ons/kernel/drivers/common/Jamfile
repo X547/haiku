@@ -7,11 +7,16 @@ KernelAddon dprintf :
 	;
 
 KernelAddon null :
-	null.c
+	null.cpp
 	;
 
 KernelAddon zero :
-	zero.c
+	zero.cpp
+	;
+
+KernelAddon random :
+	random.cpp
+	yarrow_rng.cpp
 	;
 
 KernelAddon console :

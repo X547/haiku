@@ -7,4 +7,5 @@ UsePrivateHeaders drivers graphics virtio ;
 
 KernelAddon virtio_gpu :
 	virtio_gpu.cpp
+	PhysicalMemoryAllocator.cpp
 ;

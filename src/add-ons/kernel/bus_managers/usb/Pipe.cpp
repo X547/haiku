@@ -10,10 +10,13 @@
 #include "usb_private.h"
 
 
-Pipe::Pipe(Object *parent)
-	:	Object(parent),
+Pipe::Pipe(Device *parent)
+	:	Object(parent->GetBusManager()),
+		fParent(parent),
 		fDataToggle(false),
-		fControllerCookie(NULL)
+		fControllerCookie(NULL),
+		fPipeIface(*this),
+		fBusPipeIface(*this)
 {
 	// all other init is to be done in InitCommon()
 }
@@ -21,6 +24,7 @@ Pipe::Pipe(Object *parent)
 
 Pipe::~Pipe()
 {
+	TRACE_ALWAYS("fini\n");
 	PutUSBID();
 
 	Pipe::CancelQueuedTransfers(true);
@@ -46,6 +50,8 @@ Pipe::InitCommon(int8 deviceAddress, uint8 endpointAddress, usb_speed speed,
 	fBytesPerInterval = 0;
 
 	GetBusManager()->NotifyPipeChange(this, USB_CHANGE_CREATED);
+
+	TRACE_ALWAYS("init\n");
 }
 
 
@@ -80,6 +86,19 @@ status_t
 Pipe::CancelQueuedTransfers(bool force)
 {
 	return GetBusManager()->CancelQueuedTransfers(this, force);
+}
+
+
+void
+Pipe::DumpPath() const
+{
+	Parent()->DumpPath();
+	dprintf("/");
+	if ((Type() & USB_OBJECT_CONTROL_PIPE) != 0) {
+		dprintf("ctrlPipe");
+	} else {
+		dprintf("pipe(%" B_PRIu8 ")", fEndpointAddress);
+	}
 }
 
 
@@ -143,7 +162,7 @@ Pipe::GetStatus(uint16 *status)
 //
 
 
-InterruptPipe::InterruptPipe(Object *parent)
+InterruptPipe::InterruptPipe(Device *parent)
 	:	Pipe(parent)
 {
 }
@@ -175,7 +194,7 @@ InterruptPipe::QueueInterrupt(void *data, size_t dataLength,
 //
 
 
-BulkPipe::BulkPipe(Object *parent)
+BulkPipe::BulkPipe(Device *parent)
 	:	Pipe(parent)
 {
 }
@@ -272,7 +291,7 @@ BulkPipe::QueueBulkV(physical_entry *vector, size_t vectorCount,
 //
 
 
-IsochronousPipe::IsochronousPipe(Object *parent)
+IsochronousPipe::IsochronousPipe(Device *parent)
 	:	Pipe(parent),
 		fMaxQueuedPackets(0),
 		fMaxBufferDuration(0),
@@ -301,11 +320,6 @@ IsochronousPipe::QueueIsochronous(void *data, size_t dataLength,
 	isochronousData->packet_count = packetCount;
 	isochronousData->starting_frame_number = startingFrameNumber;
 	isochronousData->flags = flags;
-
-	for (uint32 i = 0; i < isochronousData->packet_count; i++) {
-		isochronousData->packet_descriptors[i].actual_length = 0;
-		isochronousData->packet_descriptors[i].status = B_NO_INIT;
-	}
 
 	Transfer *transfer = new(std::nothrow) Transfer(this);
 	if (!transfer) {
@@ -361,7 +375,7 @@ IsochronousPipe::GetPipePolicy(uint8 *maxQueuedPackets,
 //
 
 
-ControlPipe::ControlPipe(Object *parent)
+ControlPipe::ControlPipe(Device *parent)
 	:	Pipe(parent),
 		fNotifySem(-1)
 {

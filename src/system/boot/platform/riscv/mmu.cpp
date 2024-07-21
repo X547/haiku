@@ -205,6 +205,9 @@ MapRangeIdentity(addr_t adr, size_t size, uint64 flags)
 static void
 MapAddrRange(addr_range& range, uint64 flags)
 {
+	if (range.size == 0)
+		return;
+
 	phys_addr_t physAdr = range.start;
 	range.start = AllocVirtPages(range.size);
 
@@ -319,6 +322,8 @@ platform_allocate_region(void** address, size_t size, uint8 protection,
 
 	*address = (void*)region->physAdr;
 
+	//dprintf("platform_allocate_region(%#" B_PRIx64 ") -> phys: %#" B_PRIx64 ", virt: %#" B_PRIx64 "\n", size, region->physAdr, region->virtAdr);
+
 	region->next = sRegions;
 	sRegions = region.Detach();
 
@@ -339,6 +344,7 @@ platform_free_region(void* address, size_t size)
 		panic("platform_free_region: address %p is not allocated\n", address);
 		return B_ERROR;
 	}
+	//dprintf("platform_free_region(%p), virt: %#" B_PRIx64 "\n", address, region->virtAdr);
 	FreePhysPages(region->physAdr, region->size);
 	FreeVirtPages(region->virtAdr, region->size);
 	if (prev == NULL)

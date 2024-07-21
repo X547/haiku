@@ -72,91 +72,56 @@ WriteReg16(addr_t adr, uint32 value)
 //#pragma mark - driver
 
 
-float
-ECAMPCIController::SupportsDevice(device_node* parent)
-{
-	const char* bus;
-	status_t status = gDeviceManager->get_attr_string(parent, B_DEVICE_BUS, &bus, false);
-	if (status < B_OK)
-		return -1.0f;
-
-	if (strcmp(bus, "fdt") == 0) {
-		const char* compatible;
-		status = gDeviceManager->get_attr_string(parent, "fdt/compatible", &compatible, false);
-		if (status < B_OK)
-			return -1.0f;
-
-		if (strcmp(compatible, "pci-host-ecam-generic") != 0)
-			return 0.0f;
-
-		return 1.0f;
-	}
-
-	if (strcmp(bus, "acpi") == 0) {
-		const char* hid;
-		if (gDeviceManager->get_attr_string(parent, ACPI_DEVICE_HID_ITEM, &hid, false) < B_OK)
-			return -1.0f;
-
-		if (strcmp(hid, "PNP0A03") != 0 && strcmp(hid, "PNP0A08") != 0)
-			return 0.0f;
-
-		return 1.0f;
-	}
-
-	return 0.0f;
-}
-
-
 status_t
-ECAMPCIController::RegisterDevice(device_node* parent)
+ECAMPCIController::Probe(DeviceNode* node, DeviceDriver** outDriver)
 {
-	device_attr attrs[] = {
-		{ B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "ECAM PCI Host Controller"} },
-		{ B_DEVICE_FIXED_CHILD, B_STRING_TYPE, {.string = "bus_managers/pci/root/driver_v1"} },
-		{}
-	};
-
-	return gDeviceManager->register_node(parent, ECAM_PCI_DRIVER_MODULE_NAME, attrs, NULL, NULL);
-}
-
-
-#if !defined(ECAM_PCI_CONTROLLER_NO_INIT)
-status_t
-ECAMPCIController::InitDriver(device_node* node, ECAMPCIController*& outDriver)
-{
-	dprintf("+ECAMPCIController::InitDriver()\n");
-	DeviceNodePutter<&gDeviceManager> parentNode(gDeviceManager->get_parent_node(node));
+	dprintf("+ECAMPCIController::Probe()\n");
 
 	ObjectDeleter<ECAMPCIController> driver;
 
-	const char* bus;
-	CHECK_RET(gDeviceManager->get_attr_string(parentNode.Get(), B_DEVICE_BUS, &bus, false));
-	if (strcmp(bus, "fdt") == 0)
-		driver.SetTo(new(std::nothrow) ECAMPCIControllerFDT());
-	else if (strcmp(bus, "acpi") == 0)
-		driver.SetTo(new(std::nothrow) ECAMPCIControllerACPI());
-	else
+	AcpiDevice* acpiDevice = node->QueryBusInterface<AcpiDevice>();
+	FdtDevice* fdtDevice = node->QueryBusInterface<FdtDevice>();
+	if (acpiDevice != NULL) {
+		driver.SetTo(new(std::nothrow) ECAMPCIControllerACPI(node, acpiDevice));
+	} else if (fdtDevice != NULL) {
+		driver.SetTo(new(std::nothrow) ECAMPCIControllerFDT(node, fdtDevice));
+	} else {
 		return B_ERROR;
-
+	}
 	if (!driver.IsSet())
 		return B_NO_MEMORY;
 
-	driver->fNode = node;
+	CHECK_RET(driver->Init());
+	*outDriver = driver.Detach();
 
-	CHECK_RET(driver->ReadResourceInfo());
-	outDriver = driver.Detach();
-
-	dprintf("-ECAMPCIController::InitDriver()\n");
+	dprintf("-ECAMPCIController::Probe()\n");
 	return B_OK;
 }
 
 
-void
-ECAMPCIController::UninitDriver()
+status_t
+ECAMPCIController::Init()
 {
-	delete this;
+	CHECK_RET(ReadResourceInfo());
+
+	static const device_attr attrs[] = {
+		{B_DEVICE_PRETTY_NAME, B_STRING_TYPE, {.string = "PCI Bus Manager"}},
+		{B_DEVICE_FIXED_CHILD, B_STRING_TYPE, {.string = "bus_managers/pci/driver/v1"}},
+		{}
+	};
+	CHECK_RET(fNode->RegisterNode(fNode, static_cast<BusDriver*>(&fBusManager), attrs, NULL));
+
+	return B_OK;
 }
-#endif
+
+
+void* ECAMPCIController::BusManager::QueryInterface(const char* name)
+{
+	if (strcmp(name, PciController::ifaceName) == 0)
+		return static_cast<PciController*>(&fBase);
+
+	return NULL;
+}
 
 
 addr_t
@@ -179,19 +144,19 @@ ECAMPCIController::ConfigAddress(uint8 bus, uint8 device, uint8 function, uint16
 
 
 status_t
-ECAMPCIController::ReadConfig(uint8 bus, uint8 device, uint8 function,
-	uint16 offset, uint8 size, uint32& value)
+ECAMPCIController::ReadPciConfig(uint8 bus, uint8 device, uint8 function,
+	uint16 offset, uint8 size, uint32* value)
 {
 	addr_t address = ConfigAddress(bus, device, function, offset);
 	if (address == 0)
-		return ERANGE;
+		return B_ERROR;
 
 	switch (size) {
-		case 1: value = ReadReg8(address); break;
-		case 2: value = ReadReg16(address); break;
-		case 4: value = *(vuint32*)address; break;
+		case 1: *value = ReadReg8(address); break;
+		case 2: *value = ReadReg16(address); break;
+		case 4: *value = *(vuint32*)address; break;
 		default:
-			return B_BAD_VALUE;
+			return B_ERROR;
 	}
 
 	return B_OK;
@@ -199,19 +164,19 @@ ECAMPCIController::ReadConfig(uint8 bus, uint8 device, uint8 function,
 
 
 status_t
-ECAMPCIController::WriteConfig(uint8 bus, uint8 device, uint8 function,
+ECAMPCIController::WritePciConfig(uint8 bus, uint8 device, uint8 function,
 	uint16 offset, uint8 size, uint32 value)
 {
 	addr_t address = ConfigAddress(bus, device, function, offset);
 	if (address == 0)
-		return ERANGE;
+		return B_ERROR;
 
 	switch (size) {
 		case 1: WriteReg8(address, value); break;
 		case 2: WriteReg16(address, value); break;
 		case 4: *(vuint32*)address = value; break;
 		default:
-			return B_BAD_VALUE;
+			return B_ERROR;
 	}
 
 	return B_OK;
@@ -219,23 +184,23 @@ ECAMPCIController::WriteConfig(uint8 bus, uint8 device, uint8 function,
 
 
 status_t
-ECAMPCIController::GetMaxBusDevices(int32& count)
+ECAMPCIController::GetMaxBusDevices(int32* count)
 {
-	count = 32;
+	*count = 32;
 	return B_OK;
 }
 
 
 status_t
-ECAMPCIController::ReadIrq(uint8 bus, uint8 device, uint8 function,
-	uint8 pin, uint8& irq)
+ECAMPCIController::ReadPciIrq(uint8 bus, uint8 device, uint8 function,
+	uint8 pin, uint8* irq)
 {
 	return B_UNSUPPORTED;
 }
 
 
 status_t
-ECAMPCIController::WriteIrq(uint8 bus, uint8 device, uint8 function,
+ECAMPCIController::WritePciIrq(uint8 bus, uint8 device, uint8 function,
 	uint8 pin, uint8 irq)
 {
 	return B_UNSUPPORTED;
@@ -250,4 +215,29 @@ ECAMPCIController::GetRange(uint32 index, pci_resource_range* range)
 
 	*range = fResourceRanges[index];
 	return B_OK;
+}
+
+
+MSIInterface*
+ECAMPCIController::GetMsiDriver()
+{
+	if (!msi_supported())
+		return NULL;
+
+	return &fMsiIface;
+}
+
+
+status_t
+ECAMPCIController::MSIInterfaceImpl::AllocateVectors(uint32 count, uint32& startVector,
+	uint64& address, uint32& data)
+{
+	return msi_allocate_vectors(count, &startVector, &address, &data);
+}
+
+
+void
+ECAMPCIController::MSIInterfaceImpl::FreeVectors(uint32 count, uint32 startVector)
+{
+	msi_free_vectors(count, startVector);
 }

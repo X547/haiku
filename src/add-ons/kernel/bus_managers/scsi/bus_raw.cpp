@@ -21,15 +21,15 @@
 typedef struct bus_raw_info {
 	scsi_bus_interface *interface;
 	scsi_bus cookie;
-	device_node *node;
+	DeviceNode *node;
 } bus_raw_info;
 
 
 static status_t
 scsi_bus_raw_init(void *driverCookie, void **_cookie)
 {
-	device_node *node = (device_node *)driverCookie;
-	device_node *parent;
+	DeviceNode *node = (DeviceNode *)driverCookie;
+	DeviceNode *parent;
 	bus_raw_info *bus;
 
 	bus = (bus_raw_info*)malloc(sizeof(*bus));

@@ -7,7 +7,7 @@
 
 #include "dma_resources.h"
 
-#include <device_manager.h>
+#include <dm2/device_manager.h>
 
 #include <kernel.h>
 #include <util/AutoLock.h>
@@ -111,7 +111,7 @@ DMAResource::~DMAResource()
 
 
 status_t
-DMAResource::Init(device_node* node, generic_size_t blockSize,
+DMAResource::Init(DeviceNode* node, generic_size_t blockSize,
 	uint32 bufferCount, uint32 bounceBufferCount)
 {
 	dma_restrictions restrictions;
@@ -120,36 +120,27 @@ DMAResource::Init(device_node* node, generic_size_t blockSize,
 	// TODO: add DMA attributes instead of reusing block_io's
 
 	uint32 value;
-	if (gDeviceManagerModule.get_attr_uint32(node,
-			B_DMA_ALIGNMENT, &value, true) == B_OK)
+	if (node->FindAttrUint32(B_DMA_ALIGNMENT, &value, true) == B_OK)
 		restrictions.alignment = (generic_size_t)value + 1;
 
-	if (gDeviceManagerModule.get_attr_uint32(node,
-			B_DMA_BOUNDARY, &value, true) == B_OK)
+	if (node->FindAttrUint32(B_DMA_BOUNDARY, &value, true) == B_OK)
 		restrictions.boundary = (generic_size_t)value + 1;
 
-	if (gDeviceManagerModule.get_attr_uint32(node,
-			B_DMA_MAX_SEGMENT_BLOCKS, &value, true) == B_OK)
+	if (node->FindAttrUint32(B_DMA_MAX_SEGMENT_BLOCKS, &value, true) == B_OK)
 		restrictions.max_segment_size = (generic_size_t)value * blockSize;
 
-	if (gDeviceManagerModule.get_attr_uint32(node,
-			B_DMA_MAX_TRANSFER_BLOCKS, &value, true) == B_OK)
+	if (node->FindAttrUint32(B_DMA_MAX_TRANSFER_BLOCKS, &value, true) == B_OK)
 		restrictions.max_transfer_size = (generic_size_t)value * blockSize;
 
-	if (gDeviceManagerModule.get_attr_uint32(node,
-			B_DMA_MAX_SEGMENT_COUNT, &value, true) == B_OK)
+	if (node->FindAttrUint32(B_DMA_MAX_SEGMENT_COUNT, &value, true) == B_OK)
 		restrictions.max_segment_count = value;
 
 	uint64 value64;
-	if (gDeviceManagerModule.get_attr_uint64(node,
-			B_DMA_LOW_ADDRESS, &value64, true) == B_OK) {
+	if (node->FindAttrUint64(B_DMA_LOW_ADDRESS, &value64, true) == B_OK)
 		restrictions.low_address = value64;
-	}
 
-	if (gDeviceManagerModule.get_attr_uint64(node,
-			B_DMA_HIGH_ADDRESS, &value64, true) == B_OK) {
+	if (node->FindAttrUint64(B_DMA_HIGH_ADDRESS, &value64, true) == B_OK)
 		restrictions.high_address = value64;
-	}
 
 	return Init(restrictions, blockSize, bufferCount, bounceBufferCount);
 }

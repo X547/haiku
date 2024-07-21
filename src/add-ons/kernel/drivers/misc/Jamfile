@@ -1,5 +1,7 @@
 SubDir HAIKU_TOP src add-ons kernel drivers misc ;
 
+SubDirC++Flags -fno-rtti ;
+
 UsePrivateHeaders drivers ;
 UsePrivateKernelHeaders ;
 
@@ -17,4 +19,12 @@ KernelAddon <driver>kdl :
 
 KernelAddon <driver>test :
 	test.c
+	;
+
+KernelAddon <driver>syscon :
+	syscon.cpp
+	;
+
+KernelAddon <driver>fu740_cache :
+	fu740_cache.cpp
 	;

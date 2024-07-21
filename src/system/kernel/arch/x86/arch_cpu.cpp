@@ -109,7 +109,7 @@ static uint32 sCpuRendezvous3;
 static vint32 sTSCSyncRendezvous;
 
 /* Some specials for the double fault handler */
-static addr_t sDoubleFaultStacks = 0;
+static uint8* sDoubleFaultStacks;
 static const size_t kDoubleFaultStackSize = 4096;	// size per CPU
 
 static x86_cpu_module_info* sCpuModule;
@@ -1480,7 +1480,7 @@ void*
 x86_get_double_fault_stack(int32 cpu, size_t* _size)
 {
 	*_size = kDoubleFaultStackSize;
-	return (void*)(sDoubleFaultStacks + kDoubleFaultStackSize * cpu);
+	return sDoubleFaultStacks + kDoubleFaultStackSize * cpu;
 }
 
 
@@ -1491,7 +1491,7 @@ int32
 x86_double_fault_get_cpu(void)
 {
 	addr_t stack = x86_get_stack_frame();
-	return (stack - sDoubleFaultStacks) / kDoubleFaultStackSize;
+	return (stack - (addr_t)sDoubleFaultStacks) / kDoubleFaultStackSize;
 }
 
 
@@ -1501,12 +1501,6 @@ x86_double_fault_get_cpu(void)
 status_t
 arch_cpu_preboot_init_percpu(kernel_args* args, int cpu)
 {
-	if (cpu == 0) {
-		// We can't allocate pages at this stage in the boot process, only virtual addresses.
-		sDoubleFaultStacks = vm_allocate_early(args,
-			kDoubleFaultStackSize * smp_get_num_cpus(), 0, 0, 0);
-	}
-
 	// On SMP system we want to synchronize the CPUs' TSCs, so system_time()
 	// will return consistent values.
 	if (smp_get_num_cpus() > 1) {
@@ -1654,10 +1648,8 @@ init_tsc(kernel_args* args)
 
 	// try to find the TSC frequency with CPUID
 	uint32 conversionFactor = args->arch_args.system_time_cv_factor;
-	if (!x86_check_feature(IA32_FEATURE_EXT_HYPERVISOR, FEATURE_EXT)) {
-		init_tsc_with_cpuid(args, &conversionFactor);
-		init_tsc_with_msr(args, &conversionFactor);
-	}
+	init_tsc_with_cpuid(args, &conversionFactor);
+	init_tsc_with_msr(args, &conversionFactor);
 	uint64 conversionFactorNsecs = (uint64)conversionFactor * 1000;
 
 
@@ -1780,20 +1772,24 @@ enable_xsavemask(void* dummy, int cpu)
 status_t
 arch_cpu_init_post_vm(kernel_args* args)
 {
-	// allocate the area for the double fault stacks
-	area_id stacks = create_area("double fault stacks",
-		(void**)&sDoubleFaultStacks, B_EXACT_ADDRESS,
-		kDoubleFaultStackSize * smp_get_num_cpus(),
-		B_FULL_LOCK, B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA);
-	if (stacks < B_OK)
-		panic("failed to create double fault stacks area: %" B_PRId32, stacks);
+	uint32 i;
+
+	// allocate an area for the double fault stacks
+	virtual_address_restrictions virtualRestrictions = {};
+	virtualRestrictions.address_specification = B_ANY_KERNEL_ADDRESS;
+	physical_address_restrictions physicalRestrictions = {};
+	create_area_etc(B_SYSTEM_TEAM, "double fault stacks",
+		kDoubleFaultStackSize * smp_get_num_cpus(), B_FULL_LOCK,
+		B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA, CREATE_AREA_DONT_WAIT, 0,
+		&virtualRestrictions, &physicalRestrictions,
+		(void**)&sDoubleFaultStacks);
 
 	X86PagingStructures* kernelPagingStructures
 		= static_cast<X86VMTranslationMap*>(
 			VMAddressSpace::Kernel()->TranslationMap())->PagingStructures();
 
 	// Set active translation map on each CPU.
-	for (uint32 i = 0; i < args->num_cpus; i++) {
+	for (i = 0; i < args->num_cpus; i++) {
 		gCPU[i].arch.active_paging_structures = kernelPagingStructures;
 		kernelPagingStructures->AddReference();
 	}
@@ -1849,6 +1845,7 @@ arch_cpu_init_post_vm(kernel_args* args)
 		dprintf("enable %s 0x%" B_PRIx64 " %" B_PRId64 "\n",
 			gHasXsavec ? "XSAVEC" : "XSAVE", gXsaveMask, gFPUSaveLength);
 	}
+
 #endif
 
 	return B_OK;
@@ -1892,6 +1889,18 @@ arch_cpu_init_post_modules(kernel_args* args)
 		threadExitPosition, threadExitLen, B_SYMBOL_TYPE_TEXT);
 
 	return B_OK;
+}
+
+
+void
+arch_cpu_flush_dcache(void *address, size_t len)
+{
+}
+
+
+void
+arch_cpu_invalidate_dcache(void *address, size_t len)
+{
 }
 
 

@@ -15,6 +15,8 @@
 #include <arch/x86/msi.h>
 #endif
 
+#include <AutoDeleter.h>
+
 #include "util/kernel_cpp.h"
 #include "pci_fixup.h"
 #include "pci_info.h"
@@ -28,6 +30,25 @@
 
 
 PCI *gPCI;
+
+
+#if 0
+static uint32
+pci_get_bar_kind(uint32 val)
+{
+	if (val % 2 == 1)
+		return kPciRangeIoPort;
+	if (val / 2 % 4 == 0)
+		return kPciRangeMmio;
+/*
+	if (val / 2 % 4 == 1)
+		return kRegMmio1MB;
+*/
+	if (val / 2 % 4 == 2)
+		return kPciRangeMmio + kPciRangeMmio64Bit;
+	return kPciRangeInvalid;
+}
+#endif
 
 
 // #pragma mark bus manager exports
@@ -120,6 +141,8 @@ status_t
 pci_reserve_device(uchar virtualBus, uchar device, uchar function,
 	const char *driverName, void *nodeCookie)
 {
+	return B_OK;
+#if 0
 	status_t status;
 	uint8 bus;
 	uint8 domain;
@@ -199,6 +222,7 @@ err1:
 	TRACE(("pci_reserve_device for driver %s failed: %s\n", driverName,
 		strerror(status)));
 	return status;
+#endif
 }
 
 
@@ -206,6 +230,8 @@ status_t
 pci_unreserve_device(uchar virtualBus, uchar device, uchar function,
 	const char *driverName, void *nodeCookie)
 {
+	return B_OK;
+#if 0
 	status_t status;
 	uint8 bus;
 	uint8 domain;
@@ -283,6 +309,7 @@ err1:
 	TRACE(("pci_unreserve_device for driver %s failed: %s\n", driverName,
 		strerror(status)));
 	return status;
+#endif
 }
 
 
@@ -480,7 +507,6 @@ pcirefresh(int argc, char **argv)
 
 // #pragma mark bus manager init/uninit
 
-
 status_t
 pci_init(void)
 {
@@ -541,7 +567,7 @@ PCI::PCI()
 	fVirtualBusMap(),
 	fNextVirtualBus(0)
 {
-	#if defined(__POWERPC__) || defined(__M68K__)
+	#if defined(__POWERPC__) || defined(__M68K__) || defined(__riscv)
 		fBusEnumeration = true;
 	#endif
 }
@@ -634,8 +660,7 @@ PCI::ResolveVirtualBus(uint8 virtualBus, uint8 *domain, uint8 *bus)
 
 
 status_t
-PCI::AddController(pci_controller_module_info *controller,
-	void *controllerCookie, device_node *rootNode, domain_data **domainData)
+PCI::AddController(PciController *controller, DeviceNode *rootNode, domain_data **domainData)
 {
 	if (fDomainCount == MAX_PCI_DOMAINS)
 		return B_ERROR;
@@ -644,10 +669,9 @@ PCI::AddController(pci_controller_module_info *controller,
 	domain_data& data = fDomainData[domain];
 
 	data.controller = controller;
-	data.controller_cookie = controllerCookie;
 	data.root_node = rootNode;
 
-	data.bus = new(std::nothrow) PCIBus {.domain = domain};
+	data.bus = new(std::nothrow) PCIBus{.domain = domain};
 	if (data.bus == NULL)
 		return B_NO_MEMORY;
 
@@ -658,8 +682,7 @@ PCI::AddController(pci_controller_module_info *controller,
 
 	InitDomainData(data);
 	InitBus(data.bus);
-	if (data.controller->finalize != NULL)
-		data.controller->finalize(data.controller_cookie);
+	data.controller->Finalize();
 	_RefreshDeviceInfo(data.bus);
 
 	pci_print_info();
@@ -704,14 +727,13 @@ PCI::InitDomainData(domain_data &data)
 	int32 count;
 	status_t status;
 
-	pci_controller_module_info *ctrl = data.controller;
-	void *ctrlCookie = data.controller_cookie;
+	PciController *ctrl = data.controller;
 
-	status = ctrl->get_max_bus_devices(ctrlCookie, &count);
+	status = ctrl->GetMaxBusDevices(&count);
 	data.max_bus_devices = (status == B_OK) ? count : 0;
 
 	pci_resource_range range;
-	for (uint32 j = 0; ctrl->get_range(ctrlCookie, j, &range) >= B_OK; j++)
+	for (uint32 j = 0; ctrl->GetRange(j, &range) >= B_OK; j++)
 		data.ranges.Add(range);
 
 #if !(defined(__i386__) || defined(__x86_64__))
@@ -1027,6 +1049,43 @@ PCI::_ConfigureBridges(PCIBus *bus)
 			_ConfigureBridges(dev->child);
 	}
 }
+
+
+#if 0
+void
+PCI::_DetectAllocatedResources(PCIBus *bus)
+{
+	for (PCIDev *dev = bus->child; dev != NULL; dev = dev->next) {
+		switch (dev->info.header_type & PCI_header_type_mask) {
+			case PCI_header_type_generic:
+			{
+				bus->resources.AllocAt(kPciRangeMmio, dev->info.u.u0.rom_base_pci, dev->info.u.u0.rom_size);
+
+				for (int32 i = 0; i < 6;) {
+					uint32 kind = pci_get_bar_kind(dev->info.u.u0.base_register_flags[i]);
+					phys_addr_t adr = dev->info.u.u0.base_registers_pci[i];
+					uint64 size = dev->info.u.u0.base_register_sizes[i];
+					if (kind >= kPciRangeMmio && kind < kPciRangeMmioEnd
+							&& ((kind - kPciRangeMmio) & kPciRangeMmio64Bit) != 0) {
+						adr += (uint64)dev->info.u.u0.base_registers_pci[i + 1] << 32;
+						size += (uint64)dev->info.u.u0.base_register_sizes[i + 1] << 32;
+						i += 2;
+					} else {
+						i++;
+					}
+					bus->resources.AllocAt(kind, adr, size);
+				}
+				break;
+			}
+
+			case PCI_header_type_PCI_to_PCI_bridge:
+			{
+				break;
+			}
+		}
+	}
+}
+#endif
 
 
 void
@@ -1566,18 +1625,12 @@ PCI::ReadConfig(uint8 domain, uint8 bus, uint8 device, uint8 function,
 		|| (size != 1 && size != 2 && size != 4)
 		|| (size == 2 && (offset & 3) == 3)
 		|| (size == 4 && (offset & 3) != 0)) {
-		dprintf("PCI: can't read config for domain %d, %u:%u:%u, offset %u, size %u\n",
+		dprintf("PCI: can't read config for domain %d, bus %u, device %u, function %u, offset %u, size %u\n",
 			 domain, bus, device, function, offset, size);
 		return B_ERROR;
 	}
 
-	status_t status = (*info->controller->read_pci_config)(info->controller_cookie,
-		bus, device, function, offset, size, value);
-	if (status != B_OK) {
-		dprintf("PCI: failed to read config for domain %d, %u:%u:%u, offset %u, size %u\n",
-			domain, bus, device, function, offset, size);
-	}
-	return status;
+	return info->controller->ReadPciConfig(bus, device, function, offset, size, value);
 }
 
 
@@ -1624,8 +1677,7 @@ PCI::WriteConfig(uint8 domain, uint8 bus, uint8 device, uint8 function,
 		return B_ERROR;
 	}
 
-	return (*info->controller->write_pci_config)(info->controller_cookie, bus,
-		device, function, offset, size, value);
+	return info->controller->WritePciConfig(bus, device, function, offset, size, value);
 }
 
 
@@ -1920,12 +1972,15 @@ PCI::SetPowerstate(uint8 domain, uint8 bus, uint8 _device, uint8 function,
 }
 
 
-//#pragma mark - MSI
+// #pragma mark - MSI
 
 uint32
 PCI::GetMSICount(PCIDev *device)
 {
-	if (!msi_supported())
+	domain_data *domain = _GetDomainData(device->domain);
+	MSIInterface *driver = domain->controller->GetMsiDriver();
+
+	if (driver == NULL)
 		return 0;
 
 	msi_info *info = &device->msi;
@@ -1939,7 +1994,10 @@ PCI::GetMSICount(PCIDev *device)
 status_t
 PCI::ConfigureMSI(PCIDev *device, uint32 count, uint32 *startVector)
 {
-	if (!msi_supported())
+	domain_data *domain = _GetDomainData(device->domain);
+	MSIInterface *driver = domain->controller->GetMsiDriver();
+
+	if (driver == NULL)
 		return B_UNSUPPORTED;
 
 	if (count == 0 || startVector == NULL)
@@ -1957,8 +2015,8 @@ PCI::ConfigureMSI(PCIDev *device, uint32 count, uint32 *startVector)
 	if (info->configured_count != 0)
 		return B_BUSY;
 
-	status_t result = msi_allocate_vectors(count, &info->start_vector,
-		&info->address_value, &info->data_value);
+	status_t result = driver->AllocateVectors(count, info->start_vector,
+		info->address_value, info->data_value);
 	if (result != B_OK)
 		return result;
 
@@ -1986,7 +2044,10 @@ PCI::ConfigureMSI(PCIDev *device, uint32 count, uint32 *startVector)
 status_t
 PCI::UnconfigureMSI(PCIDev *device)
 {
-	if (!msi_supported())
+	domain_data *domain = _GetDomainData(device->domain);
+	MSIInterface *driver = domain->controller->GetMsiDriver();
+
+	if (driver == NULL)
 		return B_UNSUPPORTED;
 
 	// try MSI-X
@@ -2001,7 +2062,7 @@ PCI::UnconfigureMSI(PCIDev *device)
 	if (info->configured_count == 0)
 		return B_NO_INIT;
 
-	msi_free_vectors(info->configured_count, info->start_vector);
+	driver->FreeVectors(info->configured_count, info->start_vector);
 
 	info->control_value &= ~PCI_msi_control_mme_mask;
 	WriteConfig(device, info->capability_offset + PCI_msi_control, 2,
@@ -2017,7 +2078,10 @@ PCI::UnconfigureMSI(PCIDev *device)
 status_t
 PCI::EnableMSI(PCIDev *device)
 {
-	if (!msi_supported())
+	domain_data *domain = _GetDomainData(device->domain);
+	MSIInterface *driver = domain->controller->GetMsiDriver();
+
+	if (driver == NULL)
 		return B_UNSUPPORTED;
 
 	msi_info *info =  &device->msi;
@@ -2048,7 +2112,10 @@ PCI::EnableMSI(PCIDev *device)
 status_t
 PCI::DisableMSI(PCIDev *device)
 {
-	if (!msi_supported())
+	domain_data *domain = _GetDomainData(device->domain);
+	MSIInterface *driver = domain->controller->GetMsiDriver();
+
+	if (driver == NULL)
 		return B_UNSUPPORTED;
 
 	// try MSI-X
@@ -2078,7 +2145,10 @@ PCI::DisableMSI(PCIDev *device)
 uint32
 PCI::GetMSIXCount(PCIDev *device)
 {
-	if (!msi_supported())
+	domain_data *domain = _GetDomainData(device->domain);
+	MSIInterface *driver = domain->controller->GetMsiDriver();
+
+	if (driver == NULL)
 		return 0;
 
 	msix_info *info = &device->msix;
@@ -2092,7 +2162,10 @@ PCI::GetMSIXCount(PCIDev *device)
 status_t
 PCI::ConfigureMSIX(PCIDev *device, uint32 count, uint32 *startVector)
 {
-	if (!msi_supported())
+	domain_data *domain = _GetDomainData(device->domain);
+	MSIInterface *driver = domain->controller->GetMsiDriver();
+
+	if (driver == NULL)
 		return B_UNSUPPORTED;
 
 	if (count == 0 || startVector == NULL)
@@ -2149,8 +2222,8 @@ PCI::ConfigureMSIX(PCIDev *device, uint32 count, uint32 *startVector)
 		info->pba_area_id = -1;
 	info->pba_address = address + info->pba_offset;
 
-	status_t result = msi_allocate_vectors(count, &info->start_vector,
-		&info->address_value, &info->data_value);
+	status_t result = driver->AllocateVectors(count, info->start_vector,
+		info->address_value, info->data_value);
 	if (result != B_OK) {
 		delete_area(info->pba_area_id);
 		delete_area(info->table_area_id);
@@ -2175,7 +2248,7 @@ PCI::ConfigureMSIX(PCIDev *device, uint32 count, uint32 *startVector)
 
 	info->configured_count = count;
 	*startVector = info->start_vector;
-	dprintf("msix configured for %" B_PRIu32 " vectors\n", count);
+	dprintf("msix configured for %d vectors\n", count);
 	return B_OK;
 }
 
@@ -2183,7 +2256,10 @@ PCI::ConfigureMSIX(PCIDev *device, uint32 count, uint32 *startVector)
 status_t
 PCI::EnableMSIX(PCIDev *device)
 {
-	if (!msi_supported())
+	domain_data *domain = _GetDomainData(device->domain);
+	MSIInterface *driver = domain->controller->GetMsiDriver();
+
+	if (driver == NULL)
 		return B_UNSUPPORTED;
 
 	msix_info *info = &device->msix;
@@ -2237,7 +2313,10 @@ PCI::_HtMSIMap(PCIDev *device, uint64 address)
 void
 PCI::_ReadMSIInfo(PCIDev *device)
 {
-	if (!msi_supported())
+	domain_data *domain = _GetDomainData(device->domain);
+	MSIInterface *driver = domain->controller->GetMsiDriver();
+
+	if (driver == NULL)
 		return;
 
 	msi_info *info = &device->msi;
@@ -2263,7 +2342,10 @@ PCI::_ReadMSIInfo(PCIDev *device)
 void
 PCI::_ReadMSIXInfo(PCIDev *device)
 {
-	if (!msi_supported())
+	domain_data *domain = _GetDomainData(device->domain);
+	MSIInterface *driver = domain->controller->GetMsiDriver();
+
+	if (driver == NULL)
 		return;
 
 	msix_info *info = &device->msix;
@@ -2302,7 +2384,10 @@ PCI::_ReadMSIXInfo(PCIDev *device)
 void
 PCI::_ReadHtMappingInfo(PCIDev *device)
 {
-	if (!msi_supported())
+	domain_data *domain = _GetDomainData(device->domain);
+	MSIInterface *driver = domain->controller->GetMsiDriver();
+
+	if (driver == NULL)
 		return;
 
 	ht_mapping_info *info = &device->ht_mapping;
@@ -2351,7 +2436,10 @@ PCI::_UnconfigureMSIX(PCIDev *device)
 	WriteConfig(device, info->capability_offset + PCI_msix_control, 2,
 		info->control_value);
 
-	msi_free_vectors(info->configured_count, info->start_vector);
+	domain_data *domain = _GetDomainData(device->domain);
+	MSIInterface *driver = domain->controller->GetMsiDriver();
+
+	driver->FreeVectors(info->configured_count, info->start_vector);
 	for (uint8 index = 0; index < info->configured_count; index++) {
 		volatile uint32 *entry = (uint32*)(info->table_address + 16 * index);
 		if ((*(entry + 3) & PCI_msix_vctrl_mask) == 0)

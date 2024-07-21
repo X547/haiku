@@ -25,8 +25,6 @@
 void
 DumpDescriptorData(const usb_generic_descriptor* descriptor)
 {
-	printf("                    Length............ 0x%02x\n",
-		descriptor->length);
 	printf("                    Type ............. 0x%02x\n",
 		descriptor->descriptor_type);
 
@@ -106,8 +104,8 @@ DumpInterface(const BUSBInterface* interface)
 			continue;
 
 		printf("                [Endpoint %" B_PRIu32 "]\n", i);
-		printf("                    MaxPacketSize .... %dx %d bytes\n",
-			((endpoint->MaxPacketSize() >> 11) & 0x3) + 1, endpoint->MaxPacketSize() & 0x7ff);
+		printf("                    MaxPacketSize .... %d\n",
+			endpoint->MaxPacketSize());
 		printf("                    Interval ......... %d\n",
 			endpoint->Interval());
 
@@ -203,12 +201,17 @@ DumpInfo(BUSBDevice& device, bool verbose)
 		DumpConfiguration(device.ConfigurationAt(i));
 	}
 
-	if (device.Class() != 0x09)
+	if (!device.IsHub())
 		return;
 
+	bool isUsb3 = device.USBVersion() >= 0x0300;
+	uint8 hubDescriptorType = isUsb3 ? USB_DESCRIPTOR_SS_HUB : USB_DESCRIPTOR_HUB;
+
 	usb_hub_descriptor hubDescriptor;
-	size_t size = device.GetDescriptor(USB_DESCRIPTOR_HUB, 0, 0,
-		(void*)&hubDescriptor, sizeof(usb_hub_descriptor));
+	size_t size = device.ControlTransfer(
+		USB_REQTYPE_DEVICE_IN | USB_REQTYPE_CLASS, USB_REQUEST_GET_DESCRIPTOR,
+		(hubDescriptorType << 8) | 0, 0, sizeof(hubDescriptor), (void*)&hubDescriptor);
+
 	if (size == sizeof(usb_hub_descriptor)) {
 		printf("    Hub ports count......... %d\n", hubDescriptor.num_ports);
 		printf("    Hub Controller Current.. %dmA\n", hubDescriptor.max_power);
@@ -220,17 +223,68 @@ DumpInfo(BUSBDevice& device, bool verbose)
 				index, sizeof(portStatus), (void*)&portStatus);
 			if (actualLength != sizeof(portStatus))
 				continue;
-			printf("      Port %d status....... %04x.%04x%s%s%s%s%s%s%s%s\n",
-				index, portStatus.status, portStatus.change,
-				portStatus.status & PORT_STATUS_CONNECTION ? " Connect": "",
-				portStatus.status & PORT_STATUS_ENABLE ? " Enable": "",
-				portStatus.status & PORT_STATUS_SUSPEND ? " Suspend": "",
-				portStatus.status & PORT_STATUS_OVER_CURRENT ? " Overcurrent": "",
-				portStatus.status & PORT_STATUS_RESET ? " Reset": "",
-				portStatus.status & PORT_STATUS_POWER ? " Power": "",
-				portStatus.status & PORT_STATUS_TEST ? " Test": "",
-				portStatus.status & PORT_STATUS_INDICATOR ? " Indicator": "");
+
+			if (isUsb3) {
+				static const char* linkStates[] = {
+					"U0",
+					"U1",
+					"U2",
+					"suspend",
+					"SS.disabled",
+					"Rx.Detect",
+					"SS.Inactive",
+					"Polling",
+					"Recovery",
+					"Hot Reset",
+					"Compliance",
+					"Loopback",
+					"? (12)",
+					"? (13)",
+					"? (14)",
+					"? (15)",
+				};
+
+				printf("      Port %d status....... %04x.%04x%s%s%s%s%s%s%s%s%s%s%s%s%s%s\n",
+					index, portStatus.status, portStatus.change,
+					portStatus.status & PORT_STATUS_CONNECTION ? " Connect": "",
+					portStatus.status & PORT_STATUS_ENABLE ? " Enable": "",
+					portStatus.status & PORT_STATUS_SUSPEND ? " Suspend": "",
+					portStatus.status & PORT_STATUS_OVER_CURRENT ? " Overcurrent": "",
+					portStatus.status & PORT_STATUS_RESET ? " Reset ": " ",
+					linkStates[(portStatus.status & PORT_STATUS_SS_LINK_STATE) >> 5],
+					portStatus.status & PORT_STATUS_SS_POWER ? " Power": "",
+					(portStatus.status & PORT_STATUS_SS_SPEED) == 0 ? " 5Gbps": " UnknownSpeed",
+
+					portStatus.change & PORT_STATUS_CONNECTION ? " C_CONNECT": "",
+					portStatus.change & PORT_STATUS_OVER_CURRENT ? " C_OC": "",
+					portStatus.change & PORT_STATUS_RESET ? " C_RESET": "",
+					portStatus.change & PORT_CHANGE_BH_PORT_RESET ? " C_BH_RESET": "",
+					portStatus.change & PORT_CHANGE_LINK_STATE ? " C_LINK_STATE": "",
+					portStatus.change & 0x80 ? " C_CONFIG_ERROR": "");
+			} else {
+				printf("      Port %d status....... %04x.%04x%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s\n",
+					index, portStatus.status, portStatus.change,
+					portStatus.status & PORT_STATUS_CONNECTION ? " Connect": "",
+					portStatus.status & PORT_STATUS_ENABLE ? " Enable": "",
+					portStatus.status & PORT_STATUS_SUSPEND ? " Suspend": "",
+					portStatus.status & PORT_STATUS_OVER_CURRENT ? " Overcurrent": "",
+					portStatus.status & PORT_STATUS_RESET ? " Reset": "",
+					portStatus.status & PORT_STATUS_L1 ? " L1": "",
+					portStatus.status & PORT_STATUS_POWER ? " Power": "",
+					portStatus.status & PORT_STATUS_LOW_SPEED ? " LowSpeed" :
+						(portStatus.status & PORT_STATUS_HIGH_SPEED ? " HighSpeed" : " FullSpeed"),
+					portStatus.status & PORT_STATUS_TEST ? " Test": "",
+					portStatus.status & PORT_STATUS_INDICATOR ? " Indicator": "",
+
+					portStatus.change & PORT_STATUS_CONNECTION ? " C_CONNECT": "",
+					portStatus.change & PORT_STATUS_ENABLE ? " C_ENABLE": "",
+					portStatus.change & PORT_STATUS_SUSPEND ? " C_SUSPEND": "",
+					portStatus.change & PORT_STATUS_OVER_CURRENT ? " C_OC": "",
+					portStatus.change & PORT_STATUS_RESET ? " C_RESET": "");
+			}
 		}
+	} else {
+		printf("    [!] can't get hub descriptor\n");
 	}
 }
 

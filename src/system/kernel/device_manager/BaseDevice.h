@@ -6,7 +6,12 @@
 #define BASE_DEVICE_H
 
 
-#include <device_manager.h>
+#include <TypeConstants.h>
+#include <Drivers.h>
+
+
+typedef struct IORequest io_request;
+struct selectsync;
 
 
 namespace BPrivate {

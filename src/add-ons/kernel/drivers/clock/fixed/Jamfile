@@ -1,0 +1,10 @@
+SubDir HAIKU_TOP src add-ons kernel drivers clock fixed ;
+
+SubDirC++Flags -fno-rtti -fvisibility=hidden ;
+
+UsePrivateHeaders drivers ;
+UsePrivateKernelHeaders ;
+
+KernelAddon fixed_clock :
+	fixed_clock.cpp
+	;

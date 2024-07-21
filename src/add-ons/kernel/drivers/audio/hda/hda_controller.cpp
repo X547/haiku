@@ -1170,11 +1170,6 @@ hda_hw_init(hda_controller* controller)
 		}
 	}
 
-	if (controller->irq == 0) {
-		status = ENODEV;
-		goto no_irq_handler;
-	}
-
 	status = install_io_interrupt_handler(controller->irq,
 		(interrupt_handler)hda_interrupt_handler, controller, 0);
 	if (status != B_OK)

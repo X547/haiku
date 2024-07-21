@@ -3,6 +3,8 @@ SubDir HAIKU_TOP src add-ons kernel bus_managers scsi ;
 UsePrivateHeaders drivers ;
 UsePrivateKernelHeaders ;
 
+SubDirC++Flags -std=c++20 ;
+
 # disable debug output, if debugging is disabled
 if $(DEBUG) = 0 {
 	SubDirCcFlags [ FDefines DEBUG_MAX_LEVEL_FLOW=0 DEBUG_MAX_LEVEL_INFO=0  ] ;
@@ -10,7 +12,7 @@ if $(DEBUG) = 0 {
 }
 
 KernelAddon scsi :
-	bus_raw.cpp
+#	bus_raw.cpp
 	busses.cpp
 	ccb.cpp
 	device_scan.cpp
@@ -22,7 +24,7 @@ KernelAddon scsi :
 	scsi.cpp
 	scsi_io.cpp
 	scatter_gather.cpp
-	sim_interface.cpp
+#	sim_interface.cpp
 	virtual_memory.cpp
 	;
 

@@ -42,8 +42,9 @@ struct io_handler {
 	struct io_handler	*next;
 	interrupt_handler	func;
 	void				*data;
-	bool				use_enable_counter;
-	bool				no_handled_info;
+	bool				use_enable_counter: 1;
+	bool				disable_on_install: 1;
+	bool				no_handled_info: 1;
 #if DEBUG_INTERRUPTS
 	int64				handled_count;
 #endif
@@ -53,6 +54,7 @@ struct io_vector {
 	struct io_handler	*handler_list;
 	spinlock			vector_lock;
 	int32				enable_count;
+	int32				disable_count;
 	bool				no_lock_vector;
 	interrupt_type		type;
 
@@ -168,6 +170,24 @@ dump_int_load(int argc, char** argv)
 }
 
 
+static bool
+is_io_interrupt_enabled(int32 vector)
+{
+	return sVectors[vector].enable_count > 0 && sVectors[vector].disable_count <= 0;
+}
+
+
+static void
+update_io_interrupt_enabled(int32 vector, bool wasEnabled)
+{
+	bool isEnabled = is_io_interrupt_enabled(vector);
+	if (!wasEnabled && isEnabled)
+		arch_int_enable_io_interrupt(vector);
+	else if (wasEnabled && !isEnabled)
+		arch_int_disable_io_interrupt(vector);
+}
+
+
 //	#pragma mark - private kernel API
 
 
@@ -196,6 +216,7 @@ int_init_post_vm(kernel_args* args)
 	for (i = 0; i < NUM_IO_VECTORS; i++) {
 		B_INITIALIZE_SPINLOCK(&sVectors[i].vector_lock);
 		sVectors[i].enable_count = 0;
+		sVectors[i].disable_count = 0;
 		sVectors[i].no_lock_vector = false;
 		sVectors[i].type = INTERRUPT_TYPE_UNKNOWN;
 
@@ -450,6 +471,7 @@ install_io_interrupt_handler(int32 vector, interrupt_handler handler, void *data
 	io->func = handler;
 	io->data = data;
 	io->use_enable_counter = (flags & B_NO_ENABLE_COUNTER) == 0;
+	io->disable_on_install = (flags & B_DISABLED_INTERRUPT) != 0;
 	io->no_handled_info = (flags & B_NO_HANDLED_INFO) != 0;
 #if DEBUG_INTERRUPTS
 	io->handled_count = 0LL;
@@ -497,12 +519,16 @@ install_io_interrupt_handler(int32 vector, interrupt_handler handler, void *data
 		sVectors[vector].handler_list = io;
 	}
 
+	bool wasEnabled = is_io_interrupt_enabled(vector);
+	if (io->disable_on_install)
+		sVectors[vector].disable_count++;
+
 	// If B_NO_ENABLE_COUNTER is set, we're being asked to not alter
 	// whether the interrupt should be enabled or not
-	if (io->use_enable_counter) {
-		if (sVectors[vector].enable_count++ == 0)
-			arch_int_enable_io_interrupt(vector);
-	}
+	if (io->use_enable_counter)
+		sVectors[vector].enable_count++;
+
+	update_io_interrupt_enabled(vector, wasEnabled);
 
 	// If B_NO_LOCK_VECTOR is specified this is a vector that is not supposed
 	// to have multiple handlers and does not require locking of the vector
@@ -550,9 +576,15 @@ remove_io_interrupt_handler(int32 vector, interrupt_handler handler, void *data)
 			else
 				sVectors[vector].handler_list = io->next;
 
+			bool wasEnabled = is_io_interrupt_enabled(vector);
+			if (io->disable_on_install)
+				sVectors[vector].disable_count++;
+
 			// Check if we need to disable the interrupt
-			if (io->use_enable_counter && --sVectors[vector].enable_count == 0)
-				arch_int_disable_io_interrupt(vector);
+			if (io->use_enable_counter)
+				sVectors[vector].enable_count--;
+
+			update_io_interrupt_enabled(vector, wasEnabled);
 
 			status = B_OK;
 			break;
@@ -601,6 +633,35 @@ remove_io_interrupt_handler(int32 vector, interrupt_handler handler, void *data)
 }
 
 
+void
+enable_io_interrupt(int32 vector)
+{
+	InterruptsSpinLocker locker(&sVectors[vector].vector_lock);
+
+	bool wasEnabled = is_io_interrupt_enabled(vector);
+	sVectors[vector].disable_count--;
+	update_io_interrupt_enabled(vector, wasEnabled);
+}
+
+
+void
+disable_io_interrupt(int32 vector)
+{
+	InterruptsSpinLocker locker(&sVectors[vector].vector_lock);
+
+	bool wasEnabled = is_io_interrupt_enabled(vector);
+	sVectors[vector].disable_count++;
+	update_io_interrupt_enabled(vector, wasEnabled);
+}
+
+
+void
+configure_io_interrupt(int32 vector, uint32 config)
+{
+	arch_int_configure_io_interrupt(vector, config);
+}
+
+
 /*	Mark \a count contigous interrupts starting at \a startVector as in use.
 	This will prevent them from being allocated by others. Only use this when
 	the reserved range is hardwired to the given vector, otherwise allocate
@@ -641,6 +702,7 @@ status_t
 allocate_io_interrupt_vectors(int32 count, int32 *startVector,
 	interrupt_type type)
 {
+	const bool sameCpu = false;
 	MutexLocker locker(&sIOInterruptVectorAllocationLock);
 
 	int32 vector = 0;
@@ -670,12 +732,17 @@ allocate_io_interrupt_vectors(int32 count, int32 *startVector,
 
 	for (int32 i = 0; i < count; i++) {
 		sVectors[vector + i].type = type;
-		sVectors[vector + i].assigned_cpu = &sVectorCPUAssignments[vector];
+		if (sameCpu) {
+			sVectors[vector + i].assigned_cpu = &sVectorCPUAssignments[vector];
+		} else {
+			sVectors[vector + i].assigned_cpu = &sVectorCPUAssignments[vector + i];
+			sVectorCPUAssignments[vector + i].count = 1;
+		}
 		sAllocatedIOInterruptVectors[vector + i] = true;
 	}
 
-	sVectorCPUAssignments[vector].irq = vector;
-	sVectorCPUAssignments[vector].count = count;
+	if (sameCpu)
+		sVectorCPUAssignments[vector].count = count;
 
 	*startVector = vector;
 	dprintf("allocate_io_interrupt_vectors: allocated %" B_PRId32 " vectors starting "

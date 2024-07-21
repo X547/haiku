@@ -8,6 +8,7 @@
 #include <acpi.h>
 
 #include <AutoDeleterDrivers.h>
+#include <ScopeExit.h>
 
 #include "acpi_irq_routing_table.h"
 
@@ -17,29 +18,18 @@
 status_t
 ECAMPCIControllerACPI::ReadResourceInfo()
 {
-	DeviceNodePutter<&gDeviceManager> parent(gDeviceManager->get_parent_node(fNode));
-	return ReadResourceInfo(parent.Get());
-}
-
-
-status_t
-ECAMPCIControllerACPI::ReadResourceInfo(device_node* parent)
-{
 	dprintf("initialize PCI controller from ACPI\n");
 
 	acpi_module_info* acpiModule;
-	acpi_device_module_info* acpiDeviceModule;
-	acpi_device acpiDevice;
-
 	CHECK_RET(get_module(B_ACPI_MODULE_NAME, (module_info**)&acpiModule));
+	ScopeExit acpiModulePutter([]() {
+		put_module(B_ACPI_MODULE_NAME);
+	});
 
 	acpi_mcfg *mcfg;
 	CHECK_RET(acpiModule->get_table(ACPI_MCFG_SIGNATURE, 0, (void**)&mcfg));
 
-	CHECK_RET(gDeviceManager->get_driver(parent, (driver_module_info**)&acpiDeviceModule,
-		(void**)&acpiDevice));
-
-	acpi_status acpi_res = acpiDeviceModule->walk_resources(acpiDevice, (char *)"_CRS",
+	acpi_status acpi_res = fAcpiDevice->WalkResources((char *)"_CRS",
 		AcpiCrsScanCallback, this);
 
 	if (acpi_res != 0)
@@ -63,7 +53,7 @@ ECAMPCIControllerACPI::ReadResourceInfo(device_node* parent)
 		fStartBusNumber = alloc->start_bus_number;
 		fEndBusNumber = alloc->end_bus_number;
 
-		fRegsLen = (uint64(fEndBusNumber) - fStartBusNumber + 1) << 20;
+		fRegsLen = (fEndBusNumber - fStartBusNumber + 1) << 20;
 		fRegsArea.SetTo(map_physical_memory("PCI Config MMIO",
 			alloc->address, fRegsLen, B_ANY_KERNEL_ADDRESS,
 			B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA, (void **)&fRegs));
@@ -87,7 +77,7 @@ ECAMPCIControllerACPI::AcpiCrsScanCallback(acpi_resource *res, void *context)
  *
  * This is a template because ACPI resources can be encoded using 8, 16, 32 or 64 bit values.
  */
-template<typename T> bool
+template<typename T> void
 DecodeAddress(const T& resource, pci_resource_range& range)
 {
 	const auto& acpiRange = resource.address;
@@ -100,29 +90,15 @@ DecodeAddress(const T& resource, pci_resource_range& range)
 	// If maximum isn't set, compute it from minimum and length
 	auto addressLength = acpiRange.address_length;
 	phys_addr_t addressMaximum = acpiRange.maximum;
-
-	if (addressLength == 0 && addressMaximum <= acpiRange.minimum) {
-		// There's nothing we can do with that...
-		dprintf("PCI: Ignore empty ACPI range\n");
-		return false;
-	} else if (!resource.maxAddress_fixed) {
-		if (addressLength == 0) {
-			dprintf("PCI: maxAddress and addressLength are not set, ignore range\n");
-			return false;
-		}
-
-		dprintf("PCI: maxAddress is not set, compute it\n");
+	if (addressLength == 0)
+		addressLength = acpiRange.maximum - acpiRange.minimum + 1;
+	else if (!resource.maxAddress_fixed)
 		addressMaximum = acpiRange.minimum + addressLength - 1;
-	} else if (addressLength != addressMaximum - acpiRange.minimum + 1) {
-		dprintf("PCI: Fixup invalid length from ACPI!\n");
-		addressLength = addressMaximum - acpiRange.minimum + 1;
-	}
+	ASSERT((phys_addr_t)(acpiRange.minimum + addressLength - 1) == addressMaximum);
 
 	range.host_address = acpiRange.minimum + acpiRange.translation_offset;
 	range.pci_address  = acpiRange.minimum;
 	range.size = addressLength;
-
-	return true;
 }
 
 
@@ -134,21 +110,18 @@ ECAMPCIControllerACPI::AcpiCrsScanCallbackInt(acpi_resource *res)
 	switch (res->type) {
 		case ACPI_RESOURCE_TYPE_ADDRESS16: {
 			const auto& address = res->data.address16;
-			if (!DecodeAddress(address, range))
-				return B_OK;
+			DecodeAddress(address, range);
 			break;
 		}
 		case ACPI_RESOURCE_TYPE_ADDRESS32: {
 			const auto& address = res->data.address32;
-			if (!DecodeAddress(address, range))
-				return B_OK;
+			DecodeAddress(address, range);
 			range.address_type |= PCI_address_type_32;
 			break;
 		}
 		case ACPI_RESOURCE_TYPE_ADDRESS64: {
 			const auto& address = res->data.address64;
-			if (!DecodeAddress(address, range))
-				return B_OK;
+			DecodeAddress(address, range);
 			range.address_type |= PCI_address_type_64;
 			break;
 		}
@@ -183,6 +156,9 @@ ECAMPCIControllerACPI::Finalize()
 
 	acpi_module_info *acpiModule;
 	CHECK_RET(get_module(B_ACPI_MODULE_NAME, (module_info**)&acpiModule));
+	ScopeExit acpiModulePutter([]() {
+		put_module(B_ACPI_MODULE_NAME);
+	});
 
 	IRQRoutingTable table;
 	CHECK_RET(prepare_irq_routing(acpiModule, table, [](int32 gsi) {return true;}));

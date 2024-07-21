@@ -92,7 +92,7 @@ ACPIPnPHeaderGen [ FGristFiles acpipnpids.h ]
 Application Devices :
 	DevicesApplication.cpp
 	DevicesView.cpp
-	dm_wrapper.c
+	dm_wrapper.cpp
 	DeviceACPI.cpp
 	DevicePCI.cpp
 	DeviceSCSI.cpp

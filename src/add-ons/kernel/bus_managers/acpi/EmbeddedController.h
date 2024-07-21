@@ -39,12 +39,13 @@
 #include <KernelExport.h>
 #include <lock.h>
 
+#include "ACPIPrivate.h"
+
 extern "C" {
 #	include "acpi.h"
 #	include "accommon.h"
 #	include "acnamesp.h"
 #	include "actypes.h"
-#	include "ACPIPrivate.h"
 }
 
 

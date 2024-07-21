@@ -8,12 +8,12 @@
 #include "console.h"
 #include "video.h"
 #include "graphics.h"
-#include <Htif.h>
 #include "virtio.h"
 
 #include <SupportDefs.h>
 #include <util/kernel_cpp.h>
 #include <boot/stage2.h>
+#include <evdev_keycodes.h>
 
 #include <string.h>
 
@@ -212,19 +212,31 @@ console_wait_for_key(void)
 	int key = virtio_input_wait_for_key();
 
 	switch (key) {
-	case 71: return TEXT_CONSOLE_KEY_RETURN;
-	case 30: return TEXT_CONSOLE_KEY_BACKSPACE;
-	case  1: return TEXT_CONSOLE_KEY_ESCAPE;
-	case 94: return TEXT_CONSOLE_KEY_SPACE;
+	case KEY_ENTER:
+		return TEXT_CONSOLE_KEY_RETURN;
+	case KEY_BACKSPACE:
+		return TEXT_CONSOLE_KEY_BACKSPACE;
+	case KEY_ESC:
+		return TEXT_CONSOLE_KEY_ESCAPE;
+	case KEY_SPACE:
+		return TEXT_CONSOLE_KEY_SPACE;
 
-	case 87: return TEXT_CONSOLE_KEY_UP;
-	case 98: return TEXT_CONSOLE_KEY_DOWN;
-	case 97: return TEXT_CONSOLE_KEY_LEFT;
-	case 99: return TEXT_CONSOLE_KEY_RIGHT;
-	case 33: return TEXT_CONSOLE_KEY_PAGE_UP;
-	case 54: return TEXT_CONSOLE_KEY_PAGE_DOWN;
-	case 32: return TEXT_CONSOLE_KEY_HOME;
-	case 53: return TEXT_CONSOLE_KEY_END;
+	case KEY_UP:
+		return TEXT_CONSOLE_KEY_UP;
+	case KEY_DOWN:
+		return TEXT_CONSOLE_KEY_DOWN;
+	case KEY_LEFT:
+		return TEXT_CONSOLE_KEY_LEFT;
+	case KEY_RIGHT:
+		return TEXT_CONSOLE_KEY_RIGHT;
+	case KEY_PAGEUP:
+		return TEXT_CONSOLE_KEY_PAGE_UP;
+	case KEY_PAGEDOWN:
+		return TEXT_CONSOLE_KEY_PAGE_DOWN;
+	case KEY_HOME:
+		return TEXT_CONSOLE_KEY_HOME;
+	case KEY_END:
+		return TEXT_CONSOLE_KEY_END;
 
 	default:
 		return TEXT_CONSOLE_NO_KEY;

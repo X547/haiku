@@ -7,18 +7,20 @@
 #ifndef _ECAM_PCI_CONTROLLER_H_
 #define _ECAM_PCI_CONTROLLER_H_
 
-#include <bus/PCI.h>
-#include <bus/FDT.h>
-#include <ACPI.h>
+#include <dm2/bus/PCI.h>
+#include <dm2/bus/FDT.h>
+#include <dm2/bus/ACPI.h>
 
 #include <AutoDeleterOS.h>
 #include <lock.h>
 #include <util/Vector.h>
 
+#include <arch/generic/msi.h>
+
 
 #define CHECK_RET(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
-#define ECAM_PCI_DRIVER_MODULE_NAME "busses/pci/ecam/driver_v1"
+#define ECAM_PCI_DRIVER_MODULE_NAME "busses/pci/ecam/driver/v1"
 
 
 enum {
@@ -83,38 +85,40 @@ struct InterruptMap {
 };
 
 
-class ECAMPCIController {
+class ECAMPCIController: public DeviceDriver, public PciController {
 public:
+	ECAMPCIController(DeviceNode* node): fNode(node), fBusManager(*this) {}
 	virtual ~ECAMPCIController() = default;
 
-	static float SupportsDevice(device_node* parent);
-	static status_t RegisterDevice(device_node* parent);
-	static status_t InitDriver(device_node* node, ECAMPCIController*& outDriver);
-	void UninitDriver();
+	// DeviceDriver
+	static status_t Probe(DeviceNode* node, DeviceDriver** outDriver);
+	void Free() final {delete this;}
 
-	status_t ReadConfig(
+	// PciController
+	status_t ReadPciConfig(
 				uint8 bus, uint8 device, uint8 function,
-				uint16 offset, uint8 size, uint32 &value);
+				uint16 offset, uint8 size, uint32* value) final;
 
-	status_t WriteConfig(
+	status_t WritePciConfig(
 				uint8 bus, uint8 device, uint8 function,
-				uint16 offset, uint8 size, uint32 value);
+				uint16 offset, uint8 size, uint32 value) final;
 
-	status_t GetMaxBusDevices(int32& count);
+	status_t GetMaxBusDevices(int32* count) final;
 
-	status_t ReadIrq(
+	status_t ReadPciIrq(
 				uint8 bus, uint8 device, uint8 function,
-				uint8 pin, uint8& irq);
+				uint8 pin, uint8* irq) final;
 
-	status_t WriteIrq(
+	status_t WritePciIrq(
 				uint8 bus, uint8 device, uint8 function,
-				uint8 pin, uint8 irq);
+				uint8 pin, uint8 irq) final;
 
-	status_t GetRange(uint32 index, pci_resource_range* range);
+	status_t GetRange(uint32 index, pci_resource_range* range) final;
 
-	virtual status_t Finalize() = 0;
+	MSIInterface* GetMsiDriver() final;
 
 private:
+	status_t Init();
 	inline addr_t ConfigAddress(uint8 bus, uint8 device, uint8 function, uint16 offset);
 
 protected:
@@ -123,25 +127,44 @@ protected:
 protected:
 	struct mutex fLock = MUTEX_INITIALIZER("ECAM PCI");
 
-	device_node* fNode{};
+	DeviceNode* fNode{};
 
 	AreaDeleter fRegsArea;
 	uint8 volatile* fRegs{};
 	uint64 fRegsLen{};
 
 	Vector<pci_resource_range> fResourceRanges;
+
+	class BusManager: public BusDriver {
+	public:
+		BusManager(ECAMPCIController& base): fBase(base) {}
+
+		void* QueryInterface(const char* name) final;
+
+	private:
+		ECAMPCIController& fBase;
+	} fBusManager;
+
+	class MSIInterfaceImpl: public MSIInterface {
+	public:
+		status_t AllocateVectors(uint32 count, uint32& startVector, uint64& address, uint32& data) final;
+		void FreeVectors(uint32 count, uint32 startVector) final;
+	} fMsiIface;
 };
 
 
 class ECAMPCIControllerACPI: public ECAMPCIController {
 public:
+	ECAMPCIControllerACPI(DeviceNode* node, AcpiDevice* acpiDevice): ECAMPCIController(node), fAcpiDevice(acpiDevice) {}
 	~ECAMPCIControllerACPI() = default;
 
 	status_t Finalize() final;
 
 protected:
 	status_t ReadResourceInfo() final;
-	status_t ReadResourceInfo(device_node* parent);
+	// status_t ReadResourceInfo(device_node* parent);
+
+	AcpiDevice* fAcpiDevice;
 
 	uint8 fStartBusNumber{};
 	uint8 fEndBusNumber{};
@@ -156,6 +179,7 @@ private:
 
 class ECAMPCIControllerFDT: public ECAMPCIController {
 public:
+	ECAMPCIControllerFDT(DeviceNode* node, FdtDevice* fdtDevice): ECAMPCIController(node), fFdtDevice(fdtDevice) {}
 	~ECAMPCIControllerFDT() = default;
 
 	status_t Finalize() final;
@@ -163,13 +187,13 @@ public:
 protected:
 	status_t ReadResourceInfo() final;
 
+	FdtDevice* fFdtDevice;
+
 private:
-	static void FinalizeInterrupts(fdt_device_module_info* fdtModule,
-		struct fdt_interrupt_map* interruptMap, int bus, int device, int function);
+	static void FinalizeInterrupts(FdtInterruptMap* interruptMap, int bus, int device, int function);
 };
 
 
-extern device_manager_info* gDeviceManager;
 extern pci_module_info* gPCI;
 
 #endif	// _ECAM_PCI_CONTROLLER_H_

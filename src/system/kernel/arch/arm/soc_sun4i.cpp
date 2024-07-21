@@ -17,7 +17,7 @@
 
 
 void
-Sun4iInterruptController::EnableInterrupt(int32 irq)
+Sun4iInterruptController::EnableIoInterrupt(int32 irq)
 {
 	if (irq <= 31) {
 		fRegBase[SUN4I_INTC_MASK_REG0] |= 1 << irq;
@@ -34,7 +34,7 @@ Sun4iInterruptController::EnableInterrupt(int32 irq)
 
 
 void
-Sun4iInterruptController::DisableInterrupt(int irq)
+Sun4iInterruptController::DisableIoInterrupt(int32 irq)
 {
 	if (irq <= 31) {
 		fRegBase[SUN4I_INTC_MASK_REG0] &= ~(1 << irq);
@@ -71,6 +71,19 @@ Sun4iInterruptController::HandleInterrupt()
 }
 
 
+void
+Sun4iInterruptController::ConfigureIoInterrupt(int32 irq, uint32 config)
+{
+}
+
+
+int32
+Sun4iInterruptController::AssignToCpu(int32 irq, int32 cpu)
+{
+	return 0;
+}
+
+
 Sun4iInterruptController::Sun4iInterruptController(uint32_t reg_base)
 {
 	fRegArea = vm_map_physical_memory(B_SYSTEM_TEAM, "intc-sun4i", (void**)&fRegBase,
@@ -78,6 +91,8 @@ Sun4iInterruptController::Sun4iInterruptController(uint32_t reg_base)
 		reg_base, false);
 	if (fRegArea < 0)
 		panic("Sun4iInterruptController: cannot map registers!");
+
+	reserve_io_interrupt_vectors_ex(96, 0, INTERRUPT_TYPE_IRQ, this);
 
 	fRegBase[SUN4I_INTC_MASK_REG0] = 0;
 	fRegBase[SUN4I_INTC_MASK_REG1] = 0;

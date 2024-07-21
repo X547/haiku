@@ -39,37 +39,6 @@
 // threads yet.
 struct iframe_stack gBootFrameStack;
 
-// In order to avoid store/restore of large FPU state, it is assumed that
-// this code and page fault handling doesn't use FPU.
-// Instead this is called manually when handling IRQ or syscall.
-extern "C" void _fp_save(aarch64_fpu_state *fpu);
-extern "C" void _fp_restore(aarch64_fpu_state *fpu);
-
-void
-arch_int_enable_io_interrupt(int32 irq)
-{
-	InterruptController *ic = InterruptController::Get();
-	if (ic != NULL)
-		ic->EnableInterrupt(irq);
-}
-
-
-void
-arch_int_disable_io_interrupt(int32 irq)
-{
-	InterruptController *ic = InterruptController::Get();
-	if (ic != NULL)
-		ic->DisableInterrupt(irq);
-}
-
-
-int32
-arch_int_assign_to_cpu(int32 irq, int32 cpu)
-{
-	// Not yet supported.
-	return 0;
-}
-
 
 static void
 print_iframe(const char *event, struct iframe *frame)
@@ -181,7 +150,12 @@ after_exception()
 {
 	Thread* thread = thread_get_current_thread();
 	cpu_status state = disable_interrupts();
-	if (thread->post_interrupt_callback != NULL) {
+	if (thread->cpu->invoke_scheduler) {
+		SpinLocker schedulerLocker(thread->scheduler_lock);
+		scheduler_reschedule(B_THREAD_READY);
+		schedulerLocker.Unlock();
+		restore_interrupts(state);
+	} else if (thread->post_interrupt_callback != NULL) {
 		void (*callback)(void*) = thread->post_interrupt_callback;
 		void* data = thread->post_interrupt_data;
 
@@ -191,11 +165,6 @@ after_exception()
 		restore_interrupts(state);
 
 		callback(data);
-	} else if (thread->cpu->invoke_scheduler) {
-		SpinLocker schedulerLocker(thread->scheduler_lock);
-		scheduler_reschedule(B_THREAD_READY);
-		schedulerLocker.Unlock();
-		restore_interrupts(state);
 	}
 }
 
@@ -345,8 +314,6 @@ do_sync_handler(iframe * frame)
 				}
 			}
 
-			_fp_save(&frame->fpu);
-
 			thread_at_kernel_entry(system_time());
 
 			enable_interrupts();
@@ -368,8 +335,6 @@ do_sync_handler(iframe * frame)
 					panic("syscall restart");
 				}
 			}
-
-			_fp_restore(&frame->fpu);
 
 			return;
 		}
@@ -402,15 +367,11 @@ do_irq_handler(iframe * frame)
 
 	IFrameScope scope(frame);
 
-	_fp_save(&frame->fpu);
-
 	InterruptController *ic = InterruptController::Get();
 	if (ic != NULL)
 		ic->HandleInterrupt();
 
 	after_exception();
-
-	_fp_restore(&frame->fpu);
 }
 
 

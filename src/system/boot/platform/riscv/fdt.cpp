@@ -9,9 +9,9 @@
 #include <ByteOrder.h>
 #include <KernelExport.h>
 #include <boot/stage2.h>
+#include <arch_cpu_defs.h>
 #include <arch/generic/debug_uart_8250.h>
 #include <arch/riscv64/arch_uart_sifive.h>
-#include <arch_cpu_defs.h>
 
 extern "C" {
 #include <libfdt.h>
@@ -20,9 +20,12 @@ extern "C" {
 #include "mmu.h"
 #include "smp.h"
 #include "graphics.h"
+#include "serial.h"
 #include "virtio.h"
+#include "pci.h"
 #include "Htif.h"
 #include "Clint.h"
+#include "Aplic.h"
 #include "FwCfg.h"
 
 
@@ -31,9 +34,12 @@ ClintRegs *volatile gClintRegs = NULL;
 
 static uint64 sTimerFrequrency = 10000000;
 
-static addr_range sPlic = {0};
-static addr_range sClint = {0};
+static addr_range sHtif{};
+static addr_range sPlic{};
+static addr_range sClint{};
 static uart_info sUart{};
+
+static void InitAplic(const void* fdt, int node, uint32 addressCells, uint32 sizeCells, uint32 interruptCells);
 
 
 static bool
@@ -124,7 +130,10 @@ HandleFdt(const void* fdt, int node, uint32 addressCells, uint32 sizeCells,
 		sClint.start = fdt64_to_cpu(*(reg + 0));
 		sClint.size  = fdt64_to_cpu(*(reg + 1));
 		gClintRegs = (ClintRegs*)sClint.start;
-	} else if (HasFdtString(compatible, compatibleLen, "riscv,plic0")) {
+	} else if (
+		HasFdtString(compatible, compatibleLen, "riscv,plic0") ||
+		HasFdtString(compatible, compatibleLen, "sifive,plic-1.0.0")
+	) {
 		GetReg(fdt, node, addressCells, sizeCells, 0, sPlic);
 		int propSize;
 		if (uint32* prop = (uint32*)fdt_getprop(fdt, node, "interrupts-extended", &propSize)) {
@@ -144,11 +153,27 @@ HandleFdt(const void* fdt, int node, uint32 addressCells, uint32 sizeCells,
 				contextId++;
 			}
 		}
+	} else if (HasFdtString(compatible, compatibleLen, "riscv,aplic")) {
+		InitAplic(fdt, node, addressCells, sizeCells, interruptCells);
+	} else if (HasFdtString(compatible, compatibleLen, "ucb,htif0")) {
+		// This address is used by TinyEMU and it is not present in FDT.
+		sHtif.start = 0x40008000;
+		sHtif.size  = sizeof(HtifRegs);
+		gHtifRegs = (HtifRegs*)sHtif.start;
 	} else if (HasFdtString(compatible, compatibleLen, "virtio,mmio")) {
 		uint64* reg = (uint64*)fdt_getprop(fdt, node, "reg", NULL);
 		virtio_register(
 			fdt64_to_cpu(*(reg + 0)), fdt64_to_cpu(*(reg + 1)),
 			GetInterrupt(fdt, node));
+	} else if (HasFdtString(compatible, compatibleLen, "pci-host-ecam-generic")) {
+		uint64* reg = (uint64*)fdt_getprop(fdt, node, "reg", NULL);
+		PciInitInfo initInfo{};
+		initInfo.configRegs.start = fdt64_to_cpu(*(reg + 0));
+		initInfo.configRegs.size = fdt64_to_cpu(*(reg + 1));
+		initInfo.intMap = fdt_getprop(fdt, node, "interrupt-map", &initInfo.intMapSize);
+		initInfo.intMapMask = fdt_getprop(fdt, node, "interrupt-map-mask", &initInfo.intMapMaskSize);
+		initInfo.ranges = fdt_getprop(fdt, node, "ranges", &initInfo.rangesSize);
+		pci_init0(&initInfo);
 	} else if (
 		strcmp(sUart.kind, "") == 0 && (
 			HasFdtString(compatible, compatibleLen, "ns16550a") ||
@@ -162,9 +187,14 @@ HandleFdt(const void* fdt, int node, uint32 addressCells, uint32 sizeCells,
 		uint64* reg = (uint64*)fdt_getprop(fdt, node, "reg", NULL);
 		sUart.regs.start = fdt64_to_cpu(*(reg + 0));
 		sUart.regs.size  = fdt64_to_cpu(*(reg + 1));
+		int len;
+		const void* prop = fdt_getprop(fdt, node, "reg-io-width", &len);
+		sUart.reg_io_width = (prop == NULL || len != 4) ? 1 : fdt32_to_cpu(*(uint32*)prop);
+		prop = fdt_getprop(fdt, node, "reg-shift", &len);
+		sUart.reg_shift = (prop == NULL || len != 4) ? 0 : fdt32_to_cpu(*(uint32*)prop);
 		sUart.irq = GetInterrupt(fdt, node);
-		const void* prop = fdt_getprop(fdt, node, "clock-frequency", NULL);
-		sUart.clock = (prop == NULL) ? 0 : fdt32_to_cpu(*(uint32*)prop);
+		prop = fdt_getprop(fdt, node, "clock-frequency", NULL);
+		sUart.clock = (prop == NULL || len != 4) ? 0 : fdt32_to_cpu(*(uint32*)prop);
 	} else if (HasFdtString(compatible, compatibleLen, "qemu,fw-cfg-mmio")) {
 		gFwCfgRegs = (FwCfgRegs *volatile)
 			fdt64_to_cpu(*(uint64*)fdt_getprop(fdt, node, "reg", NULL));
@@ -178,6 +208,57 @@ HandleFdt(const void* fdt, int node, uint32 addressCells, uint32 sizeCells,
 		gFramebuf.height = fdt32_to_cpu(
 			*(uint32*)fdt_getprop(fdt, node, "height", NULL));
 	}
+}
+
+
+static void
+InitAplic(const void* fdt, int node, uint32 addressCells, uint32 sizeCells, uint32 interruptCells)
+{
+	int childrenSize;
+	uint32* children = (uint32*)fdt_getprop(fdt, node, "riscv,children", &childrenSize);
+	if (children == NULL)
+		return;
+
+	int delegateSize;
+	uint32* delegate = (uint32*)fdt_getprop(fdt, node, "riscv,delegate", &delegateSize);
+	if (delegate == NULL)
+		return;
+
+	addr_range reg;
+	GetReg(fdt, node, addressCells, sizeCells, 0, reg);
+	AplicRegs volatile* regs = (AplicRegs*)reg.start;
+
+	auto FindChildIdx = [&](uint32 phandle) -> int32 {
+		for (uint32* it = children; it != children + childrenSize; ++it) {
+			if (fdt32_to_cpu(it[0]) == phandle)
+				return it - children;
+		}
+		return -1;
+	};
+
+	regs->domainCfg.val = AplicDomainCfg {
+		.be = false,
+		.dm = AplicDeliveryMode::direct,
+		.ie = true
+	}.val;
+
+	for (uint32* it = delegate; it != delegate + delegateSize; it += 3) {
+		uint32 phandle   = fdt32_to_cpu(it[0]);
+		uint32 firstIntr = fdt32_to_cpu(it[1]);
+		uint32 lastIntr  = fdt32_to_cpu(it[2]);
+
+		int32 childIdx = FindChildIdx(phandle);
+		if (childIdx < 0)
+			continue;
+
+		for (uint32 intr = firstIntr; intr <= lastIntr; intr++) {
+			regs->sourceCfg[intr].val = AplicSourceCfg {
+				.deleg = {.childIdx = (uint32)childIdx}
+			}.val;
+		}
+	}
+
+	dprintf("Configured APLIC delegation\n");
 }
 
 
@@ -199,6 +280,9 @@ fdt_init(void* fdt)
 	while ((node = fdt_next_node(gFdt, node, &depth)) >= 0 && depth >= 0) {
 		HandleFdt(gFdt, node, 2, 2, 1);
 	}
+
+	serial_init(&sUart);
+	serial_puts("serial output initalized\n");
 }
 
 
@@ -217,9 +301,7 @@ fdt_set_kernel_args()
 
 	gKernelArgs.arch_args.timerFrequency = sTimerFrequrency;
 
-	gKernelArgs.arch_args.htif.start = (addr_t)gHtifRegs;
-	gKernelArgs.arch_args.htif.size = sizeof(HtifRegs);
-
+	gKernelArgs.arch_args.htif  = sHtif;
 	gKernelArgs.arch_args.plic  = sPlic;
 	gKernelArgs.arch_args.clint = sClint;
 	gKernelArgs.arch_args.uart  = sUart;

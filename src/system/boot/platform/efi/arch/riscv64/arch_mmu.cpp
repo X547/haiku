@@ -45,7 +45,6 @@ void *VirtFromPhys(uint64_t physAdr)
 }
 
 
-#ifdef TRACE_MEMORY_MAP
 static uint64_t
 SignExtendVirtAdr(uint64_t virtAdr)
 {
@@ -144,7 +143,6 @@ DumpPageTable(uint64 satp)
 
 	return 0;
 }
-#endif /* TRACE_MEMORY_MAP */
 
 
 static Pte*
@@ -389,7 +387,9 @@ arch_mmu_generate_post_efi_page_tables(size_t memoryMapSize, efi_memory_descript
 	// Boot loader
 	TRACE("Boot loader:\n");
 	for (size_t i = 0; i < memoryMapSize / descriptorSize; ++i) {
-		efi_memory_descriptor* entry = &memoryMap[i];
+		efi_memory_descriptor *entry
+			= (efi_memory_descriptor *)((addr_t)memoryMap + i * descriptorSize);
+
 		switch (entry->Type) {
 		case EfiLoaderCode:
 		case EfiLoaderData:
@@ -400,14 +400,13 @@ arch_mmu_generate_post_efi_page_tables(size_t memoryMapSize, efi_memory_descript
 			;
 		}
 	}
-	TRACE("Boot loader stack\n");
-	addr_t sp = Sp();
-	TRACE("  SP: %#" B_PRIxADDR "\n", sp);
 
 	// EFI runtime services
 	TRACE("EFI runtime services:\n");
 	for (size_t i = 0; i < memoryMapSize / descriptorSize; ++i) {
-		efi_memory_descriptor* entry = &memoryMap[i];
+		efi_memory_descriptor *entry
+			= (efi_memory_descriptor *)((addr_t)memoryMap + i * descriptorSize);
+
 		if ((entry->Attribute & EFI_MEMORY_RUNTIME) != 0)
 			MapRange(entry->VirtualStart, entry->PhysicalStart, entry->NumberOfPages * B_PAGE_SIZE,
 				Pte {.isRead = true, .isWrite = true, .isExec = true}.val);
@@ -441,9 +440,7 @@ arch_mmu_generate_post_efi_page_tables(size_t memoryMapSize, efi_memory_descript
 	sort_address_ranges(gKernelArgs.virtual_allocated_range,
 		gKernelArgs.num_virtual_allocated_ranges);
 
-	#ifdef TRACE_MEMORY_MAP
 	DumpPageTable(GetSatp());
-	#endif
 
 	return GetSatp();
 }

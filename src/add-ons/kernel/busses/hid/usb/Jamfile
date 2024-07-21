@@ -1,0 +1,11 @@
+SubDir HAIKU_TOP src add-ons kernel busses hid usb ;
+
+SubDirC++Flags -fno-rtti ;
+
+UsePrivateKernelHeaders ;
+
+SubDirHdrs $(HAIKU_TOP) src system kernel arch generic ;
+
+KernelAddon usb_hid :
+	usb_hid.cpp
+;

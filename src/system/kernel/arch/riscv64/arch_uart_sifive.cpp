@@ -8,9 +8,9 @@
 #include <new>
 
 
-ArchUARTSifive::ArchUARTSifive(addr_t base, int64 clock)
+ArchUARTSifive::ArchUARTSifive(addr_t base, int64 clock, uint32 regIoWidth, uint32 regShift)
 	:
-	DebugUART(base, clock)
+	DebugUART(base, clock, regIoWidth, regShift)
 {
 }
 
@@ -112,6 +112,6 @@ ArchUARTSifive*
 arch_get_uart_sifive(addr_t base, int64 clock)
 {
 	static char buffer[sizeof(ArchUARTSifive)];
-	ArchUARTSifive* uart = new(buffer) ArchUARTSifive(base, clock);
+	ArchUARTSifive* uart = new(buffer) ArchUARTSifive(base, clock, 4, 2);
 	return uart;
 }

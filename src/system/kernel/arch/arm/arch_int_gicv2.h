@@ -7,14 +7,20 @@
 
 #include <SupportDefs.h>
 
+#include <arch/generic/generic_int.h>
+
 #include "soc.h"
 
 class GICv2InterruptController : public InterruptController {
 public:
 	GICv2InterruptController(uint32_t gicd_regs = 0, uint32_t gicc_regs = 0);
-	void EnableInterrupt(int32 irq);
-	void DisableInterrupt(int32 irq);
-	void HandleInterrupt();
+
+	void EnableIoInterrupt(int32 irq) final;
+	void DisableIoInterrupt(int32 irq) final;
+	void ConfigureIoInterrupt(int32 irq, uint32 config) final;
+	int32 AssignToCpu(int32 irq, int32 cpu) final;
+	void HandleInterrupt() final;
+
 private:
 	volatile uint32_t *fGicdRegs;
 	volatile uint32_t *fGiccRegs;

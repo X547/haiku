@@ -6,8 +6,7 @@
 #define _KERNEL_DEVICE_MANAGER_H
 
 
-#include <device_manager.h>
-#include <lock.h>
+#include <dm2/device_manager.h>
 
 struct kernel_args;
 
@@ -18,11 +17,8 @@ extern "C" {
 
 void legacy_driver_add_preloaded(struct kernel_args *args);
 
-status_t device_manager_probe(const char *path, uint32 updateCycle);
 status_t device_manager_init(struct kernel_args *args);
 status_t device_manager_init_post_modules(struct kernel_args *args);
-
-recursive_lock* device_manager_get_lock();
 
 #ifdef __cplusplus
 }

@@ -22,7 +22,7 @@
 
 class DebugUART8250 : public DebugUART {
 public:
-							DebugUART8250(addr_t base, int64 clock);
+							DebugUART8250(addr_t base, int64 clock, uint32 regIoWidth, uint32 regShift);
 							~DebugUART8250();
 
 			void			InitEarly();

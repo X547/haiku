@@ -14,6 +14,7 @@
 
 #include "scsi_internal.h"
 
+#include <new>
 
 
 // ccb are relatively large, so don't make it too small to not waste memory
@@ -24,14 +25,17 @@
 #define CCB_NUM_MAX 128
 
 
-scsi_ccb *
-scsi_alloc_ccb(scsi_device_info *device)
+ScsiCcb *
+ScsiDeviceImpl::AllocCcb()
 {
-	scsi_ccb *ccb;
+	ScsiDeviceImpl *device = this;
+
+	ScsiCcbImpl *ccb;
 
 	SHOW_FLOW0( 3, "" );
 
-	ccb = (scsi_ccb *)locked_pool->alloc(device->bus->ccb_pool);
+	void *ccb_mem = locked_pool->alloc(static_cast<ScsiBusImpl*>(device->bus)->ccb_pool);
+	ccb = new(ccb_mem) ScsiCcbImpl();
 	ccb->state = SCSI_STATE_FINISHED;
 	ccb->device = device;
 	ccb->target_id = device->target_id;
@@ -50,24 +54,28 @@ scsi_alloc_ccb(scsi_device_info *device)
 
 
 void
-scsi_free_ccb(scsi_ccb *ccb)
+ScsiCcbImpl::Free()
 {
+	ScsiCcbImpl *ccb = this;
+	ScsiBusImpl *bus = static_cast<ScsiBusImpl*>(ccb->bus);
+
 	SHOW_FLOW0( 3, "" );
 
 	if (ccb->state != SCSI_STATE_FINISHED)
 		panic("Tried to free ccb that's still in use (state %d)\n", ccb->state);
 
 	ccb->state = SCSI_STATE_FREE;
+	ccb->~ScsiCcbImpl();
 
-	locked_pool->free(ccb->bus->ccb_pool, ccb);
+	locked_pool->free(bus->ccb_pool, ccb);
 }
 
 
 static status_t
 ccb_low_alloc_hook(void *block, void *arg)
 {
-	scsi_ccb *ccb = (scsi_ccb *)block;
-	scsi_bus_info *bus = (scsi_bus_info *)arg;
+	ScsiCcbImpl *ccb = (ScsiCcbImpl *)block;
+	ScsiBusImpl *bus = (ScsiBusImpl *)arg;
 	status_t res;
 
 	ccb->bus = bus;
@@ -84,19 +92,19 @@ ccb_low_alloc_hook(void *block, void *arg)
 static void
 ccb_low_free_hook(void *block, void *arg)
 {
-	scsi_ccb *ccb = (scsi_ccb *)block;
+	ScsiCcbImpl *ccb = (ScsiCcbImpl *)block;
 
 	delete_sem(ccb->completion_sem);
 }
 
 
 status_t
-scsi_init_ccb_alloc(scsi_bus_info *bus)
+scsi_init_ccb_alloc(ScsiBusImpl *bus)
 {
 	// initially, we want no CCB allocated as the path_id of
 	// the bus is not ready yet so the CCB cannot be initialized
 	// correctly
-	bus->ccb_pool = locked_pool->create(sizeof(scsi_ccb), sizeof(uint32) - 1, 0,
+	bus->ccb_pool = locked_pool->create(sizeof(ScsiCcb), sizeof(uint32) - 1, 0,
 		CCB_CHUNK_SIZE, CCB_NUM_MAX, 0, "scsi_ccb_pool", B_CONTIGUOUS,
 		ccb_low_alloc_hook, ccb_low_free_hook, bus);
 
@@ -108,7 +116,7 @@ scsi_init_ccb_alloc(scsi_bus_info *bus)
 
 
 void
-scsi_uninit_ccb_alloc(scsi_bus_info *bus)
+scsi_uninit_ccb_alloc(ScsiBusImpl *bus)
 {
 	locked_pool->destroy(bus->ccb_pool);
 }

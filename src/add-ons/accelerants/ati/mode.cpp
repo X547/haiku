@@ -290,7 +290,7 @@ SetDisplayMode(display_mode* pMode)
 			mode.timing.v_display,
 			mode.timing.v_sync_start, mode.timing.v_sync_end,
 			mode.timing.v_total);
-	
+
 		TRACE("   mode hFreq: %.1f kHz  vFreq: %.1f Hz  %chSync %cvSync\n",
 			double(mode.timing.pixel_clock) / mode.timing.h_total,
 			((double(mode.timing.pixel_clock) / mode.timing.h_total) * 1000.0)
@@ -298,12 +298,17 @@ SetDisplayMode(display_mode* pMode)
 			(mode.timing.flags & B_POSITIVE_HSYNC) ? '+' : '-',
 			(mode.timing.flags & B_POSITIVE_VSYNC) ? '+' : '-');
 	}
-	
+
+	uint32 oldDpmsMode = gInfo.GetDPMSMode();
+	gInfo.SetDPMSMode(B_DPMS_OFF);
+
 	status_t status = gInfo.SetDisplayMode(mode);
 	if (status != B_OK) {
 		TRACE("SetDisplayMode() failed;  status 0x%x\n", status);
 		return status;
 	}
+
+	gInfo.SetDPMSMode(oldDpmsMode);
 
 	si.displayMode = mode;
 

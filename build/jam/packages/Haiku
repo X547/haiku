@@ -25,63 +25,145 @@ for bootTarget in $(HAIKU_BOOT_TARGETS) {
 AddFilesToPackage add-ons kernel bus_managers : $(SYSTEM_ADD_ONS_BUS_MANAGERS) ;
 AddFilesToPackage add-ons kernel busses agp_gart : <agp_gart>intel@x86,x86_64 ;
 
-AddFilesToPackage add-ons kernel busses ata
-	: generic_ide_pci it8211 legacy_sata silicon_image_3112 highpoint_ide_pci ide_isa@x86 ;
+#AddFilesToPackage add-ons kernel busses ata
+#	: generic_ide_pci it8211 legacy_sata silicon_image_3112 highpoint_ide_pci ide_isa@x86 ;
 
-AddFilesToPackage add-ons kernel busses i2c : pch_i2c@x86,x86_64 ;
-AddFilesToPackage add-ons kernel busses mmc : sdhci ;
-AddFilesToPackage add-ons kernel busses pci : 
-	<pci>designware@riscv64 <pci>ecam@riscv64,arm,arm64 <pci>x86@x86,x86_64 ;
-AddFilesToPackage add-ons kernel busses random : ccp_rng@x86,x86_64 virtio_rng ;
-AddFilesToPackage add-ons kernel busses scsi : ahci virtio_scsi ;
-AddFilesToPackage add-ons kernel busses usb : <usb>uhci <usb>ohci <usb>ehci
-	<usb>xhci ;
-AddFilesToPackage add-ons kernel busses virtio : virtio_mmio@riscv64,arm,arm64
-	virtio_pci ;
+AddFilesToPackage add-ons kernel busses i2c :
+#	pch_i2c@x86,x86_64
+	ocores_i2c@riscv64
+	;
+AddFilesToPackage add-ons kernel busses hid :
+	i2c_hid
+	usb_hid
+	;
+AddFilesToPackage add-ons kernel busses mmc :
+	# sdhci_pci
+	designware_mmc
+	;
+AddFilesToPackage add-ons kernel busses pci :
+#	<pci>designware@riscv64
+	<pci>ecam
+	<pci>plda@riscv64
+#	<pci>x86@x86,x86_64
+	;
+AddFilesToPackage add-ons kernel busses ps2 :
+	altera_ps2@riscv64
+	;
+#AddFilesToPackage add-ons kernel busses random : ccp_rng@x86,x86_64 virtio_rng ;
+#AddFilesToPackage add-ons kernel busses scsi : ahci virtio_scsi ;
+AddFilesToPackage add-ons kernel busses usb :
+#	<usb>uhci
+#	<usb>ohci
+#	<usb>ehci
+	<usb>xhci
+	;
+AddFilesToPackage add-ons kernel busses virtio :
+	virtio_mmio@riscv64,arm,arm64
+	# virtio_pci
+	;
 AddFilesToPackage add-ons kernel console : vga_text ;
 AddFilesToPackage add-ons kernel debugger
 	: <kdebug>demangle <kdebug>disasm@x86,x86_64 <kdebug>hangman
 	  <kdebug>invalidate_on_exit <kdebug>usb_keyboard <kdebug>qrencode@libqrencode
 	  <kdebug>run_on_exit ;
 AddFilesToPackage add-ons kernel file_systems : $(SYSTEM_ADD_ONS_FILE_SYSTEMS) ;
-AddFilesToPackage add-ons kernel generic
-	: ata_adapter bios@x86,x86_64 dpc
-		locked_pool mpu401 scsi_periph smbios@x86,x86_64 <module>tty ;
+AddFilesToPackage add-ons kernel generic :
+#	ata_adapter
+	bios@x86,x86_64
+	dpc
+	locked_pool
+	mpu401
+#	scsi_periph
+#	smbios@x86,x86_64
+	<module>tty
+	;
 AddFilesToPackage add-ons kernel partitioning_systems
 	: amiga_rdb@m68k apple@ppc sun@sparc efi_gpt intel session ;
-AddFilesToPackage add-ons kernel interrupt_controllers : openpic@ppc ;
+#AddFilesToPackage add-ons kernel interrupt_controllers : openpic@ppc  ;
 AddFilesToPackage add-ons kernel power cpufreq : amd_pstates@x86,x86_64 intel_pstates@x86,x86_64 ;
 AddFilesToPackage add-ons kernel power cpuidle : intel_cstates@x86,x86_64 ;
+AddFilesToPackage add-ons kernel system : device_manager ;
 
 if $(TARGET_ARCH) = x86 || $(TARGET_ARCH) = x86_64 {
 	AddFilesToPackage add-ons kernel cpu : generic_x86 ;
 }
 
 # drivers
-AddNewDriversToPackage 				: wmi@x86,x86_64 ;
-AddNewDriversToPackage disk			: nvme_disk usb_disk ;
-AddNewDriversToPackage disk mmc		: mmc_disk ;
-AddNewDriversToPackage disk scsi	: scsi_cd scsi_disk ;
-AddNewDriversToPackage disk virtual : ram_disk virtio_block ;
-AddNewDriversToPackage graphics		: virtio_gpu ;
-AddNewDriversToPackage power		: $(SYSTEM_ADD_ONS_DRIVERS_POWER) ;
-AddNewDriversToPackage sensor		: $(SYSTEM_ADD_ONS_DRIVERS_SENSOR) ;
-AddNewDriversToPackage network		: usb_ecm virtio_net ;
-AddNewDriversToPackage input		: i2c_elan virtio_input ;
-#AddNewDriversToPackage display		: display_adapter@x86 ;
-#AddNewDriversToPackage audio hmulti	: virtio_sound ;
+AddNewDriversToPackage :
+	null
+	zero
+	random
+#	wmi@x86,x86_64
+	;
+AddNewDriversToPackage audio :
+	hda
+	usb_audio
+	;
+AddNewDriversToPackage disk :
+	nvme_disk
+	usb_disk
+	mmc_disk
+	;
+AddNewDriversToPackage disk scsi :
+#	scsi_cd
+#	scsi_disk
+	;
+AddNewDriversToPackage disk virtual :
+#	ram_disk
+	virtio_block
+	;
+AddNewDriversToPackage power : $(SYSTEM_ADD_ONS_DRIVERS_POWER) ;
+AddNewDriversToPackage sensor : $(SYSTEM_ADD_ONS_DRIVERS_SENSOR) ;
+AddNewDriversToPackage network :
+	usb_ecm
+	virtio_net
+	dwmac
+	;
+AddNewDriversToPackage input :
+	# i2c_elan
+	hid_input
+	virtio_input
+	;
+AddNewDriversToPackage display :
+	display_adapter@x86
+	;
+AddNewDriversToPackage clock :
+	fixed_clock@riscv64,arm,arm64
+	jh7110_clock@riscv64
+	;
+AddNewDriversToPackage reset :
+	jh7110_reset@riscv64
+	;
+AddNewDriversToPackage power :
+	power_syscon@riscv64,arm,arm64
+	;
+AddNewDriversToPackage rtc :
+	goldfish@riscv64,arm,arm64
+	;
+AddNewDriversToPackage misc	:
+	<driver>syscon
+	<driver>fu740_cache@riscv64
+	;
+AddNewDriversToPackage interrupt_controllers :
+	plic@riscv64
+	aplic@riscv64
+	imsic@riscv64
+	;
+AddNewDriversToPackage graphics :
+	ati
+	virtio_gpu
+	;
 
 # legacy drivers
-AddDriversToPackage					: console dprintf null <driver>tty usb_modeswitch zero ;
+AddDriversToPackage					: console dprintf <driver>tty usb_modeswitch ;
 AddDriversToPackage audio hmulti	: $(SYSTEM_ADD_ONS_DRIVERS_AUDIO) ;
 AddDriversToPackage audio old		: $(SYSTEM_ADD_ONS_DRIVERS_AUDIO_OLD) ;
 AddDriversToPackage bluetooth h2	: $(SYSTEM_ADD_ONS_DRIVERS_BT_H2) ;
 AddDriversToPackage midi			: $(SYSTEM_ADD_ONS_DRIVERS_MIDI) ;
-AddDriversToPackage bus				: usb_raw ;
 AddDriversToPackage disk virtual	: nbd ;
 AddDriversToPackage dvb				: cx23882 ;
 AddDriversToPackage graphics		: $(SYSTEM_ADD_ONS_DRIVERS_GRAPHICS) ;
-AddDriversToPackage input			: ps2_hid usb_hid wacom ;
+AddDriversToPackage input			: ps2_hid wacom ;
 AddDriversToPackage misc			: <driver>poke <driver>mem ;
 AddDriversToPackage net				: $(SYSTEM_ADD_ONS_DRIVERS_NET) ;
 AddDriversToPackage ports			: pc_serial usb_serial ;
@@ -189,23 +271,62 @@ AddFilesToPackage data Terminal Themes : $(terminalThemes) ;
 
 # boot module links
 AddBootModuleSymlinksToPackage
-	acpi@x86,x86_64,arm64 ahci ata ata_adapter
+	acpi
+#	ahci ata ata_adapter
 	bfs
 	dpc
 	efi_gpt
-	generic_ide_pci
-	ide_isa@x86 isa@x86,x86_64 intel it8211
-	legacy_sata locked_pool
-	mmc mmc_disk
+#	generic_ide_pci
+#	ide_isa@x86 isa@x86,x86_64 intel it8211
+#	legacy_sata
+	locked_pool
+	mmc designware_mmc mmc_disk
 	nvme_disk
 	openpic@ppc
+	plic@riscv64
+	aplic@riscv64
+	imsic@riscv64
+#	syscon@riscv64
+	goldfish@riscv64
 	packagefs pci
-	<pci>designware@riscv64 <pci>ecam@riscv64,arm,arm64 <pci>x86@x86,x86_64
+	# <pci>designware@riscv64
+	<pci>ecam
+	<pci>plda@riscv64
+#	<pci>x86@x86,x86_64
 	fdt@riscv64,arm,arm64
-	scsi scsi_cd scsi_disk scsi_periph silicon_image_3112 highpoint_ide_pci
-	sdhci
-	usb usb_disk <usb>ehci <usb>ohci <usb>uhci <usb>xhci
-	virtio virtio_block virtio_mmio@riscv64,arm,arm64 virtio_pci virtio_scsi
+	scsi
+	# scsi_cd scsi_disk scsi_periph silicon_image_3112 highpoint_ide_pci
+	# sdhci_pci
+	usb usb_disk
+	# <usb>ehci <usb>ohci <usb>uhci
+	<usb>xhci
+	# virtio
+	virtio_block
+	virtio_mmio@riscv64,arm,arm64
+	# virtio_pci
+	# virtio_scsi
+	device_manager
+	fixed_clock@riscv64,arm,arm64
+	jh7110_clock@riscv64
+	jh7110_reset@riscv64
+	<driver>syscon@riscv64,arm,arm64
+	power_syscon@riscv64,arm,arm64
+	<driver>fu740_cache@riscv64
+	ati # !!!
+	hda # !!!
+	usb_audio # !!!
+	i2c_hid # !!!
+	usb_hid # !!!
+	hid_input # !!!
+	virtio_input # !!!
+	null # !!!
+	zero # !!!
+	random # !!!
+	ocores_i2c@riscv64,arm,arm64 # !!!
+	virtio_gpu # !!!
+	usb_ecm # !!!
+	virtio_net # !!!
+	dwmac # !!!
 ;
 
 # add-ons

@@ -18,6 +18,7 @@
 
 #include <string.h>
 #include <malloc.h>
+#include <new>
 
 
 // bus service should hurry up a bit - good controllers don't take much time
@@ -32,7 +33,7 @@
  */
 
 static void
-scsi_do_service(scsi_bus_info *bus)
+scsi_do_service(ScsiBusImpl *bus)
 {
 	while (true) {
 		SHOW_FLOW0( 3, "" );
@@ -54,7 +55,7 @@ scsi_do_service(scsi_bus_info *bus)
 static int32
 scsi_service_threadproc(void *arg)
 {
-	scsi_bus_info *bus = (scsi_bus_info *)arg;
+	ScsiBusImpl *bus = (ScsiBusImpl *)arg;
 	int32 processed_notifications = 0;
 
 	SHOW_FLOW(3, "bus = %p", bus);
@@ -83,31 +84,29 @@ scsi_service_threadproc(void *arg)
 }
 
 
-static scsi_bus_info *
-scsi_create_bus(device_node *node, uint8 path_id)
+static ScsiBusImpl *
+scsi_create_bus(DeviceNode *node, uint8 path_id)
 {
-	scsi_bus_info *bus;
+	ScsiBusImpl *bus;
 	int res;
 
 	SHOW_FLOW0(3, "");
 
-	bus = (scsi_bus_info *)malloc(sizeof(*bus));
+	bus = new(std::nothrow) ScsiBusImpl();
 	if (bus == NULL)
 		return NULL;
 
-	memset(bus, 0, sizeof(*bus));
-
 	bus->path_id = path_id;
 
-	if (pnp->get_attr_uint32(node, SCSI_DEVICE_MAX_TARGET_COUNT, &bus->max_target_count, true) != B_OK)
+	if (node->FindAttrUint32(SCSI_DEVICE_MAX_TARGET_COUNT, &bus->max_target_count, true) != B_OK)
 		bus->max_target_count = MAX_TARGET_ID + 1;
-	if (pnp->get_attr_uint32(node, SCSI_DEVICE_MAX_LUN_COUNT, &bus->max_lun_count, true) != B_OK)
+	if (node->FindAttrUint32(SCSI_DEVICE_MAX_LUN_COUNT, &bus->max_lun_count, true) != B_OK)
 		bus->max_lun_count = MAX_LUN_ID + 1;
 
-	// our scsi_ccb only has a uchar for target_id
+	// our ScsiCcb only has a uchar for target_id
 	if (bus->max_target_count > 256)
 		bus->max_target_count = 256;
-	// our scsi_ccb only has a uchar for target_lun
+	// our ScsiCcb only has a uchar for target_lun
 	if (bus->max_lun_count > 256)
 		bus->max_lun_count = 256;
 
@@ -159,14 +158,16 @@ err2:
 err4:
 	delete_sem(bus->scan_lun_lock);
 err6:
-	free(bus);
+	delete bus;
 	return NULL;
 }
 
 
-static status_t
-scsi_destroy_bus(scsi_bus_info *bus)
+void
+ScsiBusImpl::Free()
 {
+	ScsiBusImpl *bus = this;
+
 	int32 retcode;
 
 	// noone is using this bus now, time to clean it up
@@ -181,40 +182,40 @@ scsi_destroy_bus(scsi_bus_info *bus)
 
 	scsi_uninit_ccb_alloc(bus);
 
-	return B_OK;
+	delete bus;
 }
 
 
-static status_t
-scsi_init_bus(device_node *node, void **cookie)
+status_t
+ScsiBusImpl::Probe(DeviceNode *node, DeviceDriver **outDriver)
 {
 	uint8 path_id;
-	scsi_bus_info *bus;
+	ScsiBusImpl *bus;
 	status_t res;
 
 	SHOW_FLOW0( 3, "" );
 
-	if (pnp->get_attr_uint8(node, SCSI_BUS_PATH_ID_ITEM, &path_id, false) != B_OK)
+	if (node->FindAttrUint8(SCSI_BUS_PATH_ID_ITEM, &path_id, false) != B_OK)
 		return B_ERROR;
 
 	bus = scsi_create_bus(node, path_id);
 	if (bus == NULL)
 		return B_NO_MEMORY;
 
-	// extract controller/protocoll restrictions from node
-	if (pnp->get_attr_uint32(node, B_DMA_ALIGNMENT, &bus->dma_params.alignment,
+	// extract controller/protocol restrictions from node
+	if (node->FindAttrUint32(B_DMA_ALIGNMENT, &bus->dma_params.alignment,
 			true) != B_OK)
 		bus->dma_params.alignment = 0;
-	if (pnp->get_attr_uint32(node, B_DMA_MAX_TRANSFER_BLOCKS,
+	if (node->FindAttrUint32(B_DMA_MAX_TRANSFER_BLOCKS,
 			&bus->dma_params.max_blocks, true) != B_OK)
 		bus->dma_params.max_blocks = 0xffffffff;
-	if (pnp->get_attr_uint32(node, B_DMA_BOUNDARY,
+	if (node->FindAttrUint32(B_DMA_BOUNDARY,
 			&bus->dma_params.dma_boundary, true) != B_OK)
 		bus->dma_params.dma_boundary = ~0;
-	if (pnp->get_attr_uint32(node, B_DMA_MAX_SEGMENT_BLOCKS,
+	if (node->FindAttrUint32(B_DMA_MAX_SEGMENT_BLOCKS,
 			&bus->dma_params.max_sg_block_size, true) != B_OK)
 		bus->dma_params.max_sg_block_size = 0xffffffff;
-	if (pnp->get_attr_uint32(node, B_DMA_MAX_SEGMENT_COUNT,
+	if (node->FindAttrUint32(B_DMA_MAX_SEGMENT_COUNT,
 			&bus->dma_params.max_sg_blocks, true) != B_OK)
 		bus->dma_params.max_sg_blocks = ~0;
 
@@ -250,51 +251,61 @@ scsi_init_bus(device_node *node, void **cookie)
 		goto err;
 	}
 
-	{
-		device_node *parent = pnp->get_parent_node(node);
-		pnp->get_driver(parent, (driver_module_info **)&bus->interface,
-			(void **)&bus->sim_cookie);
-		pnp->put_node(parent);
-
-		bus->interface->set_scsi_bus(bus->sim_cookie, bus);
-	}
-
 	// cache inquiry data
-	scsi_inquiry_path(bus, &bus->inquiry_data);
+	bus->PathInquiry(&bus->inquiry_data);
 
 	// get max. number of commands on bus
 	bus->left_slots = bus->inquiry_data.hba_queue_size;
 	SHOW_FLOW( 3, "Bus has %d slots", bus->left_slots );
 
-	*cookie = bus;
+	*outDriver = static_cast<DeviceDriver*>(bus);
 
 	return B_OK;
 
 err:
-	scsi_destroy_bus(bus);
+	bus->Free();
 	return res;
 }
 
 
-static void
-scsi_uninit_bus(scsi_bus_info *bus)
+void*
+ScsiBusImpl::QueryInterface(const char *name)
 {
-	scsi_destroy_bus(bus);
+	if (strcmp(name, ScsiBusBus::ifaceName) == 0)
+		return static_cast<ScsiBusBus*>(this);
+
+	return NULL;
 }
 
 
 uchar
-scsi_inquiry_path(scsi_bus bus, scsi_path_inquiry *inquiry_data)
+ScsiBusImpl::PathInquiry(scsi_path_inquiry *inquiry_data)
 {
+	ScsiBusImpl *bus = this;
 	SHOW_FLOW(4, "path_id=%d", bus->path_id);
-	return bus->interface->path_inquiry(bus->sim_cookie, inquiry_data);
+	return bus->interface->PathInquiry(inquiry_data);
 }
 
 
-static uchar
-scsi_reset_bus(scsi_bus_info *bus)
+uchar
+ScsiBusImpl::ResetBus()
 {
-	return bus->interface->reset_bus(bus->sim_cookie);
+	ScsiBusImpl *bus = this;
+	return bus->interface->ResetBus();
+}
+
+
+ScsiBusBus*
+ScsiBusImpl::ToBusBus(ScsiBus* bus)
+{
+	return static_cast<ScsiBusBus*>(static_cast<ScsiBusImpl*>(bus));
+}
+
+
+ScsiBusDevice*
+ScsiBusImpl::ToBusDevice(ScsiDevice* device)
+{
+	return static_cast<ScsiBusDevice*>(static_cast<ScsiDeviceImpl*>(device));
 }
 
 
@@ -331,23 +342,10 @@ std_ops(int32 op, ...)
 }
 
 
-scsi_bus_interface scsi_bus_module = {
-	{
-		{
-			SCSI_BUS_MODULE_NAME,
-			0,
-			std_ops
-		},
-
-		NULL,	// supported devices
-		NULL,	// register node
-		scsi_init_bus,
-		(void (*)(void *))scsi_uninit_bus,
-		(status_t (*)(void *))scsi_scan_bus,
-		(status_t (*)(void *))scsi_scan_bus,
-		NULL
+driver_module_info scsi_bus_module = {
+	.info = {
+		.name = SCSI_BUS_MODULE_NAME,
+		.std_ops = std_ops
 	},
-
-	scsi_inquiry_path,
-	scsi_reset_bus,
+	.probe = ScsiBusImpl::Probe
 };

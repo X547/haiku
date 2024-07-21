@@ -1,0 +1,11 @@
+SubDir HAIKU_TOP src add-ons kernel drivers network ether dwmac ;
+
+SubDirC++Flags -fno-rtti -fvisibility=hidden ;
+
+UseHeaders [ FDirName $(HAIKU_TOP) src libs compat freebsd_network ] : true ;
+UsePrivateHeaders drivers ;
+UsePrivateKernelHeaders ;
+
+KernelAddon dwmac :
+	dwmac.cpp
+	;

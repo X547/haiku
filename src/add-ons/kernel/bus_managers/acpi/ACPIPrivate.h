@@ -9,7 +9,7 @@
 
 #include <sys/cdefs.h>
 
-#include <device_manager.h>
+#include <dm2/device_manager.h>
 #include <KernelExport.h>
 #include <ACPI.h>
 #include <PCI.h>
@@ -37,7 +37,7 @@ typedef struct acpi_device_cookie {
 	char*			path;			// path
 	acpi_handle		handle;
 	uint32			type;			// type
-	device_node*	node;
+	DeviceNode*		node;
 	char			name[32];		// name (for fast log)
 } acpi_device_cookie;
 
@@ -47,6 +47,7 @@ typedef acpi_status (*acpi_walk_resources_callback)(acpi_resource* resource,
 	void* context);
 
 
+#if 0
 // ACPI root.
 typedef struct acpi_root_info {
 	driver_module_info info;
@@ -158,10 +159,13 @@ typedef struct acpi_root_info {
 	status_t	(*get_table)(const char *signature, uint32 instance,
 					void **tableHeader);
 } acpi_root_info;
+#endif
 
 
 extern struct acpi_module_info gACPIModule;
+extern struct driver_module_info gAcpiDriverModule;
 
+#if 0
 extern struct device_module_info acpi_ns_dump_module;
 
 extern struct driver_module_info embedded_controller_driver_module;
@@ -170,6 +174,7 @@ extern struct device_module_info embedded_controller_device_module;
 extern acpi_device_module_info gACPIDeviceModule;
 
 extern struct device_module_info gAcpiCallDeviceModule;
+#endif
 
 
 status_t get_handle(acpi_handle parent, const char* pathname,

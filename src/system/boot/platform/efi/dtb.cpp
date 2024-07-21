@@ -60,16 +60,16 @@ static void* sDtbTable = NULL;
 static uint32 sDtbSize = 0;
 
 template <typename T> DebugUART*
-get_uart(addr_t base, int64 clock) {
+get_uart(addr_t base, int64 clock, uint32 regIoWidth, uint32 regShift) {
 	static char buffer[sizeof(T)];
-	return new(buffer) T(base, clock);
+	return new(buffer) T(base, clock, regIoWidth, regShift);
 }
 
 
 const struct supported_uarts {
 	const char*	dtb_compat;
 	const char*	kind;
-	DebugUART*	(*uart_driver_init)(addr_t base, int64 clock);
+	DebugUART*	(*uart_driver_init)(addr_t base, int64 clock, uint32 regIoWidth, uint32 regShift);
 } kSupportedUarts[] = {
 	{ "ns16550a", UART_KIND_8250, &get_uart<DebugUART8250> },
 	{ "ns16550", UART_KIND_8250, &get_uart<DebugUART8250> },
@@ -561,11 +561,29 @@ dtb_handle_fdt(const void* fdt, int node)
 					sizeof(uart.kind));
 
 				dtb_get_reg(fdt, node, 0, uart.regs);
+
+#if defined(__ARM__) || defined(__aarch64__)
+				uart.reg_io_width = 4;
+				uart.reg_shift = 2;
+#else
+				uart.reg_io_width = 1;
+				uart.reg_shift = 0;
+#endif
+
+				int len;
+				uint32* prop = (uint32*)fdt_getprop(fdt, node, "reg-io-width", &len);
+				if (prop != NULL && len == 4)
+					uart.reg_io_width = fdt32_to_cpu(*prop);
+
+				prop = (uint32*)fdt_getprop(fdt, node, "reg-shift", &len);
+				if (prop != NULL && len == 4)
+					uart.reg_shift = fdt32_to_cpu(*prop);
+
 				uart.irq = dtb_get_interrupt(fdt, node);
 				uart.clock = dtb_get_clock_frequency(fdt, node);
 
 				gUART = kSupportedUarts[i].uart_driver_init(uart.regs.start,
-					uart.clock);
+					uart.clock, uart.reg_io_width, uart.reg_shift);
 				gUARTSkipInit = fdt_getprop(fdt, node, "skip-init", NULL) != NULL;
 			}
 		}
@@ -624,7 +642,7 @@ dtb_init()
 
 		sDtbTable = dtbPtr;
 		sDtbSize = fdt_totalsize(dtbPtr);
-	
+
 		INFO("Valid FDT from UEFI table %d, size: %" B_PRIu32 "\n", i, sDtbSize);
 
 #ifdef TRACE_DUMP_FDT

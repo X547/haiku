@@ -16,7 +16,7 @@
 #include <util/iovec_support.h>
 
 
-struct device_node;
+class DeviceNode;
 struct IOOperation;
 struct IORequest;
 
@@ -92,7 +92,7 @@ public:
 									generic_size_t blockSize,
 									uint32 bufferCount,
 									uint32 bounceBufferCount);
-			status_t			Init(device_node* node,
+			status_t			Init(DeviceNode* node,
 									generic_size_t blockSize,
 									uint32 bufferCount,
 									uint32 bounceBufferCount);

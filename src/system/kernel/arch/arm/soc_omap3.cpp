@@ -27,7 +27,7 @@ enum {
 
 
 void
-OMAP3InterruptController::EnableInterrupt(int32 irq)
+OMAP3InterruptController::EnableIoInterrupt(int32 irq)
 {
 	uint32 bit = irq % 32, bank = irq / 32;
 	fRegBase[INTCPS_MIR_CLEARn + (8 * bank)] = 1 << bit;
@@ -35,7 +35,7 @@ OMAP3InterruptController::EnableInterrupt(int32 irq)
 
 
 void
-OMAP3InterruptController::DisableInterrupt(int32 irq)
+OMAP3InterruptController::DisableIoInterrupt(int32 irq)
 {
 	uint32 bit = irq % 32, bank = irq / 32;
 	fRegBase[INTCPS_MIR_SETn + (8 * bank)] = 1 << bit;
@@ -75,6 +75,19 @@ OMAP3InterruptController::HandleInterrupt()
 
 
 void
+OMAP3InterruptController::ConfigureIoInterrupt(int32 irq, uint32 config)
+{
+}
+
+
+int32
+OMAP3InterruptController::AssignToCpu(int32 irq, int32 cpu)
+{
+	return 0;
+}
+
+
+void
 OMAP3InterruptController::SoftReset()
 {
 	uint32 tmp = fRegBase[INTCPS_REVISION] & 0xff;
@@ -102,6 +115,9 @@ OMAP3InterruptController::OMAP3InterruptController(uint32_t reg_base)
 		reg_base, false);
 	if (fRegArea < 0)
 		panic("OMAP3InterruptController: cannot map registers!");
+
+	// TODO: Is interrupt count correct?
+	reserve_io_interrupt_vectors_ex(1020, 0, INTERRUPT_TYPE_IRQ, this);
 
 	SoftReset();
 

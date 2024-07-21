@@ -24,7 +24,7 @@
  */
 
 static status_t
-scsi_controller_added(device_node *parent)
+scsi_controller_added(DeviceNode *parent)
 {
 	const char *controller_name;
 	int32 pathID;
@@ -67,7 +67,7 @@ scsi_controller_added(device_node *parent)
 
 
 static status_t
-scsi_controller_init(device_node *node, void **_cookie)
+scsi_controller_init(DeviceNode *node, void **_cookie)
 {
 	*_cookie = node;
 	return B_OK;
@@ -77,7 +77,7 @@ scsi_controller_init(device_node *node, void **_cookie)
 static status_t
 scsi_controller_register_raw_device(void *_cookie)
 {
-	device_node *node = (device_node *)_cookie;
+	DeviceNode *node = (DeviceNode *)_cookie;
 	uint32 channel;
 	uint8 pathID;
 	char *name;

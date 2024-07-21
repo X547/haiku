@@ -1,0 +1,9 @@
+SubDir HAIKU_TOP src add-ons kernel drivers interrupt_controllers aplic ;
+
+UsePrivateKernelHeaders ;
+UsePrivateHeaders shared ;
+
+SubDirC++Flags -fvisibility=hidden ;
+
+KernelAddon aplic :
+	aplic.cpp ;

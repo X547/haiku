@@ -5,11 +5,15 @@
 
 
 #include "virtio.h"
+#include "devices.h"
+#include "VirtioBlockDevice.h"
 
 #include <new>
 #include <string.h>
 #include <malloc.h>
 #include <KernelExport.h>
+
+#pragma GCC diagnostic ignored "-Wvolatile"
 
 
 enum {
@@ -103,13 +107,13 @@ VirtioDevice::VirtioDevice(const VirtioResources& devRes): fRegs(devRes.regs)
 	fLastUsed = 0;
 
 	fDescs = (VirtioDesc*)aligned_malloc(sizeof(VirtioDesc) * fQueueLen, 4096);
-	memset(fDescs, 0, sizeof(VirtioDesc) * fQueueLen);
+	memset((void*)fDescs, 0, sizeof(VirtioDesc) * fQueueLen);
 	fAvail = (VirtioAvail*)aligned_malloc(sizeof(VirtioAvail)
 		+ sizeof(uint16_t) * fQueueLen, 4096);
-	memset(fAvail, 0, sizeof(VirtioAvail) + sizeof(uint16_t) * fQueueLen);
+	memset((void*)fAvail, 0, sizeof(VirtioAvail) + sizeof(uint16_t) * fQueueLen);
 	fUsed = (VirtioUsed*)aligned_malloc(sizeof(VirtioUsed)
 		+ sizeof(VirtioUsedItem) * fQueueLen, 4096);
-	memset(fUsed, 0, sizeof(VirtioUsed) + sizeof(VirtioUsedItem) * fQueueLen);
+	memset((void*)fUsed, 0, sizeof(VirtioUsed) + sizeof(VirtioUsedItem) * fQueueLen);
 	fFreeDescs = new(std::nothrow) uint32_t[(fQueueLen + 31)/32];
 	memset(fFreeDescs, 0xff, sizeof(uint32_t) * ((fQueueLen + 31)/32));
 
@@ -255,6 +259,14 @@ virtio_init()
 			gKeyboardDev->ScheduleIO(new(std::nothrow) IORequest(ioOpWrite,
 				malloc(sizeof(VirtioInputPacket)), sizeof(VirtioInputPacket)));
 		}
+	}
+
+	for (int i = 0;; i++) {
+		ObjectDeleter<VirtioBlockDevice> device(CreateVirtioBlockDev(i));
+		if (!device.IsSet()) break;
+		dprintf("virtio_block[%d]\n", i);
+		if (platform_add_device(device.Get()) < B_OK) break;
+		device.Detach();
 	}
 }
 

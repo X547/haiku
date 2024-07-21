@@ -305,7 +305,12 @@ dprintf("handling I/O interrupts done\n");
 	}
 
 	int state = disable_interrupts();
-	if (hardwareInterrupt && thread->post_interrupt_callback != NULL) {
+	if (thread->cpu->invoke_scheduler) {
+		SpinLocker schedulerLocker(thread->scheduler_lock);
+		scheduler_reschedule(B_THREAD_READY);
+		schedulerLocker.Unlock();
+		restore_interrupts(state);
+	} else if (hardwareInterrupt && thread->post_interrupt_callback != NULL) {
 		void (*callback)(void*) = thread->post_interrupt_callback;
 		void* data = thread->post_interrupt_data;
 
@@ -315,11 +320,6 @@ dprintf("handling I/O interrupts done\n");
 		restore_interrupts(state);
 
 		callback(data);
-	} else if (thread->cpu->invoke_scheduler) {
-		SpinLocker schedulerLocker(thread->scheduler_lock);
-		scheduler_reschedule(B_THREAD_READY);
-		schedulerLocker.Unlock();
-		restore_interrupts(state);
 	}
 
 	// pop iframe

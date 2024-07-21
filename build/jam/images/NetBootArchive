@@ -10,7 +10,7 @@ SYSTEM_ADD_ONS_DRIVERS_NET = [ FFilterByBuildFeatures
 	x86 @{
 		3com atheros813x atheros81xx
 		broadcom440x broadcom570x ipro1000
-		rtl8139 
+		rtl8139
 		via_rhine ipro100 nforce
 		marvell_yukon sis900 syskonnect
 		attansic_l2
@@ -20,8 +20,8 @@ SYSTEM_ADD_ONS_DRIVERS_NET = [ FFilterByBuildFeatures
 ] ;
 SYSTEM_ADD_ONS_BUS_MANAGERS = [ FFilterByBuildFeatures
 	pci isa@x86 ata
-	scsi agp_gart 
-	dpc acpi 
+	scsi agp_gart
+	dpc acpi
 ] ;
 SYSTEM_ADD_ONS_FILE_SYSTEMS = bfs packagefs ;
 

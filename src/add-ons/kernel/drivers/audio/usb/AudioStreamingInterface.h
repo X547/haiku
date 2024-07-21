@@ -8,7 +8,7 @@
 #define _AUDIO_STREAMING_INTERFACE_H_
 
 
-#include <USB3.h>
+#include <dm2/bus/USB.h>
 #include <util/VectorMap.h>
 
 #include "AudioControlInterface.h"

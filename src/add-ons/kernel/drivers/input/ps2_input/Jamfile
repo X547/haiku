@@ -1,0 +1,9 @@
+SubDir HAIKU_TOP src add-ons kernel drivers input ps2_input ;
+
+UsePrivateKernelHeaders ;
+UsePrivateHeaders shared ;
+
+KernelAddon ps2_input : 
+	ps2_input.cpp
+	ps2_mouse.cpp
+	kernel_interface.cpp ;

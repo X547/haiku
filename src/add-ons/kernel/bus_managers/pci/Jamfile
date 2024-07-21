@@ -10,8 +10,8 @@ KernelAddon pci :
 	pci_info.cpp
 	pci_io.cpp
 	pci_module.cpp
-	pci_root.cpp
 	pci_device.cpp
+#	pci_resources.cpp
 	:
 	;
 

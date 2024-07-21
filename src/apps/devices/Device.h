@@ -15,9 +15,7 @@
 #include <String.h>
 #include <StringItem.h>
 
-extern "C" {
 #include "dm_wrapper.h"
-}
 
 
 typedef enum {

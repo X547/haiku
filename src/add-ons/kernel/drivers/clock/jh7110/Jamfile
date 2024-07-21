@@ -1,0 +1,10 @@
+SubDir HAIKU_TOP src add-ons kernel drivers clock jh7110 ;
+
+SubDirC++Flags -fno-rtti -fvisibility=hidden ;
+
+UsePrivateHeaders drivers ;
+UsePrivateKernelHeaders ;
+
+KernelAddon jh7110_clock :
+	jh7110_clock.cpp
+	;

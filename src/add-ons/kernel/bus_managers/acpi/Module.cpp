@@ -26,18 +26,17 @@ extern "C" {
 #endif
 
 
-device_manager_info* gDeviceManager = NULL;
 pci_module_info* gPCIManager = NULL;
 dpc_module_info* gDPC = NULL;
 
-module_dependency module_dependencies[] = {
-	{B_DEVICE_MANAGER_MODULE_NAME, (module_info**)&gDeviceManager},
+_EXPORT module_dependency module_dependencies[] = {
 	{B_PCI_MODULE_NAME, (module_info**)&gPCIManager},
 	{B_DPC_MODULE_NAME, (module_info**)&gDPC},
 	{}
 };
 
 
+#if 0
 static float
 acpi_module_supports_device(device_node* parent)
 {
@@ -101,12 +100,11 @@ acpi_enumerate_child_devices(device_node* node, const char* root)
 
 				uint32 attrCount = 4;
 				char* hid = NULL;
-				char* cidList[11] = { NULL };
+				char* cidList[8] = { NULL };
 				char* uid = NULL;
-				char* cls = NULL;
 				if (type == ACPI_TYPE_DEVICE) {
 					if (get_device_info(result, &hid, (char**)&cidList, 8,
-						&uid, &cls) == B_OK) {
+						&uid) == B_OK) {
 						if (hid != NULL) {
 							attrs[attrCount].name = ACPI_DEVICE_HID_ITEM;
 							attrs[attrCount].type = B_STRING_TYPE;
@@ -125,21 +123,6 @@ acpi_enumerate_child_devices(device_node* node, const char* root)
 							attrs[attrCount].value.string = uid;
 							attrCount++;
 						}
-						if (cls != NULL) {
-							uint32 clsClass = strtoul(cls, NULL, 16);
-							attrs[attrCount].name = B_DEVICE_TYPE;
-							attrs[attrCount].type = B_UINT16_TYPE;
-							attrs[attrCount].value.ui16 = (clsClass >> 16) & 0xff ;
-							attrCount++;
-							attrs[attrCount].name = B_DEVICE_SUB_TYPE;
-							attrs[attrCount].type = B_UINT16_TYPE;
-							attrs[attrCount].value.ui16 = (clsClass >> 8) & 0xff ;
-							attrCount++;
-							attrs[attrCount].name = B_DEVICE_INTERFACE;
-							attrs[attrCount].type = B_UINT16_TYPE;
-							attrs[attrCount].value.ui16 = (clsClass >> 0) & 0xff ;
-							attrCount++;
-						}
 					}
 					uint32 addr;
 					if (get_device_addr(result, &addr) == B_OK) {
@@ -154,7 +137,6 @@ acpi_enumerate_child_devices(device_node* node, const char* root)
 						ACPI_DEVICE_MODULE_NAME, attrs, NULL, &deviceNode);
 				free(hid);
 				free(uid);
-				free(cls);
 				for (int i = 0; cidList[i] != NULL; i++)
 					free(cidList[i]);
 				if (status != B_OK)
@@ -321,15 +303,19 @@ static struct acpi_root_info sACPIRootModule = {
 	reboot,
 	get_table
 };
+#endif
 
 
-module_info* modules[] = {
+_EXPORT module_info* modules[] = {
 	(module_info*)&gACPIModule,
+	(module_info*)&gAcpiDriverModule,
+#if 0
 	(module_info*)&sACPIRootModule,
 	(module_info*)&acpi_ns_dump_module,
 	(module_info*)&gACPIDeviceModule,
 	(module_info*)&embedded_controller_driver_module,
 	(module_info*)&embedded_controller_device_module,
 	(module_info*)&gAcpiCallDeviceModule,
+#endif
 	NULL
 };

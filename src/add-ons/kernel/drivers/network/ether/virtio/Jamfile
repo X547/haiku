@@ -1,5 +1,7 @@
 SubDir HAIKU_TOP src add-ons kernel drivers network ether virtio ;
 
+SubDirC++Flags -fvisibility=hidden ;
+
 UsePrivateKernelHeaders ;
 UsePrivateHeaders drivers net virtio ;
 

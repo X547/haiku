@@ -69,36 +69,6 @@ static void *sUserVectorPageAddress;
 struct iframe_stack gBootFrameStack;
 
 
-void
-arch_int_enable_io_interrupt(int32 irq)
-{
-	TRACE("arch_int_enable_io_interrupt(%" B_PRId32 ")\n", irq);
-	InterruptController *ic = InterruptController::Get();
-	if (ic != NULL)
-		ic->EnableInterrupt(irq);
-}
-
-
-void
-arch_int_disable_io_interrupt(int32 irq)
-{
-	TRACE("arch_int_disable_io_interrupt(%" B_PRId32 ")\n", irq);
-	InterruptController *ic = InterruptController::Get();
-	if (ic != NULL)
-		ic->DisableInterrupt(irq);
-}
-
-
-/* arch_int_*_interrupts() and friends are in arch_asm.S */
-
-int32
-arch_int_assign_to_cpu(int32 irq, int32 cpu)
-{
-	// Not yet supported.
-	return 0;
-}
-
-
 static void
 print_iframe(const char *event, struct iframe *frame)
 {
@@ -474,7 +444,12 @@ arch_arm_irq(struct iframe *iframe)
 
 	Thread* thread = thread_get_current_thread();
 	cpu_status state = disable_interrupts();
-	if (thread->post_interrupt_callback != NULL) {
+	if (thread->cpu->invoke_scheduler) {
+		SpinLocker schedulerLocker(thread->scheduler_lock);
+		scheduler_reschedule(B_THREAD_READY);
+		schedulerLocker.Unlock();
+		restore_interrupts(state);
+	} else if (thread->post_interrupt_callback != NULL) {
 		void (*callback)(void*) = thread->post_interrupt_callback;
 		void* data = thread->post_interrupt_data;
 
@@ -484,11 +459,6 @@ arch_arm_irq(struct iframe *iframe)
 		restore_interrupts(state);
 
 		callback(data);
-	} else if (thread->cpu->invoke_scheduler) {
-		SpinLocker schedulerLocker(thread->scheduler_lock);
-		scheduler_reschedule(B_THREAD_READY);
-		schedulerLocker.Unlock();
-		restore_interrupts(state);
 	}
 }
 
