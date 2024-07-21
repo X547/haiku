@@ -1,5 +1,5 @@
 SubDir HAIKU_TOP src apps haiku3d ;
-UseBuildFeatureHeaders mesa ;
+UseBuildFeatureHeaders libglvnd ;
 UseBuildFeatureHeaders glu ;
 
 SEARCH_SOURCE += [ FDirName $(SUBDIR) mesh ] ;
@@ -32,7 +32,7 @@ local sources =
 
 Includes [ FGristFiles $(sources) ] :
 	[ BuildFeatureAttribute glu : headers ]
-	[ BuildFeatureAttribute mesa : headers ]
+	[ BuildFeatureAttribute libglvnd : headers ]
 	;
 
 Application Haiku3d :
@@ -40,6 +40,6 @@ Application Haiku3d :
 	:
 	be game media translation [ TargetLibstdc++ ]
 	[ BuildFeatureAttribute glu : library ]
-	[ BuildFeatureAttribute mesa : library ]
+	[ BuildFeatureAttribute libglvnd : library ]
 	: Haiku3d.rdef
 ;

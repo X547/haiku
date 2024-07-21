@@ -1,5 +1,5 @@
 SubDir HAIKU_TOP src tests kits opengl glinfo ;
-UseBuildFeatureHeaders mesa ;
+UseBuildFeatureHeaders libglvnd ;
 UseBuildFeatureHeaders glu ;
 
 UsePrivateHeaders interface ;
@@ -16,7 +16,7 @@ local sources =
 ;
 
 Includes [ FGristFiles $(sources) ] :
-	[ BuildFeatureAttribute mesa : headers ]
+	[ BuildFeatureAttribute libglvnd : headers ]
 	[ BuildFeatureAttribute glu : headers ]
 	;
 	# Dependency needed to trigger downloading/unzipping the package before
@@ -28,7 +28,7 @@ Preference GLInfo :
 	be libglut.so
 	translation libcolumnlistview.a localestub
 	[ TargetLibsupc++ ]
-	[ BuildFeatureAttribute mesa : library ]
+	[ BuildFeatureAttribute libglvnd : library ]
 	[ BuildFeatureAttribute glu : library ]
 	:
 	GLInfo.rdef

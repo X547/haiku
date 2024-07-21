@@ -1,6 +1,6 @@
 SubDir HAIKU_TOP src add-ons screen_savers gravity ;
 UseBuildFeatureHeaders glu ;
-UseBuildFeatureHeaders mesa ;
+UseBuildFeatureHeaders libglvnd ;
 UsePrivateHeaders shared ;
 
 # For GCC2
@@ -22,7 +22,7 @@ local sources =
 
 Includes [ FGristFiles $(sources) ] :
 	[ BuildFeatureAttribute glu : headers ]
-	[ BuildFeatureAttribute mesa : headers ]
+	[ BuildFeatureAttribute libglvnd : headers ]
 	;
 	# Dependency needed to trigger downloading/unzipping the package before
 	# compiling the files.
@@ -32,7 +32,7 @@ ScreenSaver Gravity :
 	:
 	be screensaver shared localestub [ TargetLibstdc++ ]
 	[ BuildFeatureAttribute glu : library ]
-	[ BuildFeatureAttribute mesa : library ]
+	[ BuildFeatureAttribute libglvnd : library ]
 ;
 
 DoCatalogs Gravity :

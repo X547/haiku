@@ -218,19 +218,19 @@ if [ IsPackageAvailable glu_devel ] {
 
 
 # GL (GL Kit, Mesa3D)
-if [ IsPackageAvailable mesa_devel ] {
-	ExtractBuildFeatureArchives mesa :
-		file: base mesa
+if [ IsPackageAvailable libglvnd_devel ] {
+	ExtractBuildFeatureArchives libglvnd :
+		file: base libglvnd
 			runtime: lib
-		file: devel mesa_devel
+		file: devel libglvnd_devel
 			depends: base
 			library: $(developLibDir)/libGL.so
 			headers: $(developHeadersDir)/os/opengl
 		;
 
-	EnableBuildFeatures mesa ;
+	EnableBuildFeatures libglvnd ;
 } else {
-	unavailableBuildFeatures += mesa ;
+	unavailableBuildFeatures += libglvnd ;
 }
 
 

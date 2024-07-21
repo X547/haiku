@@ -27,7 +27,7 @@ AddHaikuImageSystemPackages [ FFilterByBuildFeatures
 	regular_image @{
 		bzip2 expat ffmpeg6 glu gutenprint9 gzip
 		lame less libedit libicns
-		mesa mesa_devel mesa_swpipe@!gcc2 mesa_swrast@gcc2
+		libglvnd libglvnd_devel
 		netcat
 		sed sharutils
 		unzip wget which zip
@@ -69,12 +69,11 @@ if $(HAIKU_PACKAGING_ARCHS[2]) {
 				freetype icu libsolv zlib
 
 				regular_image @{
-					ffmpeg6 glu jasper jpeg libavif libicns libpng16 libwebp mesa
+					ffmpeg6 glu jasper jpeg libavif libicns libpng16 libwebp libglvnd
 				}@
 			] ;
 			if $(TARGET_PACKAGING_ARCH) != x86_gcc2 {
-				AddHaikuImageSystemPackages [ FFilterByBuildFeatures gcc_syslibs
-					mesa_swpipe ] ;
+				AddHaikuImageSystemPackages [ FFilterByBuildFeatures gcc_syslibs ] ;
 			}
 		}
 	}

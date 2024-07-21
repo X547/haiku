@@ -48,7 +48,7 @@ for architectureObject in [ MultiArchSubDirSetup ] {
 		local architecture = $(TARGET_PACKAGING_ARCH) ;
 
 		UseBuildFeatureHeaders glu ;
-		UseBuildFeatureHeaders mesa ;
+		UseBuildFeatureHeaders libglvnd ;
 
 		# For GCC2
 		if $(architecture) = x86_gcc2 {
@@ -58,7 +58,7 @@ for architectureObject in [ MultiArchSubDirSetup ] {
 		# Ensure Mesa dependency is met
 		Includes [ FGristFiles $(sourcesCc) $(sourcesCpp) ] :
 			[ BuildFeatureAttribute glu : headers ]
-			[ BuildFeatureAttribute mesa : headers ]
+			[ BuildFeatureAttribute libglvnd : headers ]
 			;
 
 		SharedLibrary [ MultiArchDefaultGristFiles libglut.so ] :
@@ -66,7 +66,7 @@ for architectureObject in [ MultiArchSubDirSetup ] {
 			$(sourcesCc)
 			:
 			game be [ TargetLibstdc++ ]
-			[ BuildFeatureAttribute mesa : library ]
+			[ BuildFeatureAttribute libglvnd : library ]
 			[ BuildFeatureAttribute glu : library ]
 			;
 	}

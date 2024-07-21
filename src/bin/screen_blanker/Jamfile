@@ -15,7 +15,7 @@ BinCommand screen_blanker :
 		# link against libscreensaver.so
 
 	: be game localestub libscreensaver.so [ TargetLibsupc++ ]
-	[ BuildFeatureAttribute mesa : library ]
+	[ BuildFeatureAttribute libglvnd : library ]
 	: screen_blanker.rdef
 ;
 

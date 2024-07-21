@@ -1,6 +1,6 @@
 SubDir HAIKU_TOP src apps glteapot ;
 UseBuildFeatureHeaders glu ;
-UseBuildFeatureHeaders mesa ;
+UseBuildFeatureHeaders libglvnd ;
 
 local sources =
 	FPS.cpp
@@ -13,7 +13,7 @@ local sources =
 
 Includes [ FGristFiles $(sources) ] :
 	[ BuildFeatureAttribute glu : headers ]
-	[ BuildFeatureAttribute mesa : headers ]
+	[ BuildFeatureAttribute libglvnd : headers ]
 	;
 
 Application GLTeapot :
@@ -21,7 +21,7 @@ Application GLTeapot :
 	:
 	be game localestub [ TargetLibsupc++ ]
 	[ BuildFeatureAttribute glu : library ]
-	[ BuildFeatureAttribute mesa : library ]
+	[ BuildFeatureAttribute libglvnd : library ]
 	: GLTeapot.rdef
 ;
 

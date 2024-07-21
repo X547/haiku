@@ -1,6 +1,6 @@
 SubDir HAIKU_TOP src add-ons screen_savers flurry ;
 UseBuildFeatureHeaders glu ;
-UseBuildFeatureHeaders mesa ;
+UseBuildFeatureHeaders libglvnd ;
 
 AddResources Flurry : Flurry.rdef ;
 
@@ -14,7 +14,7 @@ local sources =
 
 Includes [ FGristFiles $(sources) ] :
 	[ BuildFeatureAttribute glu : headers ]
-	[ BuildFeatureAttribute mesa : headers ]
+	[ BuildFeatureAttribute libglvnd : headers ]
 	;
 	# Dependency needed to trigger downloading/unzipping the package before
 	# compiling the files.
@@ -23,7 +23,7 @@ ScreenSaver Flurry :
 	$(sources) :
 	be screensaver localestub [ TargetLibsupc++ ]
 	[ BuildFeatureAttribute glu : library ]
-	[ BuildFeatureAttribute mesa : library ]
+	[ BuildFeatureAttribute libglvnd : library ]
 ;
 
 DoCatalogs Flurry :

@@ -17,7 +17,7 @@ Preference ScreenSaver :
 		# needed for some old/broken screen saver add-ons that do not
 		# link against libscreensaver.so
 	: be game libscreensaver.so localestub tracker [ TargetLibstdc++ ]
-	[ BuildFeatureAttribute mesa : library ]
+	[ BuildFeatureAttribute libglvnd : library ]
 	: ScreenSaver.rdef
 	;
 

@@ -22,7 +22,7 @@ SYSTEM_BIN += [ FFilterByBuildFeatures
 SYSTEM_APPS += [ FFilterByBuildFeatures
 	ActivityMonitor AutoRaise
 	CodyCam
-	GLInfo@mesa
+	GLInfo@libglvnd
 	HaikuDepot
 	Icon-O-Matic@expat LaunchBox LegacyPackageInstaller
 	Magnify Mail MediaConverter MediaPlayer MidiPlayer
@@ -60,8 +60,8 @@ SYSTEM_PREFERENCES += [ FFilterByBuildFeatures
 ] ;
 
 SYSTEM_DEMOS += [ FFilterByBuildFeatures
-	Chart Clock Cortex@expat FontDemo GLTeapot@mesa
-	$(HAIKU_INCLUDE_TRADEMARKS)Haiku3d@mesa Mandelbrot OverlayImage Pairs
+	Chart Clock Cortex@expat FontDemo GLTeapot@libglvnd
+	$(HAIKU_INCLUDE_TRADEMARKS)Haiku3d@libglvnd Mandelbrot OverlayImage Pairs
 	PatchBay Playground Pulse Sudoku
 ] ;
 
@@ -80,7 +80,7 @@ rule HaikuImageGetSystemLibs
 			libdebug.so
 			libdebugger.so@primary
 			libdevice.so
-			libgame.so libglut.so@mesa libgnu.so
+			libgame.so libglut.so@libglvnd libgnu.so
 			libmail.so libmedia.so libmidi.so libmidi2.so
 			libnetwork.so
 			libpackage.so
@@ -187,8 +187,8 @@ SYSTEM_ADD_ONS_PRINT_TRANSPORT +=
 SYSTEM_ADD_ONS_SCREENSAVERS += [ FFilterByBuildFeatures
 	Butterfly
 	DebugNow
-	Flurry@mesa
-	GLife@mesa Gravity@mesa
+	Flurry@libglvnd
+	GLife@libglvnd Gravity@libglvnd
 	Icons IFS
 	Leaves
 	Message

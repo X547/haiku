@@ -1,5 +1,5 @@
 SubDir HAIKU_TOP src tests kits opengl glsl ;
-UseBuildFeatureHeaders mesa ;
+UseBuildFeatureHeaders libglvnd ;
 UseBuildFeatureHeaders glu ;
 UseLibraryHeaders glut ;
 
@@ -9,7 +9,7 @@ local shadersources =
 
 Includes [ FGristFiles $(shadersources) ]
 	:
-	[ BuildFeatureAttribute mesa : headers ]
+	[ BuildFeatureAttribute libglvnd : headers ]
 	[ BuildFeatureAttribute glu : headers ]
 ;
 
@@ -21,6 +21,6 @@ SimpleTest brick :
 	brick.c
 	:
 	libshaderutil.a be libglut.so
-	[ BuildFeatureAttribute mesa : library ]
+	[ BuildFeatureAttribute libglvnd : library ]
 	[ BuildFeatureAttribute glu : library ]
 ;
