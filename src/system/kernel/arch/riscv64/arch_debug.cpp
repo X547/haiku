@@ -960,7 +960,7 @@ arch_debug_get_stack_trace(addr_t* returnAddresses, int32 maxCount,
 		if (frame == NULL)
 			return 0;
 
-		fp = (addr_t)(frame + 1);
+		fp = frame->fp;
 		onKernelStack = false;
 	}
 
@@ -974,7 +974,7 @@ arch_debug_get_stack_trace(addr_t* returnAddresses, int32 maxCount,
 		addr_t nextFp;
 
 		if (onKernelStack && is_iframe(thread, fp)) {
-			iframe* frame = (iframe*)fp - 1;
+			iframe* frame = (iframe*)fp;
 			pc = frame->epc;
 			nextFp = frame->fp;
 
