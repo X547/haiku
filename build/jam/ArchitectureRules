@@ -13,6 +13,8 @@ rule ArchitectureSetup architecture
 		ccBaseFlags = -pipe ;
 	}
 
+	ccBaseFlags += -g ;
+
 	if $(HAIKU_CC_IS_LEGACY_GCC_$(architecture)) != 1 {
 		# disable strict aliasing on anything newer than gcc 2 as it may lead to
 		# unexpected results.
