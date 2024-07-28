@@ -15,71 +15,57 @@
 extern "C" {
 #endif
 
-struct event_queue;
 struct file_descriptor;
 struct io_context;
-struct net_socket;
 struct selectsync;
 struct select_info;
 
 struct fd_ops {
+	status_t	(*fd_close)(struct file_descriptor *);
+	void		(*fd_free)(struct file_descriptor *);
+
 	status_t	(*fd_read)(struct file_descriptor *, off_t pos, void *buffer,
 						size_t *length);
 	status_t	(*fd_write)(struct file_descriptor *, off_t pos,
 						const void *buffer, size_t *length);
+	ssize_t		(*fd_readv)(struct file_descriptor *, off_t pos,
+						const struct iovec *vecs, int count);
+	ssize_t		(*fd_writev)(struct file_descriptor *, off_t pos,
+						const struct iovec *vecs, int count);
 	off_t		(*fd_seek)(struct file_descriptor *, off_t pos, int seekType);
+
 	status_t	(*fd_ioctl)(struct file_descriptor *, ulong op, void *buffer,
 						size_t length);
 	status_t	(*fd_set_flags)(struct file_descriptor *, int flags);
+
 	status_t	(*fd_select)(struct file_descriptor *, uint8 event,
 						struct selectsync *sync);
 	status_t	(*fd_deselect)(struct file_descriptor *, uint8 event,
 						struct selectsync *sync);
+
 	status_t	(*fd_read_dir)(struct io_context* ioContext,
 						struct file_descriptor *, struct dirent *buffer,
 						size_t bufferSize, uint32 *_count);
 	status_t	(*fd_rewind_dir)(struct file_descriptor *);
+
 	status_t	(*fd_read_stat)(struct file_descriptor *, struct stat *);
 	status_t	(*fd_write_stat)(struct file_descriptor *, const struct stat *,
 		int statMask);
-	status_t	(*fd_close)(struct file_descriptor *);
-	void		(*fd_free)(struct file_descriptor *);
 };
 
 struct file_descriptor {
-	int32	type;               /* descriptor type */
 	int32	ref_count;
 	int32	open_count;
 	struct fd_ops *ops;
 	union {
 		struct vnode *vnode;
 		struct fs_mount *mount;
-		struct net_socket *socket;
-		struct event_queue *queue;
-#ifdef __cplusplus
-		class DevFsNodeHandle *device;
-#endif
 	} u;
 	void	*cookie;
 	int32	open_mode;
 	off_t	pos;
 };
 
-
-/* Types of file descriptors we can create */
-
-enum fd_types {
-	FDTYPE_FILE	= 1,
-	FDTYPE_ATTR,
-	FDTYPE_DIR,
-	FDTYPE_ATTR_DIR,
-	FDTYPE_INDEX,
-	FDTYPE_INDEX_DIR,
-	FDTYPE_QUERY,
-	FDTYPE_SOCKET,
-	FDTYPE_EVENT_QUEUE,
-	FDTYPE_DEVICE
-};
 
 // additional open mode - kernel special
 #define O_DISCONNECTED 0x80000000
@@ -103,6 +89,7 @@ extern status_t select_fd(int32 fd, struct select_info *info, bool kernel);
 extern status_t deselect_fd(int32 fd, struct select_info *info, bool kernel);
 extern bool fd_is_valid(int fd, bool kernel);
 extern struct vnode *fd_vnode(struct file_descriptor *descriptor);
+extern bool fd_is_file(struct file_descriptor* descriptor);
 
 extern bool fd_close_on_exec(struct io_context *context, int fd);
 extern void fd_set_close_on_exec(struct io_context *context, int fd,

@@ -974,12 +974,12 @@ cache_prefetch_vnode(struct vnode* vnode, off_t offset, size_t size)
 	offset = ROUNDDOWN(offset, B_PAGE_SIZE);
 	size = ROUNDUP(size, B_PAGE_SIZE);
 
-	size_t reservePages = size / B_PAGE_SIZE;
+	const size_t pagesCount = size / B_PAGE_SIZE;
 
 	// Don't do anything if we don't have the resources left, or the cache
 	// already contains more than 2/3 of its pages
-	if (offset >= fileSize || vm_page_num_unused_pages() < 2 * reservePages
-		|| 3 * cache->page_count > 2 * fileSize / B_PAGE_SIZE) {
+	if (offset >= fileSize || vm_page_num_unused_pages() < 2 * pagesCount
+		|| (3 * cache->page_count) > (2 * fileSize / B_PAGE_SIZE)) {
 		cache->ReleaseRef();
 		return;
 	}
@@ -988,7 +988,7 @@ cache_prefetch_vnode(struct vnode* vnode, off_t offset, size_t size)
 	off_t lastOffset = offset;
 
 	vm_page_reservation reservation;
-	vm_page_reserve_pages(&reservation, reservePages, VM_PRIORITY_USER);
+	vm_page_reserve_pages(&reservation, pagesCount, VM_PRIORITY_USER);
 
 	cache->Lock();
 
@@ -1053,7 +1053,7 @@ cache_prefetch(dev_t mountID, ino_t vnodeID, off_t offset, size_t size)
 
 
 extern "C" void
-cache_node_opened(struct vnode* vnode, int32 fdType, VMCache* cache,
+cache_node_opened(struct vnode* vnode, VMCache* cache,
 	dev_t mountID, ino_t parentID, ino_t vnodeID, const char* name)
 {
 	if (sCacheModule == NULL || sCacheModule->node_opened == NULL)
@@ -1066,13 +1066,13 @@ cache_node_opened(struct vnode* vnode, int32 fdType, VMCache* cache,
 			size = cache->virtual_end;
 	}
 
-	sCacheModule->node_opened(vnode, fdType, mountID, parentID, vnodeID, name,
+	sCacheModule->node_opened(vnode, mountID, parentID, vnodeID, name,
 		size);
 }
 
 
 extern "C" void
-cache_node_closed(struct vnode* vnode, int32 fdType, VMCache* cache,
+cache_node_closed(struct vnode* vnode, VMCache* cache,
 	dev_t mountID, ino_t vnodeID)
 {
 	if (sCacheModule == NULL || sCacheModule->node_closed == NULL)
@@ -1083,7 +1083,7 @@ cache_node_closed(struct vnode* vnode, int32 fdType, VMCache* cache,
 		// ToDo: set accessType
 	}
 
-	sCacheModule->node_closed(vnode, fdType, mountID, vnodeID, accessType);
+	sCacheModule->node_closed(vnode, mountID, vnodeID, accessType);
 }
 
 

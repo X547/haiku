@@ -131,8 +131,6 @@ SetAccessedFlags(addr_t addr, bool isWrite)
 extern "C" void
 STrap(iframe* frame)
 {
-	// dprintf("STrap("); WriteCause(Scause()); dprintf(")\n");
-
 	switch (frame->cause) {
 		case causeExecPageFault:
 		case causeLoadPageFault:

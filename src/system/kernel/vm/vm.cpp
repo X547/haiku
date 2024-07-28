@@ -245,7 +245,8 @@ static const size_t kMemoryReserveForPriority[] = {
 };
 
 
-ObjectCache* gPageMappingsObjectCache;
+static ObjectCache** sPageMappingsObjectCaches;
+static uint32 sPageMappingsMask;
 
 static rw_lock sAreaCacheLock = RW_LOCK_INITIALIZER("area->cache");
 
@@ -411,6 +412,61 @@ private:
 #endif	// VM_PAGE_FAULT_TRACING
 
 
+//	#pragma mark - page mappings allocation
+
+
+static void
+create_page_mappings_object_caches()
+{
+	// We want an even power of 2 smaller than the number of CPUs.
+	const int32 numCPUs = smp_get_num_cpus();
+	int32 count = next_power_of_2(numCPUs);
+	if (count > numCPUs)
+		count >>= 1;
+	sPageMappingsMask = count - 1;
+
+	sPageMappingsObjectCaches = new object_cache*[count];
+	if (sPageMappingsObjectCaches == NULL)
+		panic("failed to allocate page mappings object_cache array");
+
+	for (int32 i = 0; i < count; i++) {
+		char name[32];
+		snprintf(name, sizeof(name), "page mappings %" B_PRId32, i);
+
+		object_cache* cache = create_object_cache_etc(name,
+			sizeof(vm_page_mapping), 0, 0, 64, 128, CACHE_LARGE_SLAB, NULL, NULL,
+			NULL, NULL);
+		if (cache == NULL)
+			panic("failed to create page mappings object_cache");
+
+		object_cache_set_minimum_reserve(cache, 1024);
+		sPageMappingsObjectCaches[i] = cache;
+	}
+}
+
+
+static object_cache*
+page_mapping_object_cache_for(page_num_t page)
+{
+	return sPageMappingsObjectCaches[page & sPageMappingsMask];
+}
+
+
+static vm_page_mapping*
+allocate_page_mapping(page_num_t page, uint32 flags = 0)
+{
+	return (vm_page_mapping*)object_cache_alloc(page_mapping_object_cache_for(page),
+		flags);
+}
+
+
+void
+vm_free_page_mapping(page_num_t page, vm_page_mapping* mapping, uint32 flags)
+{
+	object_cache_free(page_mapping_object_cache_for(page), mapping, flags);
+}
+
+
 //	#pragma mark -
 
 
@@ -562,8 +618,7 @@ map_page(VMArea* area, vm_page* page, addr_t address, uint32 protection,
 		DEBUG_PAGE_ACCESS_CHECK(page);
 
 		bool isKernelSpace = area->address_space == VMAddressSpace::Kernel();
-		vm_page_mapping* mapping = (vm_page_mapping*)object_cache_alloc(
-			gPageMappingsObjectCache,
+		vm_page_mapping* mapping = allocate_page_mapping(page->physical_page_number,
 			CACHE_DONT_WAIT_FOR_MEMORY
 				| (isKernelSpace ? CACHE_DONT_LOCK_KERNEL_SPACE : 0));
 		if (mapping == NULL)
@@ -2110,27 +2165,28 @@ vm_create_vnode_cache(struct vnode* vnode, struct VMCache** cache)
 */
 static void
 pre_map_area_pages(VMArea* area, VMCache* cache,
-	vm_page_reservation* reservation)
+	vm_page_reservation* reservation, int32 maxCount)
 {
 	addr_t baseAddress = area->Base();
 	addr_t cacheOffset = area->cache_offset;
 	page_num_t firstPage = cacheOffset / B_PAGE_SIZE;
 	page_num_t endPage = firstPage + area->Size() / B_PAGE_SIZE;
 
-	for (VMCachePagesTree::Iterator it
-				= cache->pages.GetIterator(firstPage, true, true);
-			vm_page* page = it.Next();) {
+	VMCachePagesTree::Iterator it = cache->pages.GetIterator(firstPage, true, true);
+	vm_page* page;
+	while ((page = it.Next()) != NULL && maxCount > 0) {
 		if (page->cache_offset >= endPage)
 			break;
 
 		// skip busy and inactive pages
-		if (page->busy || page->usage_count == 0)
+		if (page->busy || (page->usage_count == 0 && !page->accessed))
 			continue;
 
 		DEBUG_PAGE_ACCESS_START(page);
 		map_page(area, page,
 			baseAddress + (page->cache_offset * B_PAGE_SIZE - cacheOffset),
 			B_READ_AREA | B_KERNEL_READ_AREA, reservation);
+		maxCount--;
 		DEBUG_PAGE_ACCESS_END(page);
 	}
 }
@@ -2259,16 +2315,23 @@ _vm_map_file(team_id team, const char* name, void** _address,
 		cache->ReleaseRefLocked();
 	}
 
-	if (status == B_OK && (protection & B_READ_AREA) != 0)
-		pre_map_area_pages(area, cache, &reservation);
+	if (status == B_OK && (protection & B_READ_AREA) != 0) {
+		// Pre-map at most 10MB worth of pages.
+		pre_map_area_pages(area, cache, &reservation,
+			(10LL * 1024 * 1024) / B_PAGE_SIZE);
+	}
 
 	cache->Unlock();
 
 	if (status == B_OK) {
-		// TODO: this probably deserves a smarter solution, ie. don't always
-		// prefetch stuff, and also, probably don't trigger it at this place.
-		cache_prefetch_vnode(vnode, offset, min_c(size, 10LL * 1024 * 1024));
-			// prefetches at max 10 MB starting from "offset"
+		// TODO: this probably deserves a smarter solution, e.g. probably
+		// trigger prefetch somewhere else.
+
+		// Prefetch at most 10MB starting from "offset", but only if the cache
+		// doesn't already contain more pages than the prefetch size.
+		const size_t prefetch = min_c(size, 10LL * 1024 * 1024);
+		if (cache->page_count < (prefetch / B_PAGE_SIZE))
+			cache_prefetch_vnode(vnode, offset, prefetch);
 	}
 
 	if (status != B_OK)
@@ -2490,7 +2553,8 @@ delete_area(VMAddressSpace* addressSpace, VMArea* area,
 {
 	ASSERT(!area->IsWired());
 
-	VMAreas::Remove(area);
+	if (area->id >= 0)
+		VMAreas::Remove(area);
 
 	// At this point the area is removed from the global hash table, but
 	// still exists in the area list.
@@ -3900,6 +3964,17 @@ vm_delete_areas(struct VMAddressSpace* addressSpace, bool deletingAddressSpace)
 	// remove all reserved areas in this address space
 	addressSpace->UnreserveAllAddressRanges(0);
 
+	// remove all areas from the areas map at once (to avoid lock contention)
+	VMAreas::WriteLock();
+	{
+		VMAddressSpace::AreaIterator it = addressSpace->GetAreaIterator();
+		while (VMArea* area = it.Next()) {
+			VMAreas::Remove(area);
+			area->id = INT32_MIN;
+		}
+	}
+	VMAreas::WriteUnlock();
+
 	// delete all the areas in this address space
 	while (VMArea* area = addressSpace->FirstArea()) {
 		ASSERT(!area->IsWired());
@@ -4384,14 +4459,7 @@ vm_init(kernel_args* args)
 		(void *)ROUNDDOWN(0xdeadbeef, B_PAGE_SIZE), B_PAGE_SIZE * 64);
 #endif
 
-	// create the object cache for the page mappings
-	gPageMappingsObjectCache = create_object_cache_etc("page mappings",
-		sizeof(vm_page_mapping), 0, 0, 64, 128, CACHE_LARGE_SLAB, NULL, NULL,
-		NULL, NULL);
-	if (gPageMappingsObjectCache == NULL)
-		panic("failed to create page mappings object cache");
-
-	object_cache_set_minimum_reserve(gPageMappingsObjectCache, 1024);
+	create_page_mappings_object_caches();
 
 #if DEBUG_CACHE_LIST
 	if (vm_page_num_free_pages() >= 200 * 1024 * 1024 / B_PAGE_SIZE) {
@@ -5028,7 +5096,8 @@ vm_soft_fault(VMAddressSpace* addressSpace, addr_t originalAddress,
 
 				context.UnlockAll();
 
-				if (object_cache_reserve(gPageMappingsObjectCache, 1, 0)
+				if (object_cache_reserve(page_mapping_object_cache_for(
+							context.page->physical_page_number), 1, 0)
 						!= B_OK) {
 					// Apparently the situation is serious. Let's get ourselves
 					// killed.
