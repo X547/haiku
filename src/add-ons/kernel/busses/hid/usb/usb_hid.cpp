@@ -29,6 +29,7 @@ public:
 	// DeviceDriver
 	static status_t Probe(DeviceNode* node, DeviceDriver** driver);
 	void Free() final {delete this;}
+	void DeviceRemoved() final;
 
 private:
 	status_t Init();
@@ -42,6 +43,8 @@ private:
 	UsbInterface* fInterface {};
 	UsbPipe* fInterruptPipe {};
 	uint8 fEndpointAddress {};
+	
+	bool fDeviceRemoved = false;
 
 	size_t fInputBufferSize {};
 	size_t fInputActualSize {};
@@ -184,11 +187,25 @@ UsbHidDriver::Init()
 
 
 void
+UsbHidDriver::DeviceRemoved()
+{
+	{
+		MutexLocker lock(&fLock);
+		fDeviceRemoved = true;
+	}
+	fInterruptPipe->CancelQueuedTransfers();
+}
+
+
+void
 UsbHidDriver::InputCallback(void *cookie, status_t status, void *data, size_t actualLength)
 {
 	UsbHidDriver* driver = (UsbHidDriver*)cookie;
 
 	MutexLocker lock(&driver->fLock);
+
+	if (driver->fDeviceRemoved)
+		return;
 
 #if 0
 	dprintf("UsbHidDriver::InputCallback(%#" B_PRIx32 ", %" B_PRIuSIZE ")\n", status, actualLength);
@@ -226,7 +243,6 @@ UsbHidDriver::UnstallCallback(void *cookie, status_t status, void *data, size_t 
 
 	// Now report the original failure, since we're ready to retry
 	InputCallback(cookie, B_IO_ERROR, data, 0);
-
 }
 
 
@@ -265,6 +281,9 @@ status_t
 UsbHidDriver::HidDeviceImpl::RequestRead(uint32 size, uint8* data, HidInputCallback* callback)
 {
 	MutexLocker lock(&fBase.fLock);
+
+	if (fBase.fDeviceRemoved)
+		return ENODEV;
 
 	if (fBase.fCallback != NULL)
 		return B_BUSY;
