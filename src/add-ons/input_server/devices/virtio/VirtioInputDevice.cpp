@@ -16,6 +16,10 @@
 #include <Application.h>
 #include <String.h>
 
+#include <RosterPrivate.h>
+
+#include <keyboard_mouse_driver.h>
+
 
 //#define TRACE_VIRTIO_INPUT_DEVICE
 #ifdef TRACE_VIRTIO_INPUT_DEVICE
@@ -748,6 +752,14 @@ KeyboardHandler::_StateChanged()
 						msg->what = B_UNMAPPED_KEY_UP;
 
 					_StopRepeating();
+				}
+
+				if ((msg->what == B_KEY_DOWN || msg->what == B_UNMAPPED_KEY_DOWN)
+						&& i == KEY_Power) {
+					BRoster roster;
+					BRoster::Private rosterPrivate(roster);
+
+					rosterPrivate.ShutDown(false, false, false);
 				}
 
 				if (Device()->EnqueueMessage(msg.Get()) >= B_OK) {

@@ -1,6 +1,6 @@
 SubDir HAIKU_TOP src add-ons input_server devices keyboard ;
 
-UsePrivateHeaders input interface shared tracker ;
+UsePrivateHeaders app input interface shared tracker ;
 UsePrivateSystemHeaders ;
 
 AddResources <input>keyboard : Keyboard.rdef ;

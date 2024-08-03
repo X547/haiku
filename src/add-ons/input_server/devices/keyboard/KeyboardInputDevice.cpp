@@ -24,6 +24,8 @@
 #include <Path.h>
 #include <String.h>
 
+#include <RosterPrivate.h>
+
 #include <keyboard_mouse_driver.h>
 
 
@@ -345,6 +347,13 @@ KeyboardDevice::_ControlThread()
 				states[(keycode) >> 3] |= (1 << (7 - (keycode & 0x7)));
 			else
 				states[(keycode) >> 3] &= (~(1 << (7 - (keycode & 0x7))));
+		}
+
+		if (isKeyDown && keycode == KEY_Power) {
+			BRoster roster;
+			BRoster::Private rosterPrivate(roster);
+
+			rosterPrivate.ShutDown(false, false, false);
 		}
 
 		if (isKeyDown && keycode == 0x34 // DELETE KEY

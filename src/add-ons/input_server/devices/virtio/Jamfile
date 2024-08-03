@@ -1,6 +1,6 @@
 SubDir HAIKU_TOP src add-ons input_server devices virtio ;
 
-UsePrivateHeaders input virtio shared ;
+UsePrivateHeaders app input virtio shared ;
 
 Addon <input>virtio :
 	VirtioInputDevice.cpp
