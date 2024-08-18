@@ -1,6 +1,6 @@
 /*
  * Copyright 2013-2014, Stephan Aßmus <superstippi@gmx.de>.
- * Copyright 2016-2023, Andrew Lindesay <apl@lindesay.co.nz>.
+ * Copyright 2016-2024, Andrew Lindesay <apl@lindesay.co.nz>.
  * All rights reserved. Distributed under the terms of the MIT License.
  */
 #ifndef MODEL_H
@@ -12,7 +12,7 @@
 
 #include "AbstractProcess.h"
 #include "DepotInfo.h"
-#include "LanguageModel.h"
+#include "LanguageRepository.h"
 #include "PackageFilterModel.h"
 #include "PackageIconTarRepository.h"
 #include "PackageInfo.h"
@@ -59,7 +59,6 @@ public:
 								Model();
 	virtual						~Model();
 
-			LanguageModel*		Language();
 			PackageFilterModel*	PackageFilter();
 			PackageIconRepository&
 								GetPackageIconRepository();
@@ -71,6 +70,10 @@ public:
 									{ return &fLock; }
 
 			void				AddListener(const ModelListenerRef& listener);
+
+			LanguageRef			PreferredLanguage() const;
+			void				SetPreferredLanguage(LanguageRef value);
+			LanguageRepository*	Languages();
 
 			PackageInfoRef		PackageForName(const BString& name);
 
@@ -110,18 +113,8 @@ public:
 			bool				CanShareAnonymousUsageData() const
 									{ return fCanShareAnonymousUsageData; }
 
-			// Retrieve package information
-	static	const uint32		POPULATE_CACHED_RATING	= 1 << 0;
-	static	const uint32		POPULATE_CACHED_ICON	= 1 << 1;
-	static	const uint32		POPULATE_USER_RATINGS	= 1 << 2;
-	static	const uint32		POPULATE_CHANGELOG		= 1 << 3;
-	static	const uint32		POPULATE_CATEGORIES		= 1 << 4;
-	static	const uint32		POPULATE_FORCE			= 1 << 5;
-
 			bool				CanPopulatePackage(
 									const PackageInfoRef& package);
-			void				PopulatePackage(const PackageInfoRef& package,
-									uint32 flags);
 
 			void				SetNickname(BString nickname);
 			const BString&		Nickname();
@@ -131,12 +124,6 @@ public:
 
 			WebAppInterface*    GetWebAppInterface()
 									{ return &fWebAppInterface; }
-
-			status_t			IconTarPath(BPath& path) const;
-			status_t			DumpExportReferenceDataPath(BPath& path);
-			status_t			DumpExportRepositoryDataPath(BPath& path);
-			status_t			DumpExportPkgDataPath(BPath& path,
-									const BString& repositorySourceCode);
 
 			// PackageScreenshotRepositoryListener
     virtual	void				ScreenshotCached(const ScreenshotCoordinate& coord);
@@ -151,16 +138,13 @@ private:
 									const BMessage &responsePayload,
 									const char *sourceDescription) const;
 
-	static	int32				_PopulateAllPackagesEntry(void* cookie);
-
-			void				_PopulatePackageChangelog(
-									const PackageInfoRef& package);
-
 			void				_NotifyAuthorizationChanged();
 			void				_NotifyCategoryListChanged();
 
 private:
 			BLocker				fLock;
+
+			LanguageRef			fPreferredLanguage;
 
 			std::vector<DepotInfoRef>
 								fDepots;
@@ -177,8 +161,10 @@ private:
 			bool				fCanShareAnonymousUsageData;
 
 			WebAppInterface		fWebAppInterface;
-			LanguageModel		fLanguageModel;
+
 			PackageFilterModel*	fPackageFilterModel;
+
+			LanguageRepository*	fLanguageRepository;
 			PackageIconTarRepository
 								fPackageIconRepository;
 			PackageScreenshotRepository*

@@ -125,6 +125,8 @@ static const unsigned char kUpSortArrow8x8Invert[] = {
 };
 
 static const float kTintedLineTint = 1.04;
+static const float kTintedLineTintDark = 0.90;
+
 
 static const float kMinTitleHeight = 16.0;
 static const float kMinRowHeight = 16.0;
@@ -1714,7 +1716,10 @@ BColumnListView::DrawLatch(BView* view, BRect rect, LatchType position, BRow*)
 	}
 
 	rgb_color highColor = view->HighColor();
-	view->SetHighColor(0, 0, 0);
+	if (highColor.IsLight())
+		view->SetHighColor(make_color(0, 0, 0));
+	else
+		view->SetHighColor(make_color(255, 255, 255));
 
 	switch (position) {
 		case B_OPEN_LATCH:
@@ -3372,8 +3377,12 @@ OutlineView::RedrawColumn(BColumn* column, float leftEdge, bool isFirstColumn)
 				highColor = fMasterView->Color(B_COLOR_BACKGROUND);
 				lowColor = fMasterView->Color(B_COLOR_BACKGROUND);
 			}
-			if (tintedLine)
-				lowColor = tint_color(lowColor, kTintedLineTint);
+			if (tintedLine) {
+				if (lowColor.IsLight())
+					lowColor = tint_color(lowColor, kTintedLineTint);
+				else
+					lowColor = tint_color(lowColor, kTintedLineTintDark);
+			}
 
 
 #if DOUBLE_BUFFERED_COLUMN_RESIZE
@@ -3515,8 +3524,12 @@ OutlineView::Draw(BRect invalidBounds)
 					lowColor = fMasterView->Color(B_COLOR_NON_FOCUS_SELECTION);
 			} else
 				lowColor = fMasterView->Color(B_COLOR_BACKGROUND);
-			if (tintedLine)
-				lowColor = tint_color(lowColor, kTintedLineTint);
+			if (tintedLine) {
+				if (lowColor.IsLight())
+					lowColor = tint_color(lowColor, kTintedLineTint);
+				else
+					lowColor = tint_color(lowColor, kTintedLineTintDark);
+			}
 
 			for (int columnIndex = 0; columnIndex < numColumns; columnIndex++) {
 				BColumn* column = (BColumn*) fColumns->ItemAt(columnIndex);

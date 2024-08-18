@@ -1186,7 +1186,7 @@ MultiAudioNode::_HandleBuffer(const media_timed_event* event,
 		// the previous buffer for this channel has been processed...
 		if (channel->fBuffer != NULL) {
 			PRINT(("MultiAudioNode::HandleBuffer snoozing recycling channelId: "
-				"%" B_PRIi32 ", how_early:%" B_PRIdBIGTIME "\n",
+				"%" B_PRIi32 ", lateness:%" B_PRIdBIGTIME "\n",
 				channel->fChannelId, lateness));
 			//channel->fBuffer->Recycle();
 			snooze(100);
@@ -1312,7 +1312,7 @@ MultiAudioNode::TimeSourceOp(const time_source_op_info& op, void* _reserved)
 				EventQueue()->AddEvent(stopEvent);
 				fTimeSourceStarted = false;
 				_StopOutputThread();
-				PublishTime(0, 0, 0);
+				PublishTime(0, 0, 1.0f);
 			}
 			break;
 		case B_TIMESOURCE_STOP_IMMEDIATELY:
@@ -1322,7 +1322,7 @@ MultiAudioNode::TimeSourceOp(const time_source_op_info& op, void* _reserved)
 				EventQueue()->AddEvent(stopEvent);
 				fTimeSourceStarted = false;
 				_StopOutputThread();
-				PublishTime(0, 0, 0);
+				PublishTime(0, 0, 1.0f);
 			}
 			break;
 		case B_TIMESOURCE_SEEK:
@@ -1653,7 +1653,7 @@ MultiAudioNode::MakeParameterWeb()
 const char*
 MultiAudioNode::_GetControlName(multi_mix_control& control)
 {
-	if (control.string != S_null)
+	if (control.string > S_null && (size_t)control.string < B_COUNT_OF(kMultiControlString))
 		return kMultiControlString[control.string];
 
 	return control.name;
@@ -1843,12 +1843,14 @@ MultiAudioNode::_OutputThread()
 			}
 		}
 
+#if 0
 		PRINT(("MultiAudioNode::RunThread: recorded_real_time: %" B_PRIdBIGTIME
 				"\n", bufferInfo.recorded_real_time));
 		PRINT(("MultiAudioNode::RunThread: recorded_frames_count: %"
 				B_PRId64 "\n", bufferInfo.recorded_frames_count));
 		PRINT(("MultiAudioNode::RunThread: record_buffer_cycle: %" B_PRIi32
 				"\n", bufferInfo.record_buffer_cycle));
+#endif
 
 		for (int32 i = 0; i < fOutputs.CountItems(); i++) {
 			node_output* output = (node_output*)fOutputs.ItemAt(i);
@@ -2039,7 +2041,7 @@ MultiAudioNode::_StartOutputThreadIfNeeded()
 	if (fThread >= 0)
 		return B_OK;
 
-	PublishTime(-50, 0, 0);
+	PublishTime(-50, 0, 1.0f);
 
 	fThread = spawn_thread(_OutputThreadEntry, "multi_audio audio output",
 		B_REAL_TIME_PRIORITY, this);
@@ -2085,6 +2087,11 @@ MultiAudioNode::_UpdateTimeSource(multi_buffer_info& info, node_input& input)
 {
 	//CALLED();
 	if (!fTimeSourceStarted)
+		return;
+
+	// For the first playback buffer, we might get a time of 0 or in the past. Ignore it,
+	// as otherwise we will wind up with incorrect computations from the TimeComputer.
+	if (info.played_real_time == 0 || info.played_real_time < fTimeComputer.RealTime())
 		return;
 
 	fTimeComputer.AddTimeStamp(info.played_real_time,

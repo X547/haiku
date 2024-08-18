@@ -30,6 +30,7 @@
 #include <NetUtilities.h>
 
 #include <lock.h>
+#include <low_resource_manager.h>
 #include <tracing.h>
 #include <util/AutoLock.h>
 #include <util/list.h>
@@ -321,6 +322,7 @@ enum {
 	FLAG_LOCAL					= 0x20,
 	FLAG_RECOVERY				= 0x40,
 	FLAG_OPTION_SACK_PERMITTED	= 0x80,
+	FLAG_AUTO_RECEIVE_BUFFER_SIZE = 0x100,
 };
 
 
@@ -388,17 +390,18 @@ is_establishing(tcp_state state)
 }
 
 
-static inline uint32 tcp_now()
+static inline uint32
+tcp_now()
 {
 	return system_time() / kTimestampFactor;
 }
 
 
-static inline uint32 tcp_diff_timestamp(uint32 base)
+static inline uint32
+tcp_diff_timestamp(uint32 base)
 {
-	uint32 now = tcp_now();
-
-	if (now > base)
+	const uint32 now = tcp_now();
+	if (now >= base)
 		return now - base;
 
 	return now + UINT_MAX - base;
@@ -443,7 +446,7 @@ TCPEndpoint::TCPEndpoint(net_socket* socket)
 	fReceiveWindow(socket->receive.buffer_size),
 	fReceiveMaxSegmentSize(TCP_DEFAULT_MAX_SEGMENT_SIZE),
 	fReceiveQueue(socket->receive.buffer_size),
-	fSmoothedRoundTripTime(0),
+	fSmoothedRoundTripTime(-1),
 	fRoundTripVariation(0),
 	fSendTime(0),
 	fRoundTripStartSequence(0),
@@ -452,7 +455,8 @@ TCPEndpoint::TCPEndpoint(net_socket* socket)
 	fCongestionWindow(0),
 	fSlowStartThreshold(0),
 	fState(CLOSED),
-	fFlags(FLAG_OPTION_WINDOW_SCALE | FLAG_OPTION_TIMESTAMP | FLAG_OPTION_SACK_PERMITTED)
+	fFlags(FLAG_OPTION_WINDOW_SCALE | FLAG_OPTION_TIMESTAMP
+		| FLAG_OPTION_SACK_PERMITTED | FLAG_AUTO_RECEIVE_BUFFER_SIZE)
 {
 	// TODO: to be replaced with a real read/write locking strategy!
 	mutex_init(&fLock, "tcp lock");
@@ -587,13 +591,13 @@ TCPEndpoint::Free()
 	if (fState <= SYNCHRONIZE_SENT)
 		return;
 
-	// we are only interested in the timer, not in changing state
-	_EnterTimeWait();
-
 	fFlags |= FLAG_CLOSED;
 	if ((fFlags & FLAG_DELETE_ON_CLOSE) == 0) {
 		// we'll be freed later when the 2MSL timer expires
 		gSocketModule->acquire_socket(socket);
+
+		// we are only interested in the timer, not in changing state
+		_EnterTimeWait();
 	}
 }
 
@@ -813,7 +817,7 @@ TCPEndpoint::SendData(net_buffer *buffer)
 		buffer->size, buffer->flags, fSendQueue.Size(), fSendQueue.Free());
 	T(APICall(this, "senddata"));
 
-	const uint32 flags = buffer->flags;
+	const uint32 flags = buffer->msg_flags;
 	if ((flags & ~(MSG_DONTWAIT | MSG_OOB | MSG_EOF)) != 0)
 		return EOPNOTSUPP;
 
@@ -1031,9 +1035,17 @@ TCPEndpoint::ReadData(size_t numBytes, uint32 flags, net_buffer** _buffer)
 	if (fReceiveQueue.Available() == 0 && fState == FINISH_RECEIVED)
 		socket->receive.low_water_mark = 0;
 
-	// if we are opening the window, check if we should send an ACK
-	if (!clone)
-		_SendAcknowledge();
+	// if we opened the window, check if we should send a window update
+	if (!clone) {
+		// Only send if there's less than half the window size remaining.
+		// TODO: This should use fReceiveWindow but that stays constant at present
+		// due to another TODO.
+		uint32 windowSizeRemaining = (fReceiveMaxAdvertised - fReceiveNext).Number();
+		if (fReceiveNext == (fReceiveMaxAdvertised + 1))
+			windowSizeRemaining = 0;
+		if (windowSizeRemaining <= (fReceiveQueue.Size() / 2))
+			_SendAcknowledge();
+	}
 
 	return receivedBytes;
 }
@@ -1065,6 +1077,7 @@ TCPEndpoint::SetReceiveBufferSize(size_t length)
 {
 	MutexLocker _(fLock);
 	fReceiveQueue.SetMaxBytes(length);
+	fFlags &= ~FLAG_AUTO_RECEIVE_BUFFER_SIZE;
 	return B_OK;
 }
 
@@ -1167,9 +1180,8 @@ TCPEndpoint::_EnterTimeWait()
 {
 	TRACE("_EnterTimeWait()");
 
-	if (fState == TIME_WAIT) {
+	if (fState == TIME_WAIT)
 		_CancelConnectionTimers();
-	}
 
 	_UpdateTimeWait();
 }
@@ -1298,7 +1310,7 @@ TCPEndpoint::_DuplicateAcknowledge(tcp_segment_header &segment)
 		fPreviousFlightSize = (fSendMax - fSendUnacknowledged).Number();
 
 	if (++fDuplicateAcknowledgeCount < 3) {
-		if (fSendQueue.Available(fSendMax) != 0  && fSendWindow != 0) {
+		if (fSendQueue.Available(fSendMax) != 0 && fSendWindow != 0) {
 			fSendNext = fSendMax;
 			fCongestionWindow += fDuplicateAcknowledgeCount * fSendMaxSegmentSize;
 			_SendQueued();
@@ -1341,6 +1353,67 @@ TCPEndpoint::_UpdateTimestamps(tcp_segment_header& segment,
 			&& fLastAcknowledgeSent < (sequence + segmentLength))
 			fReceivedTimestamp = segment.timestamp_value;
 	}
+}
+
+
+void
+TCPEndpoint::_UpdateReceiveBuffer()
+{
+	if (fReceiveWindowShift == 0 || fSmoothedRoundTripTime < 0)
+		return;
+	if ((fFlags & FLAG_AUTO_RECEIVE_BUFFER_SIZE) == 0)
+		return;
+
+	const uint64 maxWindowSize = UINT16_MAX << fReceiveWindowShift;
+	if (fReceiveQueue.Size() == maxWindowSize) {
+		// The window is already as large as it could be.
+		return;
+	}
+
+	if (fReceiveSizingTimestamp == 0) {
+		fReceiveSizingTimestamp = tcp_now();
+		fReceiveSizingReference = fReceiveNext;
+		return;
+	}
+
+	const uint32 received = (fReceiveNext - fReceiveSizingReference).Number();
+	if (received < (fReceiveQueue.Size() / 2))
+		return;
+
+	const uint32 since = tcp_diff_timestamp(fReceiveSizingTimestamp);
+	if (since == 0 || since < ((uint32)fSmoothedRoundTripTime * 2))
+		return;
+
+	fReceiveSizingTimestamp = tcp_now();
+	fReceiveSizingReference = fReceiveNext;
+
+	// TODO: add low_resource hook to reduce window sizes.
+	if (low_resource_state(B_KERNEL_RESOURCE_MEMORY) != B_NO_LOW_RESOURCE)
+		return;
+
+	// Target a window large enough to fit one second of traffic.
+	const uint64 oneSecondReceive = (received * 1000LL) / since;
+	if (fReceiveQueue.Size() >= oneSecondReceive)
+		return;
+
+	// Don't increase the window size too rapidly.
+	uint32 newWindowSize = min_c(oneSecondReceive, UINT32_MAX);
+	if (newWindowSize > (fReceiveQueue.Size() * 2))
+		newWindowSize = fReceiveQueue.Size() * 2;
+
+	// Round to the window shift and max segment size.
+	uint32 newWindowShifted = newWindowSize >> fReceiveWindowShift;
+	const uint32 maxSegmentShifted = fReceiveMaxSegmentSize >> fReceiveWindowShift;
+	newWindowShifted = (newWindowShifted / maxSegmentShifted) * maxSegmentShifted;
+	newWindowSize = newWindowShifted << fReceiveWindowShift;
+
+	if (newWindowSize > maxWindowSize)
+		newWindowSize = maxWindowSize;
+	if (fReceiveQueue.Size() >= newWindowSize)
+		return;
+
+	fReceiveQueue.SetMaxBytes(newWindowSize);
+	TRACE("TCPEndpoint: updated receive buffer size to %" B_PRIu32 "\n", newWindowSize);
 }
 
 
@@ -1396,6 +1469,8 @@ TCPEndpoint::_AddData(tcp_segment_header& segment, net_buffer* buffer)
 	TRACE("  _AddData(): adding data, receive next = %" B_PRIu32 ". Now have %"
 		B_PRIuSIZE " bytes.", fReceiveNext.Number(), fReceiveQueue.Available());
 
+	_UpdateReceiveBuffer();
+
 	if ((segment.flags & TCP_FLAG_PUSH) != 0)
 		fReceiveQueue.SetPushPointer();
 
@@ -1408,6 +1483,7 @@ TCPEndpoint::_PrepareReceivePath(tcp_segment_header& segment)
 {
 	fInitialReceiveSequence = segment.sequence;
 	fFinishReceived = false;
+	fReceiveSizingTimestamp = 0;
 
 	// count the received SYN
 	segment.sequence++;
@@ -1438,8 +1514,10 @@ TCPEndpoint::_PrepareReceivePath(tcp_segment_header& segment)
 		} else
 			fFlags &= ~FLAG_OPTION_TIMESTAMP;
 
-		if ((segment.options & TCP_SACK_PERMITTED) == 0)
+		if ((segment.options & TCP_SACK_PERMITTED) == 0) {
 			fFlags &= ~FLAG_OPTION_SACK_PERMITTED;
+			fFlags &= ~FLAG_AUTO_RECEIVE_BUFFER_SIZE;
+		}
 	}
 
 	if (fSendMaxSegmentSize > 2190)
@@ -1696,8 +1774,10 @@ TCPEndpoint::_Receive(tcp_segment_header& segment, net_buffer* buffer)
 
 	int32 action = KEEP;
 
-	// immediately acknowledge out-of-order segment to trigger fast-retransmit at the sender
-	if (drop != 0)
+	// Immediately acknowledge out-of-order segments, as well as any
+	// in-order segments following out-of-order segments, to trigger
+	// fast-retransmit and fast-recovery at the sender.
+	if (drop != 0 || (drop == 0 && !fReceiveQueue.IsContiguous()))
 		action |= IMMEDIATE_ACKNOWLEDGE;
 
 	drop = (int32)(segment.sequence + buffer->size
@@ -1731,7 +1811,8 @@ TCPEndpoint::_Receive(tcp_segment_header& segment, net_buffer* buffer)
 #endif
 
 	if (fSendWindow < fSendMaxSegmentSize
-			&& advertisedWindow >= fSendMaxSegmentSize) {
+			&& (advertisedWindow >= fSendMaxSegmentSize
+				|| advertisedWindow > (TCP_DEFAULT_MAX_SEGMENT_SIZE * 3))) {
 		// Our current send window is less than a segment wide, and the new one
 		// is larger, so trigger a send in case there's anything to be sent.
 		action |= SEND_QUEUED;
@@ -2008,7 +2089,7 @@ TCPEndpoint::_PrepareSendSegment()
 				&& (fFlags & FLAG_OPTION_SACK_PERMITTED) != 0) {
 			segment.options |= TCP_HAS_SACK;
 			int maxSackCount = MAX_SACK_BLKS
-				- ((fFlags & FLAG_OPTION_TIMESTAMP) != 0) ? 1 : 0;
+				- (((fFlags & FLAG_OPTION_TIMESTAMP) != 0) ? 1 : 0);
 			memset(segment.sacks, 0, sizeof(segment.sacks));
 			segment.sackCount = fReceiveQueue.PopulateSackInfo(fReceiveNext,
 				maxSackCount, segment.sacks);
@@ -2134,6 +2215,8 @@ TCPEndpoint::_ShouldSendSegment(tcp_segment_header& segment, uint32 length,
 		// correct the window to take into account what already has been advertised
 		uint32 window = segment.AdvertisedWindow(fReceiveWindowShift)
 			- (fReceiveMaxAdvertised - fReceiveNext).Number();
+		if (fReceiveNext == (fReceiveMaxAdvertised + 1))
+			window = 0;
 
 		// if we can advertise a window larger than twice the maximum segment
 		// size, or half the maximum buffer size we send a window update
@@ -2330,9 +2413,13 @@ TCPEndpoint::_PrepareSendPath(const sockaddr* peer)
 	// this option, this will be reset to 0 (when its SYN is received)
 	fReceiveWindowShift = 0;
 	while (fReceiveWindowShift < TCP_MAX_WINDOW_SHIFT
-		&& (0xffffUL << fReceiveWindowShift) < socket->receive.buffer_size) {
+			&& (0xffffUL << fReceiveWindowShift) < socket->receive.buffer_size) {
 		fReceiveWindowShift++;
 	}
+
+	// Increase to a default of 8 (window minimum 256 bytes, maximum 15 MB.)
+	if (fReceiveWindowShift < 8 && !IsLocal())
+		fReceiveWindowShift = 8;
 
 	return B_OK;
 }
@@ -2455,7 +2542,10 @@ TCPEndpoint::_Retransmit()
 void
 TCPEndpoint::_UpdateRoundTripTime(int32 roundTripTime, int32 expectedSamples)
 {
-	if (fSmoothedRoundTripTime == 0) {
+	if (roundTripTime < 0)
+		return;
+
+	if (fSmoothedRoundTripTime <= 0) {
 		fSmoothedRoundTripTime = roundTripTime;
 		fRoundTripVariation = roundTripTime / 2;
 		fRetransmitTimeout = (fSmoothedRoundTripTime + max_c(100, fRoundTripVariation * 4))
@@ -2586,6 +2676,7 @@ void
 TCPEndpoint::Dump() const
 {
 	kprintf("TCP endpoint %p\n", this);
+	kprintf("  socket: %p\n", socket);
 	kprintf("  state: %s\n", name_for_state(fState));
 	kprintf("  flags: 0x%" B_PRIx32 "\n", fFlags);
 #if KDEBUG

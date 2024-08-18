@@ -1,17 +1,20 @@
 /*
  * Copyright 2007, Ingo Weinhold, ingo_weinhold@gmx.de.
- * Copyright 2019, Haiku, Inc.
- * All rights reserved. Distributed under the terms of the MIT license.
+ * Copyright 2019-2024, Haiku, Inc. All rights reserved.
+ * Distributed under the terms of the MIT license.
  */
 #ifndef DATA_CONTAINER_H
 #define DATA_CONTAINER_H
 
+
 #include <OS.h>
+
 
 struct vm_page;
 class VMCache;
 class AllocationInfo;
 class Volume;
+
 
 class DataContainer {
 public:
@@ -25,7 +28,7 @@ public:
 	status_t Resize(off_t newSize);
 	off_t GetSize() const { return fSize; }
 
-	VMCache* GetCache();
+	VMCache* GetCache(struct vnode* vnode);
 
 	virtual status_t ReadAt(off_t offset, void *buffer, size_t size,
 							size_t *bytesRead);
@@ -39,8 +42,6 @@ private:
 	inline bool _RequiresCacheMode(size_t size);
 	inline bool _IsCacheMode() const;
 	status_t _SwitchToCacheMode();
-	void _GetPages(off_t offset, off_t length, bool isWrite, vm_page** pages);
-	void _PutPages(off_t offset, off_t length, vm_page** pages, bool success);
 	status_t _DoCacheIO(const off_t offset, uint8* buffer, ssize_t length,
 		size_t* bytesProcessed, bool isWrite);
 
@@ -54,5 +55,6 @@ private:
 	uint8*				fSmallBuffer;
 	off_t				fSmallBufferSize;
 };
+
 
 #endif	// DATA_CONTAINER_H

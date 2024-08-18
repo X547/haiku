@@ -31,17 +31,9 @@
 
 
 struct ethernet_device : net_device, DoublyLinkedListLinkImpl<ethernet_device> {
-	~ethernet_device()
-	{
-		free(read_buffer);
-		free(write_buffer);
-	}
-
 	int		fd;
 	uint32	frame_size;
-
-	void* read_buffer, *write_buffer;
-	mutex read_buffer_lock, write_buffer_lock;
+	bool	supports_net_buffer;
 };
 
 static const bigtime_t kLinkCheckInterval = 1000000;
@@ -160,13 +152,10 @@ ethernet_init(const char *name, net_device **_device)
 	strcpy(device->name, name);
 	device->flags = IFF_BROADCAST | IFF_LINK;
 	device->type = IFT_ETHER;
-	device->mtu = 1500;
+	device->mtu = ETHER_MAX_FRAME_SIZE - ETHER_HEADER_LENGTH;
 	device->media = IFM_ACTIVE | IFM_ETHER;
 	device->header_length = ETHER_HEADER_LENGTH;
 	device->fd = -1;
-	device->read_buffer = device->write_buffer = NULL;
-	device->read_buffer_lock = MUTEX_INITIALIZER("ethernet read_buffer"),
-	device->write_buffer_lock = MUTEX_INITIALIZER("ethernet write_buffer");
 
 	*_device = device;
 	return B_OK;
@@ -199,10 +188,24 @@ ethernet_up(net_device *_device)
 	if (ioctl(device->fd, ETHER_GETADDR, device->address.data, ETHER_ADDRESS_LENGTH) < 0)
 		goto err;
 
+	if (ioctl(device->fd, ETHER_SEND_NET_BUFFER, NULL, 0) != 0) {
+		// Check if the returned error code is B_BAD_DATA (not EINVAL or EOPNOTSUPP).
+		if (errno == B_BAD_DATA)
+			device->supports_net_buffer = true;
+	}
+
 	if (ioctl(device->fd, ETHER_GETFRAMESIZE, &device->frame_size, sizeof(uint32)) < 0) {
 		// this call is obviously optional
 		device->frame_size = ETHER_MAX_FRAME_SIZE;
 	}
+
+#if 1
+	// The network stack does not handle path MTU discovery correctly at present,
+	// so don't report frame sizes larger than the standard ethernet maximum.
+	// (We will still handle receiving frames larger than this.)
+	if (device->frame_size > ETHER_MAX_FRAME_SIZE)
+		device->frame_size = ETHER_MAX_FRAME_SIZE;
+#endif
 
 	if (update_link_state(device, false) == B_OK) {
 		// device supports retrieval of the link state
@@ -223,19 +226,6 @@ ethernet_up(net_device *_device)
 		}
 
 		sCheckList.Add(device);
-	}
-
-	if (device->frame_size > ETHER_MAX_FRAME_SIZE) {
-		free(device->read_buffer);
-		free(device->write_buffer);
-
-		device->read_buffer = malloc(device->frame_size);
-		device->write_buffer = malloc(device->frame_size);
-
-		if (device->read_buffer == NULL || device->write_buffer == NULL) {
-			errno = B_NO_MEMORY;
-			goto err;
-		}
 	}
 
 	device->address.length = ETHER_ADDRESS_LENGTH;
@@ -287,40 +277,33 @@ ethernet_send_data(net_device *_device, net_buffer *buffer)
 	if (buffer->size > device->frame_size || buffer->size < ETHER_HEADER_LENGTH)
 		return B_BAD_VALUE;
 
+	if (device->supports_net_buffer) {
+		if (ioctl(device->fd, ETHER_SEND_NET_BUFFER, buffer, sizeof(net_buffer)) != 0)
+			return errno;
+		return 0;
+	}
+
 	net_buffer *allocated = NULL;
 	net_buffer *original = buffer;
 
-	MutexLocker bufferLocker;
-	struct iovec iovec;
 	if (gBufferModule->count_iovecs(buffer) > 1) {
-		if (device->write_buffer != NULL) {
-			bufferLocker.SetTo(device->write_buffer_lock, false);
+		// Create a new buffer containing the data.
+		buffer = gBufferModule->duplicate(original);
+		if (buffer == NULL)
+			return ENOBUFS;
 
-			status_t status = gBufferModule->read(buffer, 0,
-				device->write_buffer, buffer->size);
-			if (status != B_OK)
-				return status;
-			iovec.iov_base = device->write_buffer;
-			iovec.iov_len = buffer->size;
-		} else {
-			// Fall back to creating a new buffer.
-			allocated = gBufferModule->duplicate(original);
-			if (allocated == NULL)
-				return ENOBUFS;
+		allocated = buffer;
 
-			buffer = allocated;
-
-			if (gBufferModule->count_iovecs(allocated) > 1) {
-				dprintf("ethernet_send_data: no write buffer, cannot perform scatter I/O\n");
-				gBufferModule->free(allocated);
-				return EMSGSIZE;
-			}
-
-			gBufferModule->get_iovecs(buffer, &iovec, 1);
+		if (gBufferModule->count_iovecs(buffer) > 1) {
+			dprintf("ethernet: net_buffer I/O is not supported by underlying device\n");
+			gBufferModule->free(buffer);
+			device->stats.send.errors++;
+			return B_NOT_SUPPORTED;
 		}
-	} else {
-		gBufferModule->get_iovecs(buffer, &iovec, 1);
 	}
+
+	struct iovec iovec;
+	gBufferModule->get_iovecs(buffer, &iovec, 1);
 
 //dump_block((const char *)iovec.iov_base, buffer->size, "  ");
 	ssize_t bytesWritten = write(device->fd, iovec.iov_base, iovec.iov_len);
@@ -347,45 +330,38 @@ ethernet_receive_data(net_device *_device, net_buffer **_buffer)
 	if (device->fd == -1)
 		return B_FILE_ERROR;
 
-	// TODO: better header space
+	if (device->supports_net_buffer) {
+		if (ioctl(device->fd, ETHER_RECEIVE_NET_BUFFER, _buffer, sizeof(net_buffer*)) != 0)
+			return errno;
+		return 0;
+	}
+
+	// read/write only works for standard ethernet frames. For larger frames,
+	// the driver should support send/receive of net_buffers directly, above.
+
 	net_buffer *buffer = gBufferModule->create(256);
 	if (buffer == NULL)
 		return ENOBUFS;
 
-	MutexLocker bufferLocker;
-	struct iovec iovec;
 	ssize_t bytesRead;
-	status_t status;
-	if (device->read_buffer != NULL) {
-		bufferLocker.SetTo(device->read_buffer_lock, false);
+	void *data;
 
-		iovec.iov_base = device->read_buffer;
-		iovec.iov_len = device->frame_size;
-	} else {
-		void *data;
-		status = gBufferModule->append_size(buffer, device->frame_size, &data);
-		if (status == B_OK && data == NULL) {
-			dprintf("ethernet_receive_data: no read buffer, cannot perform scattered I/O!\n");
-			status = B_NOT_SUPPORTED;
-		}
-		if (status < B_OK)
-			goto err;
-
-		iovec.iov_base = data;
-		iovec.iov_len = device->frame_size;
+	status_t status = gBufferModule->append_size(buffer, device->frame_size, &data);
+	if (status == B_OK && data == NULL) {
+		dprintf("ethernet: net_buffer I/O is not supported by underlying device\n");
+		status = B_NOT_SUPPORTED;
 	}
+	if (status < B_OK)
+		goto err;
 
-	bytesRead = read(device->fd, iovec.iov_base, iovec.iov_len);
+	bytesRead = read(device->fd, data, device->frame_size);
 	if (bytesRead < 0) {
 		status = errno;
 		goto err;
 	}
 //dump_block((const char *)data, bytesRead, "rcv: ");
 
-	if (iovec.iov_base == device->read_buffer)
-		status = gBufferModule->append(buffer, iovec.iov_base, bytesRead);
-	else
-		status = gBufferModule->trim(buffer, bytesRead);
+	status = gBufferModule->trim(buffer, bytesRead);
 	if (status < B_OK) {
 		atomic_add((int32*)&device->stats.receive.dropped, 1);
 		goto err;

@@ -10,25 +10,7 @@
 #include "Node.h"
 #include "Volume.h"
 
-// is_user_in_group
-inline static
-bool
-is_user_in_group(gid_t gid)
-{
-// Either I miss something, or we don't have getgroups() in the kernel. :-(
-/*
-	gid_t groups[NGROUPS_MAX];
-	int groupCount = getgroups(NGROUPS_MAX, groups);
-	for (int i = 0; i < groupCount; i++) {
-		if (gid == groups[i])
-			return true;
-	}
-*/
-	return (gid == getegid());
-}
 
-
-// constructor
 Node::Node(Volume *volume, uint8 type)
 	: fVolume(volume),
 	  fID(fVolume->NextNodeID()),
@@ -42,9 +24,7 @@ Node::Node(Volume *volume, uint8 type)
 	  fCrTime(0),
 	  fModified(0),
 	  fIsKnownToVFS(false),
-	  // attribute management
 	  fAttributes(),
-	  // referrers
 	  fReferrers()
 {
 	// set file type
@@ -63,7 +43,7 @@ Node::Node(Volume *volume, uint8 type)
 	fATime = fMTime = fCTime = fCrTime = time(NULL);
 }
 
-// destructor
+
 Node::~Node()
 {
 	ASSERT(fRefCount == 0);
@@ -78,14 +58,14 @@ Node::~Node()
 	}
 }
 
-// InitCheck
+
 status_t
 Node::InitCheck() const
 {
 	return (fVolume && fID >= 0 ? B_OK : B_NO_INIT);
 }
 
-// AddReference
+
 status_t
 Node::AddReference()
 {
@@ -102,7 +82,7 @@ Node::AddReference()
 	return B_OK;
 }
 
-// RemoveReference
+
 void
 Node::RemoveReference()
 {
@@ -113,7 +93,7 @@ Node::RemoveReference()
 	}
 }
 
-// Link
+
 status_t
 Node::Link(Entry *entry)
 {
@@ -127,7 +107,7 @@ PRINT("Node[%" B_PRIdINO "]::Link(): %" B_PRId32 " ->...\n", fID, fRefCount);
 	return error;
 }
 
-// Unlink
+
 status_t
 Node::Unlink(Entry *entry)
 {
@@ -138,7 +118,7 @@ PRINT("Node[%" B_PRIdINO "]::Unlink(): %" B_PRId32 " ->...\n", fID, fRefCount);
 	return B_OK;
 }
 
-// SetMTime
+
 void
 Node::SetMTime(time_t mTime)
 {
@@ -150,36 +130,14 @@ Node::SetMTime(time_t mTime)
 	}
 }
 
-// CheckPermissions
+
 status_t
 Node::CheckPermissions(int mode) const
 {
-	int userPermissions = (fMode & S_IRWXU) >> 6;
-	int groupPermissions = (fMode & S_IRWXG) >> 3;
-	int otherPermissions = fMode & S_IRWXO;
-	// get the permissions for this uid/gid
-	int permissions = 0;
-	uid_t uid = geteuid();
-	// user is root
-	if (uid == 0) {
-		// root has always read/write permission, but at least one of the
-		// X bits must be set for execute permission
-		permissions = userPermissions | groupPermissions | otherPermissions
-			| ACCESS_R | ACCESS_W;
-	// user is node owner
-	} else if (uid == fUID)
-		permissions = userPermissions;
-	// user is in owning group
-	else if (is_user_in_group(fGID))
-		permissions = groupPermissions;
-	// user is one of the others
-	else
-		permissions = otherPermissions;
-	// do the check
-	return ((mode & ~permissions) ? B_NOT_ALLOWED : B_OK);
+	return check_access_permissions(mode, fMode, fGID, fUID);
 }
 
-// CreateAttribute
+
 status_t
 Node::CreateAttribute(const char *name, Attribute **_attribute)
 {
@@ -203,7 +161,7 @@ Node::CreateAttribute(const char *name, Attribute **_attribute)
 	return error;
 }
 
-// DeleteAttribute
+
 status_t
 Node::DeleteAttribute(Attribute *attribute)
 {
@@ -213,7 +171,7 @@ Node::DeleteAttribute(Attribute *attribute)
 	return error;
 }
 
-// AddAttribute
+
 status_t
 Node::AddAttribute(Attribute *attribute)
 {
@@ -229,7 +187,7 @@ Node::AddAttribute(Attribute *attribute)
 	return error;
 }
 
-// RemoveAttribute
+
 status_t
 Node::RemoveAttribute(Attribute *attribute)
 {
@@ -271,7 +229,7 @@ Node::RemoveAttribute(Attribute *attribute)
 	return error;
 }
 
-// FindAttribute
+
 status_t
 Node::FindAttribute(const char *name, Attribute **_attribute) const
 {
@@ -289,7 +247,7 @@ Node::FindAttribute(const char *name, Attribute **_attribute) const
 	return error;
 }
 
-// GetPreviousAttribute
+
 status_t
 Node::GetPreviousAttribute(Attribute **attribute) const
 {
@@ -307,7 +265,7 @@ Node::GetPreviousAttribute(Attribute **attribute) const
 	return error;
 }
 
-// GetNextAttribute
+
 status_t
 Node::GetNextAttribute(Attribute **attribute) const
 {
@@ -325,35 +283,35 @@ Node::GetNextAttribute(Attribute **attribute) const
 	return error;
 }
 
-// GetFirstReferrer
+
 Entry *
 Node::GetFirstReferrer() const
 {
 	return fReferrers.First();
 }
 
-// GetLastReferrer
+
 Entry *
 Node::GetLastReferrer() const
 {
 	return fReferrers.Last();
 }
 
-// GetPreviousReferrer
+
 Entry *
 Node::GetPreviousReferrer(Entry *entry) const
 {
 	return (entry ? fReferrers.GetPrevious(entry) : NULL );
 }
 
-// GetNextReferrer
+
 Entry *
 Node::GetNextReferrer(Entry *entry) const
 {
 	return (entry ? fReferrers.GetNext(entry) : NULL );
 }
 
-// GetAllocationInfo
+
 void
 Node::GetAllocationInfo(AllocationInfo &info)
 {

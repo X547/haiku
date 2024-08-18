@@ -84,7 +84,6 @@ MixerCore::MixerCore(AudioMixer *node)
 	fTimeSource(0),
 	fMixThread(-1),
 	fMixThreadWaitSem(-1),
-	fHasEvent(false),
 	fOutputGain(1.0)
 {
 }
@@ -161,17 +160,18 @@ MixerOutput*
 MixerCore::AddOutput(const media_output& output)
 {
 	ASSERT_LOCKED();
-	if (fOutput) {
+	if (fOutput != NULL) {
 		ERROR("MixerCore::AddOutput: already connected\n");
 		return fOutput;
 	}
+
 	fOutput = new MixerOutput(this, output);
 	// the output format might have been adjusted inside MixerOutput
 	_ApplyOutputFormat();
 
 	ASSERT(!fRunning);
 	if (fStarted && fOutputEnabled)
-		StartMixThread();
+		_StartMixThread();
 
 	return fOutput;
 }
@@ -197,14 +197,14 @@ bool
 MixerCore::RemoveOutput()
 {
 	ASSERT_LOCKED();
-	if (!fOutput)
+	if (fOutput == NULL)
 		return false;
 
-	if (fStarted)
-		StopMixThread();
+	if (fRunning)
+		_StopMixThread();
 
 	delete fOutput;
-	fOutput = 0;
+	fOutput = NULL;
 	fOutputEnabled = true;
 	return true;
 }
@@ -264,16 +264,15 @@ void
 MixerCore::OutputFormatChanged(const media_multi_audio_format &format)
 {
 	ASSERT_LOCKED();
-	bool was_started = fStarted;
 
-	if (was_started)
-		Stop();
+	if (fRunning)
+		_StopMixThread();
 
 	fOutput->ChangeFormat(format);
 	_ApplyOutputFormat();
 
-	if (was_started)
-		Start();
+	if (fStarted)
+		_StartMixThread();
 }
 
 
@@ -308,10 +307,10 @@ MixerCore::EnableOutput(bool enabled)
 	fOutputEnabled = enabled;
 
 	if (fRunning && !fOutputEnabled)
-		StopMixThread();
+		_StopMixThread();
 
-	if (!fRunning && fOutput && fStarted && fOutputEnabled)
-		StartMixThread();
+	if (!fRunning && fOutput != NULL && fStarted && fOutputEnabled)
+		_StartMixThread();
 }
 
 
@@ -335,8 +334,8 @@ MixerCore::Start()
 	ASSERT(!fRunning);
 
 	// only start the mix thread if we have an output
-	if (fOutput && fOutputEnabled)
-		StartMixThread();
+	if (fOutput != NULL && fOutputEnabled)
+		_StartMixThread();
 
 	return true;
 }
@@ -351,7 +350,7 @@ MixerCore::Stop()
 		return false;
 
 	if (fRunning)
-		StopMixThread();
+		_StopMixThread();
 
 	fStarted = false;
 	return true;
@@ -359,11 +358,12 @@ MixerCore::Stop()
 
 
 void
-MixerCore::StartMixThread()
+MixerCore::_StartMixThread()
 {
-	ASSERT(fOutputEnabled == true);
-	ASSERT(fRunning == false);
-	ASSERT(fOutput);
+	ASSERT(fOutputEnabled);
+	ASSERT(!fRunning);
+	ASSERT(fOutput != NULL);
+
 	fRunning = true;
 	fMixThreadWaitSem = create_sem(0, "mix thread wait");
 	fMixThread = spawn_thread(_MixThreadEntry, "Yeah baby, very shagadelic",
@@ -373,9 +373,9 @@ MixerCore::StartMixThread()
 
 
 void
-MixerCore::StopMixThread()
+MixerCore::_StopMixThread()
 {
-	ASSERT(fRunning == true);
+	ASSERT(fRunning);
 	ASSERT(fMixThread > 0);
 	ASSERT(fMixThreadWaitSem > 0);
 
@@ -476,24 +476,29 @@ MixerCore::_MixThreadEntry(void* arg)
 void
 MixerCore::_MixThread()
 {
-	// The broken BeOS R5 multiaudio node starts with time 0,
-	// then publishes negative times for about 50ms, publishes 0
-	// again until it finally reaches time values > 0
 	if (!Lock())
 		return;
-	bigtime_t start = fTimeSource->Now();
-	Unlock();
-	while (start <= 0) {
-		TRACE("MixerCore: delaying _MixThread start, timesource is at %lld\n",
-			start);
-		snooze(5000);
-		if (!Lock())
-			return;
-		start = fTimeSource->Now();
-		Unlock();
+	{
+		// Delay starting the mixer until we have a valid time source.
+		bigtime_t performanceTime, realTime;
+		float drift;
+		while (fTimeSource->GetTime(&performanceTime, &realTime, &drift) != B_OK
+				|| performanceTime <= 0 || realTime <= 0) {
+			TRACE("MixerCore: delaying _MixThread start, timesource is at %" B_PRIdBIGTIME "\n",
+				performanceTime);
+			Unlock();
+			snooze(5000);
+			while (!LockWithTimeout(10000)) {
+				if (!fRunning)
+					return;
+			}
+		}
 	}
+	Unlock();
 
-	fEventLatency = max((bigtime_t)3600, bigtime_t(0.4 * buffer_duration(
+	const bigtime_t start = fTimeSource->Now();
+
+	bigtime_t eventLatency = max((bigtime_t)3600, bigtime_t(0.4 * buffer_duration(
 		fOutput->MediaOutput().format.u.raw_audio)));
 
 	// TODO: when the format changes while running, everything is wrong!
@@ -502,23 +507,19 @@ MixerCore::_MixThread()
 
 	TRACE("MixerCore: starting _MixThread at %lld with latency %lld and "
 		"downstream latency %lld, bufferRequestTimeout %lld\n", start,
-		fEventLatency, fDownstreamLatency, bufferRequestTimeout);
+		eventLatency, fDownstreamLatency, bufferRequestTimeout);
 
 	// We must read from the input buffer at a position (pos) that is always
 	// a multiple of fMixBufferFrameCount.
 	int64 temp = frames_for_duration(fMixBufferFrameRate, start);
-	int64 frameBase = ((temp / fMixBufferFrameCount) + 1)
+	const int64 frameBase = ((temp / fMixBufferFrameCount) + 1)
 		* fMixBufferFrameCount;
-	bigtime_t timeBase = duration_for_frames(fMixBufferFrameRate, frameBase);
+	const bigtime_t timeBase = duration_for_frames(fMixBufferFrameRate, frameBase);
 
 	TRACE("MixerCore: starting _MixThread, start %lld, timeBase %lld, "
 		"frameBase %lld\n", start, timeBase, frameBase);
 
 	ASSERT(fMixBufferFrameCount > 0);
-
-#if DEBUG
-	uint64 bufferIndex = 0;
-#endif
 
 	typedef RtList<chan_info> chan_info_list;
 	chan_info_list inputChanInfos[MAX_CHANNEL_TYPES];
@@ -529,21 +530,25 @@ MixerCore::_MixThread()
 		return;
 	}
 
-	fEventTime = timeBase;
 	int64 framePos = 0;
-	status_t ret = B_ERROR;
+	uint64 bufferIndex = 0;
+	bigtime_t eventTime = 0, nextRun = B_INFINITE_TIMEOUT;
+	while (fRunning) {
+		if (nextRun == B_INFINITE_TIMEOUT) {
+			eventTime = timeBase + bigtime_t((1000000LL * framePos)
+				/ fMixBufferFrameRate);
+			nextRun = fTimeSource->RealTimeFor(eventTime, 0)
+				- eventLatency - fDownstreamLatency;
+		}
 
-	while(fRunning == true) {
-		if (fHasEvent == false)
-			goto schedule_next_event;
-
-		ret = acquire_sem(fMixThreadWaitSem);
-		if (ret == B_INTERRUPTED)
-			continue;
-		else if (ret != B_OK)
+		status_t status = acquire_sem_etc(fMixThreadWaitSem, 1,
+			B_ABSOLUTE_TIMEOUT, nextRun);
+		if (status != B_TIMED_OUT) {
+			if (status == B_OK || status == B_INTERRUPTED)
+				continue;
 			return;
-
-		fHasEvent = false;
+		}
+		nextRun = B_INFINITE_TIMEOUT;
 
 		if (!LockWithTimeout(10000)) {
 			ERROR("MixerCore: LockWithTimeout failed\n");
@@ -567,25 +572,22 @@ MixerCore::_MixThread()
 				hdr->type = B_MEDIA_RAW_AUDIO;
 				hdr->size_used = size;
 				hdr->time_source = fTimeSource->ID();
-				hdr->start_time = fEventTime;
+				hdr->start_time = eventTime;
 				if (fNode->SendBuffer(buffer, fOutput) != B_OK) {
-#if DEBUG
 					ERROR("MixerCore: SendBuffer failed for buffer %lld\n",
 						bufferIndex);
-#else
-					ERROR("MixerCore: SendBuffer failed\n");
-#endif
 					buffer->Recycle();
 				}
 			} else {
-#if DEBUG
 				ERROR("MixerCore: RequestBuffer failed for buffer %lld\n",
 					bufferIndex);
-#else
-				ERROR("MixerCore: RequestBuffer failed\n");
-#endif
 			}
-			goto schedule_next_event;
+
+			bufferIndex++;
+			framePos += fMixBufferFrameCount;
+
+			Unlock();
+			continue;
 		}
 
 		int64 currentFramePos;
@@ -595,7 +597,7 @@ MixerCore::_MixThread()
 		ASSERT(currentFramePos % fMixBufferFrameCount == 0);
 
 		PRINT(4, "create new buffer event at %lld, reading input frames at "
-			"%lld\n", fEventTime, currentFramePos);
+			"%lld\n", eventTime, currentFramePos);
 
 		// Init the channel information for each MixerInput.
 		for (int i = 0; MixerInput* input = Input(i); i++) {
@@ -606,7 +608,7 @@ MixerCore::_MixThread()
 				uint32 sampleOffset;
 				float gain;
 				if (!input->GetMixerChannelInfo(channel, currentFramePos,
-						fEventTime, &base, &sampleOffset, &type, &gain)) {
+						eventTime, &base, &sampleOffset, &type, &gain)) {
 					continue;
 				}
 				if (type < 0 || type >= MAX_CHANNEL_TYPES)
@@ -697,7 +699,7 @@ MixerCore::_MixThread()
 			hdr->size_used
 				= fOutput->MediaOutput().format.u.raw_audio.buffer_size;
 			hdr->time_source = fTimeSource->ID();
-			hdr->start_time = fEventTime;
+			hdr->start_time = eventTime;
 
 			// swap byte order if necessary
 			fOutput->AdjustByteOrder(buffer);
@@ -705,21 +707,13 @@ MixerCore::_MixThread()
 			// send the buffer
 			status_t res = fNode->SendBuffer(buffer, fOutput);
 			if (res != B_OK) {
-#if DEBUG
 				ERROR("MixerCore: SendBuffer failed for buffer %lld\n",
 					bufferIndex);
-#else
-				ERROR("MixerCore: SendBuffer failed\n");
-#endif
 				buffer->Recycle();
 			}
 		} else {
-#if DEBUG
 			ERROR("MixerCore: RequestBuffer failed for buffer %lld\n",
 				bufferIndex);
-#else
-			ERROR("MixerCore: RequestBuffer failed\n");
-#endif
 		}
 
 		// make all lists empty
@@ -728,26 +722,9 @@ MixerCore::_MixThread()
 		for (int i = 0; i < fOutput->GetOutputChannelCount(); i++)
 			mixChanInfos[i].MakeEmpty();
 
-schedule_next_event:
-		Unlock();
-
-		// schedule next event
-		framePos += fMixBufferFrameCount;
-		fEventTime = timeBase + bigtime_t((1000000LL * framePos)
-			/ fMixBufferFrameRate);
-
-		media_timed_event mixerEvent(PickEvent(),
-			MIXER_PROCESS_EVENT, 0, BTimedEventQueue::B_NO_CLEANUP);
-
-		ret = write_port(fNode->ControlPort(), MIXER_SCHEDULE_EVENT,
-			&mixerEvent, sizeof(mixerEvent));
-		if (ret != B_OK)
-			TRACE("MixerCore::_MixThread: can't write to owner port\n");
-
-		fHasEvent = true;
-
-#if DEBUG
 		bufferIndex++;
-#endif
+		framePos += fMixBufferFrameCount;
+
+		Unlock();
 	}
 }

@@ -51,14 +51,9 @@ public:
 	virtual	int32				CountStyles(const char* family);
 	virtual	int32				CountStyles(uint16 familyID);
 
-			int32				CheckRevision(uid_t user);
-
 			const ServerFont*	DefaultPlainFont() const;
 			const ServerFont*	DefaultBoldFont() const;
 			const ServerFont*	DefaultFixedFont() const;
-
-			void				AttachUser(uid_t userID);
-			void				DetachUser(uid_t userID);
 
 	virtual	FontFamily*			GetFamily(uint16 familyID) const;
 	virtual	FontFamily*			GetFamily(const char* name);
@@ -69,6 +64,8 @@ public:
 									uint16 familyID = 0xffff,
 									uint16 styleID = 0xffff,
 									uint16 face = 0);
+
+	virtual	uint32				Revision();
 
 private:
 			struct font_directory;
@@ -81,6 +78,7 @@ private:
 									const char* style = NULL);
 			void				_PrecacheFontFile(const ServerFont* font);
 			void				_AddSystemPaths();
+			void				_AddUserPaths();
 			font_directory*		_FindDirectory(node_ref& nodeRef);
 			void				_RemoveDirectory(font_directory* directory);
 			status_t			_CreateDirectories(const char* path);

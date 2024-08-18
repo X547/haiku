@@ -190,8 +190,7 @@ ServerRepositoryDataUpdateProcess::UrlPathComponent()
 {
 	BString result;
 	AutoLocker<BLocker> locker(fModel->Lock());
-	result.SetToFormat("/__repository/all-%s.json.gz",
-		fModel->Language()->PreferredLanguage()->ID());
+	result.SetToFormat("/__repository/all-%s.json.gz", fModel->PreferredLanguage()->ID());
 	return result;
 }
 
@@ -200,7 +199,7 @@ status_t
 ServerRepositoryDataUpdateProcess::GetLocalPath(BPath& path) const
 {
 	AutoLocker<BLocker> locker(fModel->Lock());
-	return fModel->DumpExportRepositoryDataPath(path);
+	return StorageUtils::DumpExportRepositoryDataPath(path, fModel->PreferredLanguage());
 }
 
 

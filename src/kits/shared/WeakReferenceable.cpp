@@ -29,12 +29,13 @@ WeakPointer::~WeakPointer()
 BWeakReferenceable*
 WeakPointer::Get()
 {
-	int32 count = -11;
-
+	int32 count;
 	do {
 		count = atomic_get(&fUseCount);
 		if (count == 0)
 			return NULL;
+		if (count < 0)
+			debugger("reference (use) count is negative");
 	} while (atomic_test_and_set(&fUseCount, count + 1, count) != count);
 
 	return fObject;
@@ -44,10 +45,13 @@ WeakPointer::Get()
 bool
 WeakPointer::Put()
 {
-	if (atomic_add(&fUseCount, -1) == 1) {
+	const int32 count = atomic_add(&fUseCount, -1);
+	if (count == 1) {
 		delete fObject;
 		return true;
 	}
+	if (count <= 0)
+		debugger("reference (use) count is negative");
 
 	return false;
 }

@@ -242,9 +242,8 @@ BString
 ServerPkgDataUpdateProcess::UrlPathComponent()
 {
 	BString urlPath;
-	urlPath.SetToFormat("/__pkg/all-%s-%s.json.gz",
-		_DeriveWebAppRepositorySourceCode().String(),
-		fModel->Language()->PreferredLanguage()->ID());
+	urlPath.SetToFormat("/__pkg/all-%s-%s.json.gz", _DeriveWebAppRepositorySourceCode().String(),
+		fModel->PreferredLanguage()->ID());
 	return urlPath;
 }
 
@@ -256,7 +255,8 @@ ServerPkgDataUpdateProcess::GetLocalPath(BPath& path) const
 
 	if (!webAppRepositorySourceCode.IsEmpty()) {
 		AutoLocker<BLocker> locker(fModel->Lock());
-		return fModel->DumpExportPkgDataPath(path, webAppRepositorySourceCode);
+		return StorageUtils::DumpExportPkgDataPath(path, webAppRepositorySourceCode,
+			fModel->PreferredLanguage());
 	}
 
 	return B_ERROR;

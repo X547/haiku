@@ -793,7 +793,7 @@ TabletHandler::Reset()
 	fLastClick = -1;
 	fLastClickBtn = -1;
 
-	get_click_speed(&fClickSpeed);
+	get_click_speed(Ref()->name, &fClickSpeed);
 	TRACE("  fClickSpeed: %" B_PRIdBIGTIME "\n", fClickSpeed);
 }
 
@@ -803,7 +803,7 @@ TabletHandler::Control(uint32 command, BMessage* message)
 {
 	switch (command) {
 		case B_CLICK_SPEED_CHANGED: {
-			get_click_speed(&fClickSpeed);
+			get_click_speed(Ref()->name, &fClickSpeed);
 			TRACE("  fClickSpeed: %" B_PRIdBIGTIME "\n", fClickSpeed);
 			return B_OK;
 		}

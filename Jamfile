@@ -22,15 +22,15 @@ for architectureObject in [ MultiArchSubDirSetup ] {
 AddHaikuImageSystemPackages [ FFilterByBuildFeatures
 	bash bc freetype zlib
 
-	!gcc2 @{ coreutils icu74 }@
-	gcc2 @{ coreutils_x86 icu icu74_x86@secondary_x86 }@
+	!gcc2 @{ coreutils icu74 wget }@
+	gcc2 @{ coreutils_x86 wget_x86 icu icu74_x86@secondary_x86 }@
 	regular_image @{
 		bzip2 expat ffmpeg6 glu gutenprint9 gzip
 		lame less libedit libicns
 		libglvnd libglvnd_devel
 		netcat
 		sed sharutils
-		unzip wget which zip
+		unzip which zip
 
 		!gcc2 @{ diffutils findutils gawk grep tar tcpdump zstd }@
 		gcc2 @{
@@ -81,7 +81,7 @@ if $(HAIKU_PACKAGING_ARCHS[2]) {
 
 # If enabled, make sure that OpenSSL is added to the image.
 if [ FIsBuildFeatureEnabled openssl ] {
-	AddHaikuImageSystemPackages openssl ;
+	AddHaikuImageSystemPackages openssl3 ;
 }
 
 # add additionally requested packages

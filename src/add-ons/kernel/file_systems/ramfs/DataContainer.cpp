@@ -1,21 +1,26 @@
 /*
  * Copyright 2007, Ingo Weinhold, ingo_weinhold@gmx.de.
- * Copyright 2019, Haiku, Inc.
- * All rights reserved. Distributed under the terms of the MIT license.
+ * Copyright 2019-2024, Haiku, Inc. All rights reserved.
+ * Distributed under the terms of the MIT license.
  */
 #include "DataContainer.h"
 
-#include <AutoDeleter.h>
+#include <StackOrHeapArray.h>
 #include <util/AutoLock.h>
 #include <util/BitUtils.h>
+#include <slab/Slab.h>
 
+#include <vfs.h>
 #include <vm/VMCache.h>
 #include <vm/vm_page.h>
+#include "VMAnonymousNoSwapCache.h"
+#include "vnode_store.h"
 
 #include "AllocationInfo.h"
 #include "DebugSupport.h"
 #include "Misc.h"
 #include "Volume.h"
+#include "cache_support.h"
 
 
 // Initial size of the DataContainer's small buffer. If it contains data up to
@@ -41,7 +46,44 @@ static const off_t kMinimumSmallBufferSize = 32;
 static const off_t kMaximumSmallBufferSize = (B_PAGE_SIZE / 4);
 
 
-// constructor
+// We don't use VMVnodeCache because it's for caching pages that exist on disk.
+// All we need is an AnonymousCache that tracks when the vnode is referenced.
+class VMForVnodeCache final : public VMAnonymousNoSwapCache {
+public:
+	status_t Init()
+	{
+		fVnode = NULL;
+		return VMAnonymousNoSwapCache::Init(false, 0, 0, 0);
+	}
+
+	status_t AcquireUnreferencedStoreRef() override
+	{
+		return B_NOT_SUPPORTED;
+	}
+
+	void AcquireStoreRef() override
+	{
+		vfs_acquire_vnode(fVnode);
+	}
+
+	void ReleaseStoreRef() override
+	{
+		vfs_put_vnode(fVnode);
+	}
+
+protected:
+	virtual	void DeleteObject()
+	{
+		static_assert(sizeof(VMForVnodeCache) <= sizeof(VMVnodeCache), "cache too large");
+		object_cache_delete(gVnodeCacheObjectCache, this);
+	}
+
+private:
+	friend class DataContainer;
+	struct vnode* fVnode;
+};
+
+
 DataContainer::DataContainer(Volume *volume)
 	: fVolume(volume),
 	  fSize(0),
@@ -51,7 +93,7 @@ DataContainer::DataContainer(Volume *volume)
 {
 }
 
-// destructor
+
 DataContainer::~DataContainer()
 {
 	if (fCache != NULL) {
@@ -65,25 +107,26 @@ DataContainer::~DataContainer()
 	}
 }
 
-// InitCheck
+
 status_t
 DataContainer::InitCheck() const
 {
 	return (fVolume != NULL ? B_OK : B_ERROR);
 }
 
-// GetCache
+
 VMCache*
-DataContainer::GetCache()
+DataContainer::GetCache(struct vnode* vnode)
 {
 	// TODO: Because we always get the cache for files on creation vs. on demand,
 	// this means files (no matter how small) always use cache mode at present.
 	if (!_IsCacheMode())
 		_SwitchToCacheMode();
+	((VMForVnodeCache*)fCache)->fVnode = vnode;
 	return fCache;
 }
 
-// Resize
+
 status_t
 DataContainer::Resize(off_t newSize)
 {
@@ -95,7 +138,7 @@ DataContainer::Resize(off_t newSize)
 			// shrink
 			// resize the VMCache, which will automatically free pages
 			AutoLocker<VMCache> _(fCache);
-			error = fCache->Resize(newSize, VM_PRIORITY_SYSTEM);
+			error = fCache->Resize(newSize, VM_PRIORITY_USER);
 			if (error != B_OK)
 				return error;
 		} else {
@@ -106,7 +149,7 @@ DataContainer::Resize(off_t newSize)
 				return error;
 
 			AutoLocker<VMCache> _(fCache);
-			fCache->Resize(newSize, VM_PRIORITY_SYSTEM);
+			fCache->Resize(newSize, VM_PRIORITY_USER);
 
 			// pages will be added as they are written to; so nothing else
 			// needs to be done here.
@@ -129,7 +172,7 @@ DataContainer::Resize(off_t newSize)
 	return error;
 }
 
-// ReadAt
+
 status_t
 DataContainer::ReadAt(off_t offset, void *_buffer, size_t size,
 	size_t *bytesRead)
@@ -165,7 +208,7 @@ DataContainer::ReadAt(off_t offset, void *_buffer, size_t size,
 	return error;
 }
 
-// WriteAt
+
 status_t
 DataContainer::WriteAt(off_t offset, const void *_buffer, size_t size,
 	size_t *bytesWritten)
@@ -206,7 +249,7 @@ DataContainer::WriteAt(off_t offset, const void *_buffer, size_t size,
 	return error;
 }
 
-// GetAllocationInfo
+
 void
 DataContainer::GetAllocationInfo(AllocationInfo &info)
 {
@@ -217,7 +260,7 @@ DataContainer::GetAllocationInfo(AllocationInfo &info)
 	}
 }
 
-// _RequiresCacheMode
+
 inline bool
 DataContainer::_RequiresCacheMode(size_t size)
 {
@@ -226,14 +269,14 @@ DataContainer::_RequiresCacheMode(size_t size)
 	return _IsCacheMode() || (size > kMaximumSmallBufferSize);
 }
 
-// _IsCacheMode
+
 inline bool
 DataContainer::_IsCacheMode() const
 {
 	return fCache != NULL;
 }
 
-// _CountBlocks
+
 inline int32
 DataContainer::_CountBlocks() const
 {
@@ -244,19 +287,24 @@ DataContainer::_CountBlocks() const
 	return 1;	// small buffer mode, non-empty buffer
 }
 
-// _SwitchToCacheMode
+
 status_t
 DataContainer::_SwitchToCacheMode()
 {
-	status_t error = VMCacheFactory::CreateAnonymousCache(fCache, false, 0,
-		0, false, VM_PRIORITY_SYSTEM);
+	VMForVnodeCache* cache = new(gVnodeCacheObjectCache, 0) VMForVnodeCache;
+	if (cache == NULL)
+		return B_NO_MEMORY;
+
+	status_t error = cache->Init();
 	if (error != B_OK)
 		return error;
 
+	fCache = cache;
 	fCache->temporary = 1;
+	fCache->unmergeable = 1;
 	fCache->virtual_end = fSize;
 
-	error = fCache->Commit(fSize, VM_PRIORITY_SYSTEM);
+	error = fCache->Commit(fSize, VM_PRIORITY_USER);
 	if (error != B_OK)
 		return error;
 
@@ -270,7 +318,7 @@ DataContainer::_SwitchToCacheMode()
 	return error;
 }
 
-// _DoCacheIO
+
 status_t
 DataContainer::_DoCacheIO(const off_t offset, uint8* buffer, ssize_t length,
 	size_t* bytesProcessed, bool isWrite)
@@ -281,12 +329,11 @@ DataContainer::_DoCacheIO(const off_t offset, uint8* buffer, ssize_t length,
 	const off_t rounded_offset = ROUNDDOWN(offset, B_PAGE_SIZE);
 	const size_t rounded_len = ROUNDUP((length) + (offset - rounded_offset),
 		B_PAGE_SIZE);
-	vm_page** pages = new(std::nothrow) vm_page*[rounded_len / B_PAGE_SIZE];
-	if (pages == NULL)
+	BStackOrHeapArray<vm_page*, 16> pages(rounded_len / B_PAGE_SIZE);
+	if (!pages.IsValid())
 		return B_NO_MEMORY;
-	ArrayDeleter<vm_page*> pagesDeleter(pages);
 
-	_GetPages(rounded_offset, rounded_len, isWrite, pages);
+	cache_get_pages(fCache, rounded_offset, rounded_len, isWrite, pages);
 
 	status_t error = B_OK;
 	size_t index = 0;
@@ -325,99 +372,10 @@ DataContainer::_DoCacheIO(const off_t offset, uint8* buffer, ssize_t length,
 		index++;
 	}
 
-	_PutPages(rounded_offset, rounded_len, pages, error == B_OK);
+	cache_put_pages(fCache, rounded_offset, rounded_len, pages, error == B_OK);
 
 	if (bytesProcessed != NULL)
 		*bytesProcessed = length > 0 ? originalLength - length : originalLength;
 
 	return error;
-}
-
-// _GetPages
-void
-DataContainer::_GetPages(off_t offset, off_t length, bool isWrite,
-	vm_page** pages)
-{
-	// TODO: This method is duplicated in the ram_disk. Perhaps it
-	// should be put into a common location?
-
-	// get the pages, we already have
-	AutoLocker<VMCache> locker(fCache);
-
-	size_t pageCount = length / B_PAGE_SIZE;
-	size_t index = 0;
-	size_t missingPages = 0;
-
-	while (length > 0) {
-		vm_page* page = fCache->LookupPage(offset);
-		if (page != NULL) {
-			if (page->busy) {
-				fCache->WaitForPageEvents(page, PAGE_EVENT_NOT_BUSY, true);
-				continue;
-			}
-
-			DEBUG_PAGE_ACCESS_START(page);
-			page->busy = true;
-		} else
-			missingPages++;
-
-		pages[index++] = page;
-		offset += B_PAGE_SIZE;
-		length -= B_PAGE_SIZE;
-	}
-
-	locker.Unlock();
-
-	// For a write we need to reserve the missing pages.
-	if (isWrite && missingPages > 0) {
-		vm_page_reservation reservation;
-		vm_page_reserve_pages(&reservation, missingPages,
-			VM_PRIORITY_SYSTEM);
-
-		for (size_t i = 0; i < pageCount; i++) {
-			if (pages[i] != NULL)
-				continue;
-
-			pages[i] = vm_page_allocate_page(&reservation,
-				PAGE_STATE_WIRED | VM_PAGE_ALLOC_BUSY);
-
-			if (--missingPages == 0)
-				break;
-		}
-
-		vm_page_unreserve_pages(&reservation);
-	}
-}
-
-void
-DataContainer::_PutPages(off_t offset, off_t length, vm_page** pages,
-	bool success)
-{
-	// TODO: This method is duplicated in the ram_disk. Perhaps it
-	// should be put into a common location?
-
-	AutoLocker<VMCache> locker(fCache);
-
-	// Mark all pages unbusy. On error free the newly allocated pages.
-	size_t index = 0;
-
-	while (length > 0) {
-		vm_page* page = pages[index++];
-		if (page != NULL) {
-			if (page->CacheRef() == NULL) {
-				if (success) {
-					fCache->InsertPage(page, offset);
-					fCache->MarkPageUnbusy(page);
-					DEBUG_PAGE_ACCESS_END(page);
-				} else
-					vm_page_free(NULL, page);
-			} else {
-				fCache->MarkPageUnbusy(page);
-				DEBUG_PAGE_ACCESS_END(page);
-			}
-		}
-
-		offset += B_PAGE_SIZE;
-		length -= B_PAGE_SIZE;
-	}
 }

@@ -69,11 +69,6 @@ typedef NetBufferField<uint16, offsetof(icmp_header, checksum)>
 	ICMPChecksumField;
 
 
-// type unreach codes
-#define ICMP_CODE_UNREACH_NEED_FRAGMENT	4
-	// this is used for path MTU discovery
-
-
 struct icmp_protocol : net_protocol {
 };
 
@@ -562,7 +557,7 @@ icmp_error_reply(net_protocol* protocol, net_buffer* buffer, net_error error,
 	}
 
 	// a datagram to an IP multicast or broadcast address,
-	if ((buffer->flags & (MSG_BCAST | MSG_MCAST)) != 0)
+	if ((buffer->msg_flags & (MSG_BCAST | MSG_MCAST)) != 0)
 		return B_ERROR;
 
 	// a non-initial fragment

@@ -435,6 +435,7 @@ add_tcp_header(net_address_module_info* addressModule,
 
 	*TCPChecksumField(buffer) = Checksum::PseudoHeader(addressModule,
 		gBufferModule, buffer, IPPROTO_TCP);
+	buffer->buffer_flags |= NET_BUFFER_L4_CHECKSUM_VALID;
 
 	return B_OK;
 }
@@ -698,9 +699,10 @@ tcp_receive_data(net_buffer* buffer)
 	if (headerLength < sizeof(tcp_header))
 		return B_BAD_DATA;
 
-	if (Checksum::PseudoHeader(addressModule, gBufferModule, buffer,
-			IPPROTO_TCP) != 0)
-		return B_BAD_DATA;
+	if ((buffer->buffer_flags & NET_BUFFER_L4_CHECKSUM_VALID) == 0) {
+		if (Checksum::PseudoHeader(addressModule, gBufferModule, buffer, IPPROTO_TCP) != 0)
+			return B_BAD_DATA;
+	}
 
 	addressModule->set_port(buffer->source, header.source_port);
 	addressModule->set_port(buffer->destination, header.destination_port);
@@ -737,8 +739,7 @@ tcp_receive_data(net_buffer* buffer)
 		// There are some states in which the socket could have been deleted
 		// while handling a segment. If this flag is set in segmentAction
 		// then we know the socket has been freed and can skip releasing
-		// the reference acquired in EndpointManager::FindConnection()
-		// above.
+		// the reference acquired in EndpointManager::FindConnection().
 		if ((segmentAction & DELETED_ENDPOINT) == 0)
 			gSocketModule->release_socket(endpoint->socket);
 	} else if ((segment.flags & TCP_FLAG_RESET) == 0)

@@ -1239,6 +1239,10 @@ Volume::_AddPackageNode(Directory* directory, PackageNode* packageNode,
 
 	status_t error = unpackingNode->AddPackageNode(packageNode, ID());
 	if (error != B_OK) {
+		dprintf("packagefs: Failed to add node \"%s\" of package \"%s\": %s\n",
+			packageNode->Name().Data(), packageNode->GetPackage()->Name().Data(),
+			strerror(error));
+
 		// Remove the node, if created before. If the node was created to
 		// replace the previous node, send out notifications instead.
 		if (newNode) {
@@ -1747,6 +1751,8 @@ Volume::_CreateShineThroughDirectories(const char* shineThroughSetting)
 
 	if (directories == NULL)
 		return B_OK;
+
+	NodeWriteLocker rootDirectoryWriteLocker(fRootDirectory);
 
 	// iterate through the directory list and create the directories
 	while (const char* directoryName = *(directories++)) {

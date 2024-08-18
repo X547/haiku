@@ -30,9 +30,6 @@ class Resampler;
 //     but for now we redefine type 12
 #define B_CHANNEL_MONO		B_CHANNEL_TOP_CENTER
 
-#define MIXER_PROCESS_EVENT BTimedEventQueue::B_USER_EVENT+10
-#define MIXER_SCHEDULE_EVENT BTimedEventQueue::B_USER_EVENT+11
-
 
 class MixerCore {
 public:
@@ -62,9 +59,6 @@ public:
 			bool				IsLocked() const;
 			void				Unlock();
 
-			void				Process();
-			bigtime_t			PickEvent();
-
 			void				BufferReceived(BBuffer* buffer,
 									bigtime_t lateness);
 
@@ -77,14 +71,16 @@ public:
 			void				SetTimingInfo(BTimeSource* timeSource,
 									bigtime_t downstreamLatency);
 			void				EnableOutput(bool enabled);
+
 			bool				Start();
 			bool				Stop();
 
-			void				StartMixThread();
-			void				StopMixThread();
 			uint32				OutputChannelCount();
 
 private:
+			void				_StartMixThread();
+			void				_StopMixThread();
+
 			void				_UpdateResamplers(
 									const media_multi_audio_format& format);
 			void				_ApplyOutputFormat();
@@ -121,9 +117,6 @@ private:
 			BTimeSource*		fTimeSource;
 			thread_id			fMixThread;
 			sem_id				fMixThreadWaitSem;
-			bool				fHasEvent;
-			bigtime_t			fEventTime;
-			bigtime_t			fEventLatency;
 			float				fOutputGain;
 
 	friend class MixerInput;
@@ -156,21 +149,6 @@ inline void
 MixerCore::Unlock()
 {
 	fLocker->Unlock();
-}
-
-
-inline void
-MixerCore::Process()
-{
-	release_sem(fMixThreadWaitSem);
-}
-
-
-inline bigtime_t
-MixerCore::PickEvent()
-{
-	return fTimeSource->RealTimeFor(fEventTime, 0)
-		- fEventLatency - fDownstreamLatency;
 }
 
 

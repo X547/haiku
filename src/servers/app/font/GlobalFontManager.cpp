@@ -52,10 +52,9 @@ struct GlobalFontManager::font_directory {
 	node_ref	directory;
 	uid_t		user;
 	gid_t		group;
-	uint32		revision;
+	bool		scanned;
 	BObjectList<FontStyle> styles;
 
-	bool AlreadyScanned() const { return revision != 0; }
 	FontStyle* FindStyle(const node_ref& nodeRef) const;
 };
 
@@ -114,6 +113,7 @@ GlobalFontManager::GlobalFontManager()
 	fInitStatus = FT_Init_FreeType(&gFreeTypeLibrary) == 0 ? B_OK : B_ERROR;
 	if (fInitStatus == B_OK) {
 		_AddSystemPaths();
+		_AddUserPaths();
 		_LoadRecentFontMappings();
 
 		fInitStatus = _SetDefaultFonts();
@@ -298,22 +298,14 @@ GlobalFontManager::MessageReceived(BMessage* message)
 }
 
 
-int32
-GlobalFontManager::CheckRevision(uid_t user)
+uint32
+GlobalFontManager::Revision()
 {
 	BAutolock locker(this);
-	int32 revision = 0;
 
 	_ScanFontsIfNecessary();
 
-	for (int32 i = 0; i < fDirectories.CountItems(); i++) {
-		font_directory* directory = fDirectories.ItemAt(i);
-
-		// TODO: for now, add all directories
-		revision += directory->revision;
-	}
-
-	return revision;
+	return FontManager::Revision();
 }
 
 
@@ -487,7 +479,6 @@ GlobalFontManager::_RemoveStyle(font_directory& directory, FontStyle* style)
 	FTRACE(("font removed: %s\n", style->Name()));
 
 	directory.styles.RemoveItem(style);
-	directory.revision++;
 
 	_RemoveFont(style->Family()->ID(), style->ID());
 }
@@ -583,8 +574,6 @@ GlobalFontManager::GetStyle(const char* familyName, const char* styleName,
 {
 	ASSERT(IsLocked());
 
-	FontFamily* family;
-
 	if (styleID != 0xffff && (familyName == NULL || !familyName[0])
 		&& (styleName == NULL || !styleName[0])) {
 		return GetStyle(familyID, styleID);
@@ -592,6 +581,7 @@ GlobalFontManager::GetStyle(const char* familyName, const char* styleName,
 
 	// find family
 
+	FontFamily* family;
 	if (familyName != NULL && familyName[0])
 		family = GetFamily(familyName);
 	else
@@ -670,6 +660,20 @@ GlobalFontManager::_AddSystemPaths()
 
 
 void
+GlobalFontManager::_AddUserPaths()
+{
+#if !TEST_MODE
+	// TODO: avoids user fonts in safe mode
+	BPath path;
+	if (find_directory(B_USER_FONTS_DIRECTORY, &path, true) == B_OK)
+		_AddPath(path.Path());
+	if (find_directory(B_USER_NONPACKAGED_FONTS_DIRECTORY, &path, true) == B_OK)
+		_AddPath(path.Path());
+#endif
+}
+
+
+void
 GlobalFontManager::_ScanFontsIfNecessary()
 {
 	if (!fScanned)
@@ -687,7 +691,7 @@ GlobalFontManager::_ScanFonts()
 	for (int32 i = fDirectories.CountItems(); i-- > 0;) {
 		font_directory* directory = fDirectories.ItemAt(i);
 
-		if (directory->AlreadyScanned())
+		if (directory->scanned)
 			continue;
 
 		_ScanFontDirectory(*directory);
@@ -746,9 +750,6 @@ GlobalFontManager::_AddFont(font_directory& directory, BEntry& entry)
 			j++;
 		} while (j <= variableCount);
 	}
-
-	if (directory.AlreadyScanned())
-		directory.revision++;
 
 	return B_OK;
 }
@@ -828,7 +829,7 @@ GlobalFontManager::_AddPath(BEntry& entry, font_directory** _newDirectory)
 	directory->directory = nodeRef;
 	directory->user = stat.st_uid;
 	directory->group = stat.st_gid;
-	directory->revision = 0;
+	directory->scanned = false;
 
 	status = watch_node(&nodeRef, B_WATCH_DIRECTORY, this);
 	if (status != B_OK) {
@@ -913,6 +914,9 @@ GlobalFontManager::_ScanFontDirectory(font_directory& fontDirectory)
 	// This bad boy does all the real work. It loads each entry in the
 	// directory. If a valid font file, it adds both the family and the style.
 
+	if (fontDirectory.scanned)
+		return B_OK;
+
 	BDirectory directory;
 	status_t status = directory.SetTo(&fontDirectory.directory);
 	if (status != B_OK)
@@ -923,8 +927,10 @@ GlobalFontManager::_ScanFontDirectory(font_directory& fontDirectory)
 		if (entry.IsDirectory()) {
 			// scan this directory recursively
 			font_directory* newDirectory;
-			if (_AddPath(entry, &newDirectory) == B_OK && newDirectory != NULL)
+			if (_AddPath(entry, &newDirectory) == B_OK && newDirectory != NULL
+				&& !newDirectory->scanned) {
 				_ScanFontDirectory(*newDirectory);
+			}
 
 			continue;
 		}
@@ -949,7 +955,7 @@ GlobalFontManager::_ScanFontDirectory(font_directory& fontDirectory)
 			// takes over ownership of the FT_Face object
 	}
 
-	fontDirectory.revision = 1;
+	fontDirectory.scanned = true;
 	return B_OK;
 }
 
@@ -1005,32 +1011,4 @@ const ServerFont*
 GlobalFontManager::DefaultFixedFont() const
 {
 	return fDefaultFixedFont.Get();
-}
-
-
-void
-GlobalFontManager::AttachUser(uid_t userID)
-{
-	BAutolock locker(this);
-
-#if !TEST_MODE
-	// TODO: actually, find_directory() cannot know which user ID we want here
-	// TODO: avoids user fonts in safe mode
-	BPath path;
-	if (find_directory(B_USER_FONTS_DIRECTORY, &path, true) == B_OK)
-		_AddPath(path.Path());
-	if (find_directory(B_USER_NONPACKAGED_FONTS_DIRECTORY, &path, true)
-			== B_OK) {
-		_AddPath(path.Path());
-	}
-#endif
-}
-
-
-void
-GlobalFontManager::DetachUser(uid_t userID)
-{
-	BAutolock locker(this);
-
-	// TODO!
 }

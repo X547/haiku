@@ -8,7 +8,7 @@
  *
  * 1. Copyright Notice
  *
- * Some or all of this work - Copyright (c) 1999 - 2023, Intel Corp.
+ * Some or all of this work - Copyright (c) 1999 - 2024, Intel Corp.
  * All rights reserved.
  *
  * 2. License
@@ -207,6 +207,8 @@ extern int AcpiOsReleaseGlobalLock(volatile uint32_t *lock);
 #define ACPI_RELEASE_GLOBAL_LOCK(GLptr, Acq)    do {                \
         (Acq) = AcpiOsReleaseGlobalLock(&((GLptr)->GlobalLock));    \
 } while (0)
+
+#define ACPI_SEMAPHORE_NULL -1
 
 #else /* _KERNEL_MODE */
 /* Host-dependent types and defines for user-space ACPICA */

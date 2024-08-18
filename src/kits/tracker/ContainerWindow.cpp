@@ -1452,6 +1452,7 @@ BContainerWindow::MessageReceived(BMessage* message)
 
 			bool wasInTrash = IsTrash() || InTrash();
 			bool isRoot = TargetModel()->IsRoot();
+			bool isVolume = TargetModel()->IsVolume();
 
 			// Switch dir and apply new state
 			WindowStateNodeOpener opener(this, false);
@@ -1463,8 +1464,8 @@ BContainerWindow::MessageReceived(BMessage* message)
 			fIsTrash = FSIsTrashDir(&entry);
 			fInTrash = FSInTrashDir(&ref);
 
-			if (wasInTrash ^ (IsTrash() || InTrash())
-				|| isRoot != TargetModel()->IsRoot()) {
+			if (wasInTrash ^ (IsTrash() || InTrash()) || isRoot != TargetModel()->IsRoot()
+				|| isVolume != TargetModel()->IsVolume()) {
 				RepopulateMenus();
 			}
 
@@ -1803,12 +1804,10 @@ BContainerWindow::AddFileMenu(BMenu* menu)
 			TemplatesMenu* templatesMenu = new TemplatesMenu(PoseView(),
 				B_TRANSLATE("New"));
 			menu->AddItem(templatesMenu);
-			templatesMenu->SetEnabled(!PoseView()->TargetVolumeIsReadOnly());
 			templatesMenu->SetTargetForItems(PoseView());
 		} else {
 			item = new BMenuItem(B_TRANSLATE("New folder"),
 				new BMessage(kNewFolder), 'N');
-			item->SetEnabled(!PoseView()->TargetVolumeIsReadOnly());
 			menu->AddItem(item);
 		}
 	}
@@ -2804,13 +2803,11 @@ BContainerWindow::AddWindowContextMenus(BMenu* menu)
 			TemplatesMenu* templatesMenu = new TemplatesMenu(PoseView(),
 				B_TRANSLATE("New"));
 			menu->AddItem(templatesMenu);
-			templatesMenu->SetEnabled(!PoseView()->TargetVolumeIsReadOnly());
 			templatesMenu->SetTargetForItems(PoseView());
 			templatesMenu->SetFont(be_plain_font);
 		} else {
 			BMenuItem* item = new BMenuItem(B_TRANSLATE("New folder"),
 				new BMessage(kNewFolder), 'N');
-			item->SetEnabled(!PoseView()->TargetVolumeIsReadOnly());
 			menu->AddItem(item);
 		}
 	}
@@ -3070,6 +3067,11 @@ BContainerWindow::UpdateMenu(BMenu* menu, UpdateMenuContext context)
 	}
 
 	if (context == kMenuBarContext || context == kWindowPopUpContext) {
+		if (!PoseView()->IsFilePanel())
+			EnableNamedMenuItem(menu, B_TRANSLATE("New"), !PoseView()->TargetVolumeIsReadOnly());
+		else
+			EnableNamedMenuItem(menu, kNewFolder, !PoseView()->TargetVolumeIsReadOnly());
+
 		uint32 viewMode = PoseView()->ViewMode();
 
 		BMenu* iconSizeMenu = NULL;

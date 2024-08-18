@@ -3,12 +3,36 @@ RemotePackageRepository HaikuPorts
 	: http://localhost/HaikuPorts
 	:
 	# architecture "any" packages
-	be_book-2008_10_26-3
-	ca_root_certificates-2021_07_05-1
+	be_book-2008_10_26-7
+	ca_root_certificates-2024_07_02-1
+	haiku_userguide_ca-2022_11_11-2
+	haiku_userguide_de-2022_11_11-2
+	haiku_userguide_en-2022_11_11-2
+	haiku_userguide_eo-2022_11_11-2
+	haiku_userguide_es-2022_11_11-2
+	haiku_userguide_fi-2022_11_11-2
+	haiku_userguide_fr-2022_11_11-2
+	haiku_userguide_fur-2022_11_11-2
+	haiku_userguide_hu-2022_11_11-2
+	haiku_userguide_id-2022_11_11-2
+	haiku_userguide_it-2022_11_11-2
+	haiku_userguide_jp-2022_11_11-2
+	haiku_userguide_pl-2022_11_11-2
+	haiku_userguide_pt_br-2022_11_11-2
+	haiku_userguide_pt_pt-2022_11_11-2
+	haiku_userguide_ro-2022_11_11-2
+	haiku_userguide_ru-2022_11_11-2
+	haiku_userguide_sk-2022_11_11-2
+	haiku_userguide_sv_se-2022_11_11-2
+	haiku_userguide_tr-2022_11_11-2
+	haiku_userguide_uk-2022_11_11-2
+	haiku_userguide_zh_cn-2022_11_11-2
+	haiku_userguide-2022_11_11-2
+	haiku_welcome-2022_11_11-2
 	haikuporter-1.2.7-1
 	intel_wifi_firmwares-2019_11_02-1
 	noto_sans_cjk_jp-1.004-2
-	noto-20200106-1
+	noto-20240201-1
 	ralink_wifi_firmwares-2015_02_11-1
 	realtek_wifi_firmwares-2019_01_02-1
 	timgmsoundfont-fixed-5
@@ -24,34 +48,46 @@ RemotePackageRepository HaikuPorts
 	bison-3.0.5-1
 	brotli_devel-1.1.0-1
 	brotli-1.1.0-1
-	bzip2_devel-1.0.8-1
-	bzip2-1.0.8-1
+	bzip2_devel-1.0.8-3
+	bzip2-1.0.8-3
 	coreutils-9.0-6
-	curl_devel-7.76.1-1
-	curl-7.76.1-1
+	curl_devel-8.8.0-2
+	curl-8.8.0-2
+	dav1d_devel-1.3.0-1
+	dav1d-1.3.0-1
 	diffutils-3.8-1
-	expat_devel-2.4.6-1
-	expat-2.4.6-1
-	ffmpeg_avdevice-4.3-2
-	ffmpeg_devel-4.3-2
-	ffmpeg_tools-4.3-2
-	ffmpeg-4.3-2
+	expat_devel-2.6.2-1
+	expat-2.6.2-1
+	fdk_aac_devel-2.0.2-4
+	fdk_aac-2.0.2-4
+	ffmpeg6_avdevice-6.1.1-3
+	ffmpeg6_devel-6.1.1-3
+	ffmpeg6_tools-6.1.1-3
+	ffmpeg6-6.1.1-3
 	findutils-4.6.0-1
 	flex-2.5.35-1
 	fluidlite_devel-1.0.9-3
 	fluidlite-1.0.9-3
-	fontconfig-2.13.92-1
+	fontconfig_devel-2.13.96-2
+	fontconfig-2.13.96-2
 	freetype_devel-2.13.2-1
 	freetype-2.13.2-1
-	gawk-3.1.8-2
+	fribidi_devel-1.0.13-1
+	fribidi-1.0.13-1
+	game_music_emu_devel-0.6.3-2
+	game_music_emu-0.6.3-2
+	gawk-5.3.0-1
 	gcc_syslibs_devel-13.3.0_2023_08_10-1
 	gcc_syslibs-13.3.0_2023_08_10-1
 	gcc-13.3.0_2023_08_10-1
-	gettext_libintl-0.19.8.1-7
+	gettext_devel-0.22.5-1
+	gettext_libintl_devel-0.22.5-1
+	gettext_libintl-0.22.5-1
+	gettext-0.22.5-1
 	giflib_devel-5.2.1-1
 	giflib-5.2.1-1
-	git_daemon-2.30.2-3
-	git-2.30.2-3
+	git_daemon-2.45.2-7
+	git-2.45.2-7
 	glu_devel-9.0.0-8
 	glu-9.0.0-8
 	gmp_debuginfo-6.3.0-1
@@ -59,8 +95,10 @@ RemotePackageRepository HaikuPorts
 	gmp-6.3.0-1
 	graphite2_devel-1.3.14-2
 	graphite2-1.3.14-2
-	grep-3.7-1
+	grep-3.11-2
 	gutenprint8-5.3.1-2
+	gutenprint9_devel-5.3.4-2
+	gutenprint9-5.3.4-2
 	gzip-1.11-1
 	harfbuzz_devel-8.3.0-2
 	harfbuzz-8.3.0-2
@@ -68,12 +106,16 @@ RemotePackageRepository HaikuPorts
 	icu74_tools-74.1-3
 	icu74-74.1-3
 	jam-2.5_2018_11_21-8
+	jasper_devel-2.0.33-1
+	jasper-2.0.33-1
 	lame-3.100-3
-	lcms_devel-2.12-1
-	lcms-2.12-1
+	lcms_devel-2.16-1
+	lcms-2.16-1
 	less-451-1
-	libedit_devel-20210419_3.1-1
-	libedit-20210419_3.1-1
+	libass_devel-0.17.1-1
+	libass-0.17.1-1
+	libedit_devel-20230828_3.1-1
+	libedit-20230828_3.1-1
 	libglvnd_devel-1.7.0-2
 	libglvnd-1.7.0-2
 	libicns_devel-0.8.1-8
@@ -81,17 +123,32 @@ RemotePackageRepository HaikuPorts
 	libiconv-1.16-1
 	libjpeg_turbo_devel-2.1.3-1
 	libjpeg_turbo-2.1.3-1
+	libogg_devel-1.3.5-2
+	libogg-1.3.5-2
+	libopenmpt_devel-0.7.2-1
+	libopenmpt-0.7.2-1
 	libpcap-1.8.1-4
-	libpcre-8.45-1
-	libpcre2-10.39-1
+	libpcre_devel-8.45-3
+	libpcre-8.45-3
+	libpcre2_devel-10.43-2
+	libpcre2-10.43-2
 	libpng16_devel-1.6.40-1
 	libpng16-1.6.40-1
+	libraw_devel-0.20.2-2
+	libraw-0.20.2-2
 	libsolv_devel-0.3.0_haiku_2014_12_22-1
 	libsolv-0.3.0_haiku_2014_12_22-1
+	libssh2-1.9.0-4
+	libtheora_devel-1.1.1-8
+	libtheora-1.1.1-8
 	libvorbis_devel-1.3.7-1
 	libvorbis-1.3.7-1
-	libwebp_devel-1.2.2-1
-	libwebp-1.2.2-1
+	libvpx_devel-1.13.1-1
+	libvpx-1.13.1-1
+	libwebp_devel-1.4.0-1
+	libwebp-1.4.0-1
+	libxml2_devel-2.12.5-1
+	libxml2-2.12.5-1
 	m4-1.4.16-1
 	make-4.1-5
 	mandoc-1.14.3-2
@@ -103,33 +160,44 @@ RemotePackageRepository HaikuPorts
 	mpfr_debuginfo-4.2.0-3
 	mpfr_devel-4.2.0-3
 	mpfr-4.2.0-3
-	nano-6.2-1
-	ncurses6_devel-6.3-1
-	ncurses6-6.3-1
+	nano-8.1-1
+	ncurses6_devel-6.4_20230520-1
+	ncurses6-6.4_20230520-1
 	netcat-1.10-4
-	nghttp2_devel-1.43.0-1
-	nghttp2-1.43.0-1
-	openjpeg_devel-2.4.0-1
-	openjpeg-2.4.0-1
-	openssh-8.8p1-1
-	openssl_devel-1.1.1m-1
-	openssl-1.1.1m-1
+	nghttp2_devel-1.59.0-1
+	nghttp2-1.59.0-1
+	openjpeg_devel-2.4.0-3
+	openjpeg-2.4.0-3
+	openssh-9.8p1-2
+	openssl3_devel-3.0.14-1
+	openssl3-3.0.14-1
+	opus_devel-1.3.1-2
+	opus-1.3.1-2
 	p7zip-17.04-2
 	patch-2.7.6-2
-	pe-2.4.5-9
+	pe-2.4.5-10
 	perl-5.32.1-1
 	pkgconfig-0.29.2-4
 	sed-4.2.1-1
+	snappy_devel-1.1.10-1
+	snappy-1.1.10-1
+	soxr_devel-0.1.3-2
+	soxr-0.1.3-2
+	speex_devel-1.2.1-2
+	speex-1.2.1-2
+	speexdsp_devel-1.2.1-1
+	speexdsp-1.2.1-1
 	tar-1.34-1
 	tcpdump-4.99.1-1
 	texinfo-4.13a-1
-	tiff4-4.2.0-1
+	tiff_devel-4.6.0-1
+	tiff-4.6.0-1
 	unzip-6.10c23-4
-	wget-1.21.1-1
+	wget-1.24.5-2
 	which-2.21-6
-	wpa_supplicant-2.9.haiku.1-3
-	xz_utils_devel-5.2.5-1
-	xz_utils-5.2.5-1
+	wpa_supplicant-2.10.haiku.3-3
+	xz_utils_devel-5.6.2-2
+	xz_utils-5.6.2-2
 	zip-3.0-4
 	zlib_devel-1.3-3
 	zlib-1.3-3

@@ -241,8 +241,12 @@ ramfs_get_vnode(fs_volume* _volume, ino_t vnid, fs_vnode* node, int* _type,
 	status_t error = B_OK;
 	if (VolumeReadLocker locker = volume) {
 		error = volume->FindNode(vnid, &foundNode);
-		if (error == B_OK)
+		if (error == B_OK) {
 			node->private_node = foundNode;
+			node->ops = &gRamFSVnodeOps;
+			*_type = foundNode->GetMode();
+			*_flags = 0;
+		}
 	} else
 		SET_ERROR(error, B_ERROR);
 	RETURN_ERROR(error);
@@ -434,7 +438,7 @@ ramfs_create_symlink(fs_volume* _volume, fs_vnode* _dir, const char *name,
 					node->SetUID(geteuid());
 					node->SetGID(getegid());
 					// put the node
-					volume->PutVNode(node->GetID());
+					volume->PutVNode(node);
 				}
 			}
 		}
@@ -852,7 +856,7 @@ ramfs_create(fs_volume* _volume, fs_vnode* _dir, const char *name, int openMode,
 					// set cache in vnode
 					struct vnode* vnode;
 					if (vfs_lookup_vnode(_volume->id, node->GetID(), &vnode) == B_OK) {
-						vfs_set_vnode_cache(vnode, file->GetCache());
+						vfs_set_vnode_cache(vnode, file->GetCache(vnode));
 					}
 				}
 			}
@@ -1162,7 +1166,7 @@ ramfs_create_dir(fs_volume* _volume, fs_vnode* _dir, const char *name, int mode)
 					node->SetUID(geteuid());
 					node->SetGID(getegid());
 					// put the node
-					volume->PutVNode(node->GetID());
+					volume->PutVNode(node);
 				}
 			}
 		}

@@ -76,7 +76,7 @@ if [ IsOptionalHaikuImagePackageAdded Development ] {
 	local architectureObject ;
 	for architectureObject in [ MultiArchSubDirSetup ] {
 		on $(architectureObject) {
-			AddHaikuImageDisabledPackages openssl_devel
+			AddHaikuImageDisabledPackages openssl3_devel
 				libjpeg_turbo_devel libpng16_devel zlib_devel zstd_devel ;
 		}
 	}
@@ -129,8 +129,8 @@ if [ IsOptionalHaikuImagePackageAdded DevelopmentMin ]
 
 # Git
 if [ IsOptionalHaikuImagePackageAdded Git ] {
-	AddHaikuImageSystemPackages git git_daemon perl ;
-	AddHaikuImageSourcePackages git ;
+	AddHaikuImageSystemPackages git@!gcc2 git_x86@secondary_x86 perl@!gcc2 perl_x86@secondary_x86 ;
+	AddHaikuImageSourcePackages git@!gcc2 git_x86@secondary_x86 perl@!gcc2 perl_x86@secondary_x86 ;
 }
 
 

@@ -19,6 +19,7 @@
 #include <Drivers.h>
 
 #include <AutoDeleter.h>
+#include <StackOrHeapArray.h>
 #include <util/AutoLock.h>
 #include <util/DoublyLinkedList.h>
 
@@ -29,6 +30,7 @@
 #include <vm/VMCache.h>
 #include <vm/vm_page.h>
 
+#include "cache_support.h"
 #include "dma_resources.h"
 #include "io_requests.h"
 #include "IOSchedulerSimple.h"
@@ -574,14 +576,13 @@ struct RawDevice : Device, DoublyLinkedListLinkImpl<RawDevice> {
 			ASSERT(offset % B_PAGE_SIZE == 0);
 			ASSERT(length % B_PAGE_SIZE == 0);
 
-			vm_page** pages = new(std::nothrow) vm_page*[length / B_PAGE_SIZE];
-			if (pages == NULL) {
+			BStackOrHeapArray<vm_page*, 16> pages(length / B_PAGE_SIZE);
+			if (!pages.IsValid()) {
 				result = B_NO_MEMORY;
 				break;
 			}
-			ArrayDeleter<vm_page*> pagesDeleter(pages);
 
-			_GetPages((off_t)offset, (off_t)length, false, pages);
+			cache_get_pages(fCache, (off_t)offset, (off_t)length, false, pages);
 
 			AutoLocker<VMCache> locker(fCache);
 			uint64 j;
@@ -603,8 +604,6 @@ struct RawDevice : Device, DoublyLinkedListLinkImpl<RawDevice> {
 
 		return result;
 	}
-
-
 
 	status_t DoIO(IORequest* request)
 	{
@@ -635,12 +634,11 @@ private:
 		generic_size_t vecOffset = 0;
 		bool isWrite = operation->IsWrite();
 
-		vm_page** pages = new(std::nothrow) vm_page*[length / B_PAGE_SIZE];
-		if (pages == NULL)
+		BStackOrHeapArray<vm_page*, 16> pages(length / B_PAGE_SIZE);
+		if (!pages.IsValid())
 			return B_NO_MEMORY;
-		ArrayDeleter<vm_page*> pagesDeleter(pages);
 
-		_GetPages(offset, length, isWrite, pages);
+		cache_get_pages(fCache, offset, length, isWrite, pages);
 
 		status_t error = B_OK;
 		size_t index = 0;
@@ -660,7 +658,7 @@ private:
 			index++;
 		}
 
-		_PutPages(operation->Offset(), operation->Length(), pages,
+		cache_put_pages(fCache, operation->Offset(), operation->Length(), pages,
 			error == B_OK);
 
 		if (error != B_OK) {
@@ -670,90 +668,6 @@ private:
 
 		fIOScheduler->OperationCompleted(operation, B_OK, operation->Length());
 		return B_OK;
-	}
-
-	void _GetPages(off_t offset, off_t length, bool isWrite, vm_page** pages)
-	{
-		// TODO: This method is duplicated in ramfs' DataContainer. Perhaps it
-		// should be put into a common location?
-
-		// get the pages, we already have
-		AutoLocker<VMCache> locker(fCache);
-
-		size_t pageCount = length / B_PAGE_SIZE;
-		size_t index = 0;
-		size_t missingPages = 0;
-
-		while (length > 0) {
-			vm_page* page = fCache->LookupPage(offset);
-			if (page != NULL) {
-				if (page->busy) {
-					fCache->WaitForPageEvents(page, PAGE_EVENT_NOT_BUSY, true);
-					continue;
-				}
-
-				DEBUG_PAGE_ACCESS_START(page);
-				page->busy = true;
-			} else
-				missingPages++;
-
-			pages[index++] = page;
-			offset += B_PAGE_SIZE;
-			length -= B_PAGE_SIZE;
-		}
-
-		locker.Unlock();
-
-		// For a write we need to reserve the missing pages.
-		if (isWrite && missingPages > 0) {
-			vm_page_reservation reservation;
-			vm_page_reserve_pages(&reservation, missingPages,
-				VM_PRIORITY_SYSTEM);
-
-			for (size_t i = 0; i < pageCount; i++) {
-				if (pages[i] != NULL)
-					continue;
-
-				pages[i] = vm_page_allocate_page(&reservation,
-					PAGE_STATE_WIRED | VM_PAGE_ALLOC_BUSY);
-
-				if (--missingPages == 0)
-					break;
-			}
-
-			vm_page_unreserve_pages(&reservation);
-		}
-	}
-
-	void _PutPages(off_t offset, off_t length, vm_page** pages, bool success)
-	{
-		// TODO: This method is duplicated in ramfs' DataContainer. Perhaps it
-		// should be put into a common location?
-
-		AutoLocker<VMCache> locker(fCache);
-
-		// Mark all pages unbusy. On error free the newly allocated pages.
-		size_t index = 0;
-
-		while (length > 0) {
-			vm_page* page = pages[index++];
-			if (page != NULL) {
-				if (page->CacheRef() == NULL) {
-					if (success) {
-						fCache->InsertPage(page, offset);
-						fCache->MarkPageUnbusy(page);
-						DEBUG_PAGE_ACCESS_END(page);
-					} else
-						vm_page_free(NULL, page);
-				} else {
-					fCache->MarkPageUnbusy(page);
-					DEBUG_PAGE_ACCESS_END(page);
-				}
-			}
-
-			offset += B_PAGE_SIZE;
-			length -= B_PAGE_SIZE;
-		}
 	}
 
 	status_t _CopyData(vm_page* page, const generic_io_vec*& vecs,
