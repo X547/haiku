@@ -20,8 +20,10 @@ RemotePackageRepository HaikuPorts
 	automake-1.16.5-1
 	bash-4.4.023-1
 	bc-1.07.1-2
-	binutils-2.41-1
+	binutils-2.42-1
 	bison-3.0.5-1
+	brotli_devel-1.1.0-1
+	brotli-1.1.0-1
 	bzip2_devel-1.0.8-1
 	bzip2-1.0.8-1
 	coreutils-9.0-6
@@ -39,12 +41,12 @@ RemotePackageRepository HaikuPorts
 	fluidlite_devel-1.0.9-3
 	fluidlite-1.0.9-3
 	fontconfig-2.13.92-1
-	freetype_devel-2.6.3-1
-	freetype-2.6.3-1
+	freetype_devel-2.13.2-1
+	freetype-2.13.2-1
 	gawk-3.1.8-2
-	gcc_syslibs_devel-13.2.0_2023_08_10-2
-	gcc_syslibs-13.2.0_2023_08_10-2
-	gcc-13.2.0_2023_08_10-2
+	gcc_syslibs_devel-13.3.0_2023_08_10-1
+	gcc_syslibs-13.3.0_2023_08_10-1
+	gcc-13.3.0_2023_08_10-1
 	gettext_libintl-0.19.8.1-7
 	giflib_devel-5.2.1-1
 	giflib-5.2.1-1
@@ -52,14 +54,19 @@ RemotePackageRepository HaikuPorts
 	git-2.30.2-3
 	glu_devel-9.0.0-8
 	glu-9.0.0-8
-	gmp_debuginfo-6.2.1-3
-	gmp_devel-6.2.1-3
-	gmp-6.2.1-3
+	gmp_debuginfo-6.3.0-1
+	gmp_devel-6.3.0-1
+	gmp-6.3.0-1
+	graphite2_devel-1.3.14-2
+	graphite2-1.3.14-2
 	grep-3.7-1
 	gutenprint8-5.3.1-2
 	gzip-1.11-1
-	icu_devel-57.2-2
-	icu-57.2-2
+	harfbuzz_devel-8.3.0-2
+	harfbuzz-8.3.0-2
+	icu74_devel-74.1-3
+	icu74_tools-74.1-3
+	icu74-74.1-3
 	jam-2.5_2018_11_21-8
 	lame-3.100-3
 	lcms_devel-2.12-1
@@ -77,8 +84,8 @@ RemotePackageRepository HaikuPorts
 	libpcap-1.8.1-4
 	libpcre-8.45-1
 	libpcre2-10.39-1
-	libpng16_devel-1.6.37-1
-	libpng16-1.6.37-1
+	libpng16_devel-1.6.40-1
+	libpng16-1.6.40-1
 	libsolv_devel-0.3.0_haiku_2014_12_22-1
 	libsolv-0.3.0_haiku_2014_12_22-1
 	libvorbis_devel-1.3.7-1
@@ -124,8 +131,8 @@ RemotePackageRepository HaikuPorts
 	xz_utils_devel-5.2.5-1
 	xz_utils-5.2.5-1
 	zip-3.0-4
-	zlib_devel-1.2.11-1
-	zlib-1.2.11-1
+	zlib_devel-1.3-3
+	zlib-1.3-3
 	zstd_devel-1.5.0-2
 	zstd-1.5.0-2
 	:

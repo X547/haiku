@@ -1,59 +1,159 @@
 # This file defines the content of the minimum Haiku image.
 
 SYSTEM_BIN = [ FFilterByBuildFeatures
-	addattr alert arp autologin
-	beep bfsinfo
-	catattr checkfs checkitout chop clear collectcatkeys copyattr
-	desklink df diskimage draggers
-	driveinfo dstcheck dumpcatalog
-	eject error
-	fdinfo ffm filepanel finddir findpaths fortune fstrim
+	addattr
+	alert
+	arp
+	autologin
+	beep
+	bfsinfo
+	catattr
+	checkfs
+	checkitout
+	chop
+	clear
+	collectcatkeys
+	copyattr
+	desklink
+	df
+	diskimage
+	draggers
+	driveinfo
+	dstcheck
+	dumpcatalog
+	eject
+	error
+	fdinfo
+	ffm
+	filepanel
+	finddir
+	findpaths
+	fortune
+	fstrim
 	ftpd
-	getarch groupadd groupdel groupmod
-	hd hey
-#	<bin>i2c
-	ifconfig iroster isvolume
-	kernel_debugger keymap keystore
-	launch_roster linkcatkeys listarea listattr listimage
+	getarch
+	groupadd
+	groupdel
+	groupmod
+	hd
+	hey
+	ifconfig
+	iroster
+	isvolume
+	kernel_debugger
+	keymap
+	keystore
+	launch_roster
+	linkcatkeys
+	listarea
+	listattr
+	listimage
 #	listdev
 	listfont
-	listport listres listsem listusb locale logger login lsindex
-	makebootable message mimeset mkfs mkindex
-	modifiers mount mountvolume
-	netstat notify
+	listport
+	listres
+	listsem
+	listusb
+	locale
+	logger
+	login
+	lsindex
+	makebootable
+	message
+	mimeset
+	mkfs
+	mkindex
+	modifiers
+	mount
+	mountvolume
+	netstat
+	notify
 	open
-	package package_repo passwd pc ping pkgman prio profile ps
-	query quit
-	ramdisk rc reindex release renice resattr resizefs rmattr rmindex roster
+	package
+	package_repo
+	passwd
+	pc
+	ping
+	pkgman
+	prio
+	profile
+	ps
+	query
+	quit
+	ramdisk
+	rc
+	reindex
+	release
+	renice
+	resattr
+	resizefs
+	rmattr
+	rmindex
+	roster
 	route
-	safemode screen_blanker screeninfo screenmode setarch setmime settype
-	setversion setvolume shutdown
-	strace su sysinfo system_time
-	tcptester telnet telnetd top
-	traceroute trash
-	unchop unmount
-	urlwrapper useradd userdel
-	version vmstat
-	waitfor watch writembr@x86,x86_64 xres
+	safemode
+	screen_blanker
+	screeninfo
+	screenmode
+	setarch
+	setmime
+	settype
+	setversion
+	setvolume
+	shutdown
+	strace
+	su
+	sysinfo
+	system_time
+	tcptester
+	telnet
+	telnetd
+	top
+	traceroute
+	trash
+	unchop
+	unmount
+	urlwrapper
+	useradd
+	userdel
+	version
+	vmstat
+	waitfor
+	watch
+	writembr@x86,x86_64
+	xres
 ] ;
 
 SYSTEM_APPS = [ FFilterByBuildFeatures
 	AboutSystem
 	BootManager@x86,x86_64
 	CharacterMap
-	Debugger@libedit DeskCalc Devices DiskProbe DiskUsage DriveSetup
-	Expander Installer
+	Debugger@libedit
+	DeskCalc
+	Devices
+	DiskProbe
+	DiskUsage
+	DriveSetup
+	Expander
+	Installer
 	NetworkStatus
 	ProcessController
-	ShowImage StyledEdit
-	Terminal TextSearch
+	ShowImage
+	StyledEdit
+	Terminal
+	TextSearch
 	Workspaces
 ] ;
 
 DESKBAR_APPLICATIONS =
 	CharacterMap
-	DeskCalc Devices DiskProbe DiskUsage DriveSetup
-	Expander Installer
+	DeskCalc
+	Devices
+	DiskProbe
+	DiskUsage
+	DriveSetup
+	Expander
+	Installer
 	StyledEdit
 	Terminal
 ;
@@ -72,9 +172,12 @@ SYSTEM_PREFERENCES = [ FFilterByBuildFeatures
 	Input
 	Keymap
 	Locale
-	Network Notifications
-	Screen Shortcuts
-	Time <preference>Tracker
+	Network
+	Notifications
+	Screen
+	Shortcuts
+	Time
+	<preference>Tracker
 	VirtualMemory
 ] ;
 
@@ -89,14 +192,18 @@ rule HaikuImageGetSystemLibs
 		[ Libstdc++ForImage ]
 		# libs with standard grist
 		[ MultiArchDefaultGristFiles [ FFilterByBuildFeatures
-			libbe.so libbsd.so libbnetapi.so
+			libbe.so
+			libbsd.so
+			libbnetapi.so
 			libdebug.so
 			libdebugger.so@primary
 			libdevice.so
 			libgnu.so
 			libnetwork.so
 			libpackage.so
-			libtextencoding.so libtracker.so libtranslation.so
+			libtextencoding.so
+			libtracker.so
+			libtranslation.so
 		] ]
 		;
 }
@@ -114,13 +221,16 @@ rule HaikuImageGetPrivateSystemLibs
 
 SYSTEM_SERVERS = [ FFilterByBuildFeatures
 	app_server
-	debug_server dns_resolver_server
+	debug_server
+	dns_resolver_server
 	input_server
 	keystore_server
 	launch_daemon
 	mount_server
-	net_server notification_server
-	package_daemon power_daemon
+	net_server
+	notification_server
+	package_daemon
+	power_daemon
 	registrar
 	syslog_daemon
 ] ;
@@ -141,14 +251,17 @@ SYSTEM_NETWORK_DATALINK_PROTOCOLS =
 #SYSTEM_NETWORK_PPP = ipcp modem pap pppoe KPPPManager ;
 
 SYSTEM_NETWORK_PROTOCOLS =
-	icmp icmp6 ipv4 ipv6
+	icmp
+	icmp6
+	ipv4
+	ipv6
 	tcp
-	udp unix
+	udp
+	unix
 ;
 
 SYSTEM_ADD_ONS_ACCELERANTS = [ FFilterByBuildFeatures
 	framebuffer.accelerant
-	virtio_gpu.accelerant
 	x86,x86_64 @{
 		vesa.accelerant
 	}@ # x86,x86_64
@@ -187,7 +300,8 @@ SYSTEM_ADD_ONS_DRIVERS_GRAPHICS = [ FFilterByBuildFeatures
 		vesa
 	}@ # x86,x86_64
 	riscv64 @{
-		# radeon_hd for unmatched
+		# ati for qemu, radeon_hd for unmatched
+		ati
 		radeon_hd
 	}@ # riscv64
 ] ;
@@ -197,23 +311,35 @@ SYSTEM_ADD_ONS_DRIVERS_MIDI = ;
 SYSTEM_ADD_ONS_DRIVERS_NET = [ FFilterByBuildFeatures
 	x86,x86_64,riscv64 @{
 		3com
-		atheros813x atheros81xx attansic_l1 attansic_l2
-		broadcom440x broadcom570x
+		atheros813x
+		atheros81xx
+		attansic_l1
+		attansic_l2
+		broadcom440x
+		broadcom570x
 		dec21xxx
-		ipro100 ipro1000
+		ipro100
+		ipro1000
 		intel22x
 		jmicron2x0
 		marvell_yukon
 		nforce
 		pcnet
-		rtl8125 rtl8139 rtl81xx
-		sis19x sis900 syskonnect
-		via_rhine vt612x
+		rtl8125
+		rtl8139
+		rtl81xx
+		sis19x
+		sis900
+		syskonnect
+		via_rhine
+		vt612x
 	}@ # x86,x86_64,riscv64
 
 	etherpci
 	pegasus
-	usb_asix usb_davicom usb_rndis
+	usb_asix
+	usb_davicom
+	usb_rndis
 	wb840
 ] ;
 
@@ -244,8 +370,11 @@ SYSTEM_ADD_ONS_BUS_MANAGERS = [ FFilterByBuildFeatures
 
 SYSTEM_ADD_ONS_FILE_SYSTEMS =
 	attribute_overlay
-	bfs bindfs btrfs
-	exfat ext2
+	bfs
+	bindfs
+	btrfs
+	exfat
+	ext2
 	fat
 	iso9660
 	log_overlay

@@ -23,10 +23,18 @@ for bootTarget in $(HAIKU_BOOT_TARGETS) {
 
 # modules
 AddFilesToPackage add-ons kernel bus_managers : $(SYSTEM_ADD_ONS_BUS_MANAGERS) ;
-AddFilesToPackage add-ons kernel busses agp_gart : <agp_gart>intel@x86,x86_64 ;
+AddFilesToPackage add-ons kernel busses agp_gart :
+	<agp_gart>intel@x86,x86_64
+	;
 
-#AddFilesToPackage add-ons kernel busses ata
-#	: generic_ide_pci it8211 legacy_sata silicon_image_3112 highpoint_ide_pci ide_isa@x86 ;
+AddFilesToPackage add-ons kernel busses ata :
+#	generic_ide_pci
+#	it8211
+#	legacy_sata
+#	silicon_image_3112
+#	highpoint_ide_pci
+#	ide_isa@x86
+	;
 
 AddFilesToPackage add-ons kernel busses i2c :
 #	pch_i2c@x86,x86_64
@@ -37,7 +45,7 @@ AddFilesToPackage add-ons kernel busses hid :
 	usb_hid
 	;
 AddFilesToPackage add-ons kernel busses mmc :
-	# sdhci_pci
+#	sdhci_pci
 	designware_mmc
 	;
 AddFilesToPackage add-ons kernel busses pci :
@@ -49,8 +57,14 @@ AddFilesToPackage add-ons kernel busses pci :
 AddFilesToPackage add-ons kernel busses ps2 :
 	altera_ps2@riscv64
 	;
-#AddFilesToPackage add-ons kernel busses random : ccp_rng@x86,x86_64 virtio_rng ;
-#AddFilesToPackage add-ons kernel busses scsi : ahci virtio_scsi ;
+AddFilesToPackage add-ons kernel busses random :
+#	ccp_rng@x86,x86_64
+#	virtio_rng
+	;
+AddFilesToPackage add-ons kernel busses scsi :
+#	ahci
+#	virtio_scsi
+	;
 AddFilesToPackage add-ons kernel busses usb :
 #	<usb>uhci
 #	<usb>ohci
@@ -59,14 +73,22 @@ AddFilesToPackage add-ons kernel busses usb :
 	;
 AddFilesToPackage add-ons kernel busses virtio :
 	virtio_mmio@riscv64,arm,arm64
-	# virtio_pci
+#	virtio_pci
 	;
-AddFilesToPackage add-ons kernel console : vga_text ;
-AddFilesToPackage add-ons kernel debugger
-	: <kdebug>demangle <kdebug>disasm@x86,x86_64 <kdebug>hangman
-	  <kdebug>invalidate_on_exit <kdebug>usb_keyboard <kdebug>qrencode@libqrencode
-	  <kdebug>run_on_exit ;
-AddFilesToPackage add-ons kernel file_systems : $(SYSTEM_ADD_ONS_FILE_SYSTEMS) ;
+AddFilesToPackage add-ons kernel console :
+	vga_text
+	;
+AddFilesToPackage add-ons kernel debugger :
+	<kdebug>demangle
+	<kdebug>disasm@x86,x86_64
+	<kdebug>hangman
+	<kdebug>invalidate_on_exit
+	<kdebug>usb_keyboard
+	<kdebug>qrencode@libqrencode
+	<kdebug>run_on_exit
+	;
+AddFilesToPackage add-ons kernel file_systems
+	: $(SYSTEM_ADD_ONS_FILE_SYSTEMS) ;
 AddFilesToPackage add-ons kernel generic :
 #	ata_adapter
 	bios@x86,x86_64
@@ -77,15 +99,30 @@ AddFilesToPackage add-ons kernel generic :
 #	smbios@x86,x86_64
 	<module>tty
 	;
-AddFilesToPackage add-ons kernel partitioning_systems
-	: amiga_rdb@m68k apple@ppc sun@sparc efi_gpt intel session ;
-#AddFilesToPackage add-ons kernel interrupt_controllers : openpic@ppc  ;
-AddFilesToPackage add-ons kernel power cpufreq : amd_pstates@x86,x86_64 intel_pstates@x86,x86_64 ;
-AddFilesToPackage add-ons kernel power cpuidle : intel_cstates@x86,x86_64 ;
+AddFilesToPackage add-ons kernel partitioning_systems :
+	amiga_rdb@m68k
+	apple@ppc
+	sun@sparc
+	efi_gpt
+	intel
+	session
+	;
+AddFilesToPackage add-ons kernel interrupt_controllers :
+	openpic@ppc
+	;
+AddFilesToPackage add-ons kernel power cpufreq :
+	amd_pstates@x86,x86_64
+	intel_pstates@x86,x86_64
+	;
+AddFilesToPackage add-ons kernel power cpuidle :
+	intel_cstates@x86,x86_64
+	;
 AddFilesToPackage add-ons kernel system : device_manager ;
 
 if $(TARGET_ARCH) = x86 || $(TARGET_ARCH) = x86_64 {
-	AddFilesToPackage add-ons kernel cpu : generic_x86 ;
+	AddFilesToPackage add-ons kernel cpu :
+		generic_x86
+		;
 }
 
 # drivers
@@ -112,20 +149,28 @@ AddNewDriversToPackage disk virtual :
 #	ram_disk
 	virtio_block
 	;
-AddNewDriversToPackage power : $(SYSTEM_ADD_ONS_DRIVERS_POWER) ;
-AddNewDriversToPackage sensor : $(SYSTEM_ADD_ONS_DRIVERS_SENSOR) ;
+AddNewDriversToPackage graphics :
+	virtio_gpu
+	;
+AddNewDriversToPackage power
+	: $(SYSTEM_ADD_ONS_DRIVERS_POWER) ;
+AddNewDriversToPackage sensor
+	: $(SYSTEM_ADD_ONS_DRIVERS_SENSOR) ;
 AddNewDriversToPackage network :
 	usb_ecm
 	virtio_net
 	dwmac
 	;
 AddNewDriversToPackage input :
-	# i2c_elan
+#	i2c_elan
 	hid_input
 	virtio_input
 	;
 AddNewDriversToPackage display :
 	display_adapter@x86
+	;
+AddNewDriversToPackage audio hmulti :
+#	virtio_sound
 	;
 AddNewDriversToPackage clock :
 	fixed_clock@riscv64,arm,arm64
@@ -155,18 +200,42 @@ AddNewDriversToPackage graphics :
 	;
 
 # legacy drivers
-AddDriversToPackage					: console dprintf <driver>tty usb_modeswitch ;
-AddDriversToPackage audio hmulti	: $(SYSTEM_ADD_ONS_DRIVERS_AUDIO) ;
-AddDriversToPackage audio old		: $(SYSTEM_ADD_ONS_DRIVERS_AUDIO_OLD) ;
-AddDriversToPackage bluetooth h2	: $(SYSTEM_ADD_ONS_DRIVERS_BT_H2) ;
-AddDriversToPackage midi			: $(SYSTEM_ADD_ONS_DRIVERS_MIDI) ;
-AddDriversToPackage disk virtual	: nbd ;
-AddDriversToPackage dvb				: cx23882 ;
-AddDriversToPackage graphics		: $(SYSTEM_ADD_ONS_DRIVERS_GRAPHICS) ;
-AddDriversToPackage input			: ps2_hid wacom ;
-AddDriversToPackage misc			: <driver>poke <driver>mem ;
-AddDriversToPackage net				: $(SYSTEM_ADD_ONS_DRIVERS_NET) ;
-AddDriversToPackage ports			: pc_serial usb_serial ;
+AddDriversToPackage :
+	console
+	dprintf
+	<driver>tty
+	usb_modeswitch
+	;
+AddDriversToPackage audio hmulti :
+	$(SYSTEM_ADD_ONS_DRIVERS_AUDIO) ;
+AddDriversToPackage audio old :
+	$(SYSTEM_ADD_ONS_DRIVERS_AUDIO_OLD) ;
+AddDriversToPackage bluetooth h2 :
+	$(SYSTEM_ADD_ONS_DRIVERS_BT_H2) ;
+AddDriversToPackage midi :
+	$(SYSTEM_ADD_ONS_DRIVERS_MIDI) ;
+AddDriversToPackage disk virtual :
+	nbd
+	;
+AddDriversToPackage dvb :
+	cx23882
+	;
+AddDriversToPackage graphics
+	: $(SYSTEM_ADD_ONS_DRIVERS_GRAPHICS) ;
+AddDriversToPackage input :
+	ps2_hid
+	wacom
+	;
+AddDriversToPackage misc :
+	<driver>poke
+	<driver>mem
+	;
+AddDriversToPackage net
+	: $(SYSTEM_ADD_ONS_DRIVERS_NET) ;
+AddDriversToPackage ports :
+	pc_serial
+	usb_serial
+	;
 
 # kernel
 AddFilesToPackage : <revisioned>kernel_$(TARGET_ARCH) ;
@@ -195,11 +264,21 @@ AddFilesToPackage data trust_db : haiku-2019.pub ;
 AddFilesToPackage servers : $(SYSTEM_SERVERS) ;
 
 # apps
-AddFilesToPackage				: runtime_loader Deskbar Tracker ;
-AddFilesToPackage bin			: $(SYSTEM_BIN) consoled ;
-AddFilesToPackage apps			: $(SYSTEM_APPS) ;
-AddFilesToPackage preferences	: $(SYSTEM_PREFERENCES) ;
-AddFilesToPackage demos			: $(SYSTEM_DEMOS) ;
+AddFilesToPackage :
+	runtime_loader
+	Deskbar
+	Tracker
+	;
+AddFilesToPackage bin :
+	$(SYSTEM_BIN)
+	consoled
+	;
+AddFilesToPackage apps
+	: $(SYSTEM_APPS) ;
+AddFilesToPackage preferences
+	: $(SYSTEM_PREFERENCES) ;
+AddFilesToPackage demos
+	: $(SYSTEM_DEMOS) ;
 
 SEARCH on install-wifi-firmwares.sh = [ FDirName $(HAIKU_TOP) data bin ] ;
 AddFilesToPackage bin : install-wifi-firmwares.sh ;
@@ -272,15 +351,22 @@ AddFilesToPackage data Terminal Themes : $(terminalThemes) ;
 # boot module links
 AddBootModuleSymlinksToPackage
 	acpi
-#	ahci ata ata_adapter
+#	ahci
+#	ata
+#	ata_adapter
 	bfs
 	dpc
 	efi_gpt
 #	generic_ide_pci
-#	ide_isa@x86 isa@x86,x86_64 intel it8211
+#	ide_isa@x86
+#	isa@x86,x86_64
+#	intel
+#	it8211
 #	legacy_sata
 	locked_pool
-	mmc designware_mmc mmc_disk
+	mmc
+	designware_mmc
+	mmc_disk
 	nvme_disk
 	openpic@ppc
 	plic@riscv64
@@ -288,23 +374,31 @@ AddBootModuleSymlinksToPackage
 	imsic@riscv64
 #	syscon@riscv64
 	goldfish@riscv64
-	packagefs pci
-	# <pci>designware@riscv64
+	packagefs
+	pci
+#	<pci>designware@riscv64
 	<pci>ecam
 	<pci>plda@riscv64
 #	<pci>x86@x86,x86_64
 	fdt@riscv64,arm,arm64
 	scsi
-	# scsi_cd scsi_disk scsi_periph silicon_image_3112 highpoint_ide_pci
-	# sdhci_pci
-	usb usb_disk
-	# <usb>ehci <usb>ohci <usb>uhci
+#	scsi_cd
+#	scsi_disk
+#	scsi_periph
+#	silicon_image_3112
+#	highpoint_ide_pci
+#	sdhci_pci
+	usb
+	usb_disk
+#	<usb>ehci
+#	<usb>ohci
+#	<usb>uhci
 	<usb>xhci
-	# virtio
+#	virtio
 	virtio_block
 	virtio_mmio@riscv64,arm,arm64
-	# virtio_pci
-	# virtio_scsi
+#	virtio_pci
+#	virtio_scsi
 	device_manager
 	fixed_clock@riscv64,arm,arm64
 	jh7110_clock@riscv64
@@ -330,25 +424,47 @@ AddBootModuleSymlinksToPackage
 ;
 
 # add-ons
-AddFilesToPackage add-ons accelerants	: $(SYSTEM_ADD_ONS_ACCELERANTS) ;
-AddFilesToPackage add-ons locale catalogs : $(SYSTEM_ADD_ONS_LOCALE_CATALOGS) ;
+AddFilesToPackage add-ons accelerants :
+	$(SYSTEM_ADD_ONS_ACCELERANTS) ;
+AddFilesToPackage add-ons locale catalogs :
+	$(SYSTEM_ADD_ONS_LOCALE_CATALOGS) ;
 
-AddFilesToPackage add-ons mail_daemon inbound_protocols		: POP3
-	IMAP ;
-AddFilesToPackage add-ons mail_daemon outbound_protocols 	: SMTP ;
-AddFilesToPackage add-ons mail_daemon inbound_filters
-	: MatchHeader SpamFilter NewMailNotification ;
-AddFilesToPackage add-ons mail_daemon outbound_filters		: Fortune ;
+AddFilesToPackage add-ons mail_daemon inbound_protocols :
+	POP3
+	IMAP
+	;
+AddFilesToPackage add-ons mail_daemon outbound_protocols :
+	SMTP
+	;
+AddFilesToPackage add-ons mail_daemon inbound_filters :
+	MatchHeader
+	SpamFilter
+	NewMailNotification
+	;
+AddFilesToPackage add-ons mail_daemon outbound_filters :
+	Fortune
+	;
 
 AddFilesToPackage add-ons media : $(SYSTEM_ADD_ONS_MEDIA) ;
 
-AddFilesToPackage add-ons Network\ Settings
-	: IPv4Interface IPv6Interface DNSClientService Hostname FTPService SSHService
-		TelnetService ;
+AddFilesToPackage add-ons Network\ Settings :
+	IPv4Interface
+	IPv6Interface
+	DNSClientService
+	Hostname
+	FTPService
+	SSHService
+	TelnetService
+	;
 
-AddFilesToPackage add-ons Tracker
-	: FileType Mark\ as… Mark\ as\ Read Open\ Target\ Folder
-		Open\ Terminal ZipOMatic ;
+AddFilesToPackage add-ons Tracker :
+	FileType
+	Mark\ as…
+	Mark\ as\ Read
+	Open\ Target\ Folder
+	Open\ Terminal
+	ZipOMatic
+	;
 AddSymlinkToPackage add-ons Tracker
 	: /boot/system/preferences/Backgrounds : Background ;
 AddSymlinkToPackage add-ons Tracker
@@ -356,26 +472,46 @@ AddSymlinkToPackage add-ons Tracker
 AddSymlinkToPackage add-ons Tracker
 	: /boot/system/apps/DiskUsage : DiskUsage ;
 
-AddFilesToPackage add-ons input_server devices
-	: <input>keyboard <input>mouse <input>tablet <input>virtio <input>wacom ;
-AddFilesToPackage add-ons input_server filters
-	: padblocker screen_saver shortcut_catcher switch_workspace ;
+AddFilesToPackage add-ons input_server devices :
+	<input>keyboard
+	<input>mouse
+	<input>tablet
+	<input>virtio
+	<input>wacom
+	;
+AddFilesToPackage add-ons input_server filters :
+	padblocker
+	screen_saver
+	shortcut_catcher
+	switch_workspace
+	;
 AddDirectoryToPackage add-ons input_server methods ;
 
-AddFilesToPackage add-ons kernel network : <net>notifications stack ;
-AddFilesToPackage add-ons kernel network : dns_resolver ;
-AddFilesToPackage add-ons kernel network devices : $(SYSTEM_NETWORK_DEVICES) ;
+AddFilesToPackage add-ons kernel network :
+	<net>notifications
+	stack
+	;
+AddFilesToPackage add-ons kernel network :
+	dns_resolver
+	;
+AddFilesToPackage add-ons kernel network devices
+	: $(SYSTEM_NETWORK_DEVICES) ;
 AddFilesToPackage add-ons kernel network datalink_protocols
 	: $(SYSTEM_NETWORK_DATALINK_PROTOCOLS) ;
-AddFilesToPackage add-ons kernel network ppp : $(SYSTEM_NETWORK_PPP) ;
+#AddFilesToPackage add-ons kernel network ppp
+#	: $(SYSTEM_NETWORK_PPP) ;
 AddFilesToPackage add-ons kernel network protocols
 	: $(SYSTEM_NETWORK_PROTOCOLS) ;
 
 AddFilesToPackage add-ons Screen\ Savers : $(SYSTEM_ADD_ONS_SCREENSAVERS) ;
 
-AddFilesToPackage add-ons disk_systems
-	: <disk_system>fat <disk_system>intel <disk_system>gpt <disk_system>bfs
-		<disk_system>ntfs ;
+AddFilesToPackage add-ons disk_systems :
+	<disk_system>fat
+	<disk_system>intel
+	<disk_system>gpt
+	<disk_system>bfs
+	<disk_system>ntfs
+	;
 
 # Kernel bluetooth stack
 AddFilesToPackage add-ons kernel bluetooth : $(SYSTEM_BT_STACK) ;
