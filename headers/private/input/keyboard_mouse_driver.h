@@ -28,7 +28,7 @@
 #define KEY_WinR        0x67
 #define KEY_Menu        0x68
 #define KEY_NumEqual    0x6a
-#define KEY_Power       0x6b
+#define KEY_Power       0x6f
 #define KEY_SysRq       0x7e
 #define KEY_Break       0x7f
 #define KEY_Spacebar	0x5e
