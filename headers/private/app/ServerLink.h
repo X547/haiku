@@ -15,6 +15,7 @@
 #include <LinkReceiver.h>
 #include <LinkSender.h>
 
+#include <stdio.h>
 
 class BShape;
 class BString;
@@ -93,6 +94,8 @@ public:
 			LinkSender&			Sender() { return *fSender; }
 			LinkReceiver&		Receiver() { return *fReceiver; }
 
+	static	const char*			GetMessageName(int32 code);
+
 protected:
 			LinkSender*			fSender;
 			LinkReceiver*		fReceiver;
@@ -133,6 +136,9 @@ ServerLink::TargetTeam()
 inline status_t
 ServerLink::StartMessage(int32 code, size_t minSize)
 {
+#if 0
+	fprintf(stderr, "[%" B_PRId32 ":%" B_PRId32 "] StartMessage(%s (%" B_PRId32 "))\n", find_thread(NULL), SenderPort(), GetMessageName(code), code);
+#endif
 	return fSender->StartMessage(code, minSize);
 }
 
