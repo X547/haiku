@@ -120,7 +120,7 @@ static bool unix_detect_overcommit(void) {
     os_overcommit = (val != 0);
   }
 #elif defined(__HAIKU__)
-  os_overcommit = false;
+  os_overcommit = true; // !!!
 #else
   // default: overcommit is true
 #endif
