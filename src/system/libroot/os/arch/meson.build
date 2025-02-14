@@ -22,8 +22,7 @@ libos_arch_x86_64 = static_library(
 		hdr_private_system,
 		include_directories(
 			'generic',
-			'x86_64',
-			is_system: false
+			'x86_64'
 		),
 	],
 )

@@ -1,10 +1,8 @@
 subdir('os')
+subdir('posix')
 
-libroot = shared_library(
-	'root',
-	[
-		'libroot_init.c',
-	],
+libroot = shared_library('root',
+	'libroot_init.c',
 	include_directories: [
 		hdr_private,
 		hdr_private_libroot,
@@ -12,10 +10,16 @@ libroot = shared_library(
 		hdr_private_system,
 	],
 	link_whole: [
+		libos_main,
 		libos_arch_x86_64,
-#		libos_main,
 #		libposix_arch_x86_64,
 #		libposix_crypt,
+#		libposix_locale,
+		libposix_main,
+#		libposix_pthread,
+#		libposix_signal,
+#		libposix_stdio,
+		libposix_musl,
 #		libposix_gnu_arch_x86_64,
 #		libposix_gnu_ctype,
 #		libposix_gnu_ext,
@@ -28,19 +32,14 @@ libroot = shared_library(
 #		libposix_gnu_stdio,
 #		libposix_gnu_stdlib,
 #		libposix_gnu_wcsmbs,
-#		libposix_locale,
-#		libposix_malloc,
-#		libposix_musl,
-#		libposix_main,
-#		libposix_pthread,
-#		libposix_signal,
-#		libposix_stdio,
 #		libposix_stdlib,
-#		libposix_string_arch_x86_64,
 #		libposix_string,
+#		libposix_string_arch_x86_64,
 #		libposix_sys,
 #		libposix_time,
 #		libposix_unistd,
 #		libposix_wchar,
+#		libposix_malloc,
 	],
+	link_args: ['-Wl,--version-script,@0@/@1@'.format(meson.current_source_dir(), 'libroot_versions')],
 )
