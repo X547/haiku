@@ -1,6 +1,5 @@
-
-static_library(
-	'objects/haiku/x86_64/release/system/libroot/posix/arch/x86_64/posix_arch_x86_64.o',
+libposix_arch_x86_64 = static_library(
+	'posix_arch_x86_64',
 	[
 		'generic/longjmp_return.c',
 		'generic/setjmp_save_sigs.c',
@@ -12,11 +11,7 @@ static_library(
 		'_ASSEMBLER',
 	],
 	include_directories: [
-		'headers/private',
-		'headers/private/system',
-		'headers/private/system/arch/x86_64',
-	],
-	include_directories: [
+		hdr_private_system,
 		'x86_64',
 	],
 )

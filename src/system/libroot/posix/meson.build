@@ -1,47 +1,55 @@
+subdir('arch')
+subdir('crypt')
+subdir('glibc')
+subdir('libstdthreads')
+subdir('locale')
+subdir('malloc')
+subdir('musl')
+subdir('pthread')
+subdir('signal')
+subdir('stdio')
+subdir('stdlib')
+subdir('string')
+subdir('sys')
+subdir('time')
+subdir('unistd')
+subdir('wchar')
 
-static_library(
-	'objects/haiku/x86_64/release/system/libroot/posix/posix_main.o',
-	[
-		'assert.cpp',
-		'cat.cpp',
-		'dirent.cpp',
-		'dlfcn.c',
-		'errno.c',
-		'fcntl.cpp',
-		'glob.c',
-		'grp.cpp',
-		'inttypes.c',
-		'libgen.cpp',
-		'libstdthreads/call_once.c',
-		'libstdthreads/cnd.c',
-		'libstdthreads/mtx.c',
-		'libstdthreads/thrd.c',
-		'libstdthreads/tss.c',
-		'poll.cpp',
-		'pwd.cpp',
-		'scheduler.cpp',
-		'semaphore.cpp',
-		'shadow.cpp',
-		'spawn.cpp',
-		'syslog.cpp',
-		'termios.c',
-		'user_group_common.cpp',
-		'utime.c',
-		'utmpx.cpp',
-	],
+libposix_main = static_library('posix_main',
+	'libstdthreads/call_once.c',
+	'libstdthreads/cnd.c',
+	'libstdthreads/mtx.c',
+	'libstdthreads/thrd.c',
+	'libstdthreads/tss.c',
+	'assert.cpp',
+	'cat.cpp',
+	'dirent.cpp',
+	'dlfcn.c',
+	'errno.c',
+	'fcntl.cpp',
+	'glob.c',
+	'grp.cpp',
+	'inttypes.c',
+	'libgen.cpp',
+	'poll.cpp',
+	'pwd.cpp',
+	'scheduler.cpp',
+	'semaphore.cpp',
+	'shadow.cpp',
+	'spawn.cpp',
+	'syslog.cpp',
+	'termios.c',
+	'user_group_common.cpp',
+	'utime.c',
+	'utmpx.cpp',
 	include_directories: [
-		'headers/private',
-		'headers/private/app',
-		'headers/private/kernel',
-		'headers/private/libroot',
-		'headers/private/runtime_loader',
-		'headers/private/shared',
-		'headers/private/syslog_daemon',
-		'headers/private/system',
-		'headers/private/system/arch/x86_64',
-	],
-	include_directories: [
-		'.',
+		hdr_private_libroot,
+		hdr_private_system,
+		hdr_private_shared,
+		hdr_private_runtimeloader,
+		hdr_private_app,
+		hdr_private_kernel,
+		hdr_private_syslogdaemon,
 		'libstdthreads',
 	],
 )
