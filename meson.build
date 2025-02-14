@@ -8,7 +8,7 @@ cpp = meson.get_compiler('cpp')
 
 # disable some warnings
 add_project_arguments('-Wno-multichar', language: ['c', 'cpp'])
-add_project_arguments('-Wno-register', language: ['c', 'cpp'])
+add_project_arguments('-Wno-register', language: ['cpp'])
 if meson.get_compiler('cpp').get_id() == 'clang'
 	add_project_arguments('-Wno-non-c-typedef-for-linkage', language: 'cpp')
 	add_project_arguments('-Wno-return-type-c-linkage', language: 'cpp')
@@ -69,6 +69,7 @@ hdr_private_runtimeloader = include_directories('headers/private/runtime_loader'
 hdr_private_storage = include_directories('headers/private/storage')
 hdr_private_tracker = include_directories('headers/private/tracker')
 hdr_private_media = include_directories('headers/private/media')
+hdr_private_syslogdaemon = include_directories('headers/private/syslog_daemon')
 
 hdr_libs_mapm = include_directories('headers/libs/mapm')
 hdr_libs_agg = include_directories('headers/libs/agg')
