@@ -158,11 +158,12 @@ LinkSender::Attach(const void *passedData, size_t passedSize)
 	if (fCurrentStatus < B_OK)
 		return fCurrentStatus;
 
-	if (size == 0)
-		return fCurrentStatus = B_BAD_VALUE;
-
 	if (fCurrentEnd == fCurrentStart)
 		return B_NO_INIT;	// need to call StartMessage() first
+
+	// allow empty data
+	if (size == 0)
+		return B_OK;
 
 	bool useArea = false;
 	if (size >= kMaxBufferSize) {
