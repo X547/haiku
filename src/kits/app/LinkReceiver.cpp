@@ -274,13 +274,17 @@ LinkReceiver::Read(void *data, ssize_t passedSize)
 	if (fReadError < B_OK)
 		return fReadError;
 
-	if (data == NULL || size < 1) {
+	if (fDataSize == 0 || fReplySize == 0)
+		return B_NO_INIT;	// need to call GetNextReply() first
+
+	// allow empty data
+	if (size == 0)
+		return B_OK;
+
+	if (data == NULL || size < 0) {
 		fReadError = B_BAD_VALUE;
 		return B_BAD_VALUE;
 	}
-
-	if (fDataSize == 0 || fReplySize == 0)
-		return B_NO_INIT;	// need to call GetNextReply() first
 
 	bool useArea = false;
 	if ((size_t)size >= kMaxBufferSize) {
