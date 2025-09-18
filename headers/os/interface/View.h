@@ -552,6 +552,9 @@ public:
 			void				DrawString(const char* string, int32 length,
 									const BPoint* locations,
 									int32 locationCount);
+			void				DrawGlyphs(int32 count, const BPoint* escapements,
+									const BPoint* offsets,
+									const uint32* glyphIDs);
 
 	virtual	void				SetFont(const BFont* font,
 									uint32 mask = B_FONT_ALL);
