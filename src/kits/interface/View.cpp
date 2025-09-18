@@ -3309,6 +3309,29 @@ BView::DrawString(const char* string, int32 length, const BPoint* locations,
 
 
 void
+BView::DrawGlyphs(int32 count, const BPoint* escapements, const BPoint* offsets,
+	const uint32* glyphIDs)
+{
+	if (count <= 0 || escapements == NULL || offsets == NULL || glyphIDs == NULL)
+		return;
+
+	_CheckLockAndSwitchCurrent();
+
+	fOwner->fLink->StartMessage(AS_DRAW_GLYPHS);
+
+	fOwner->fLink->Attach<int32>(count);
+	fOwner->fLink->Attach(escapements, count * sizeof(BPoint));
+	fOwner->fLink->Attach(offsets, count * sizeof(BPoint));
+	fOwner->fLink->Attach(glyphIDs, count * sizeof(uint32));
+
+	_FlushIfNotInTransaction();
+
+	// this modifies our pen location, so we invalidate the flag.
+	fState->valid_flags &= ~B_VIEW_PEN_LOCATION_BIT;
+}
+
+
+void
 BView::StrokeEllipse(BPoint center, float xRadius, float yRadius,
 	::pattern pattern)
 {
