@@ -32,6 +32,8 @@
 
 #include <StackOrHeapArray.h>
 
+#include <ServerLink.h>
+
 #include "link_message.h"
 
 //#define DEBUG_BPORTLINK
@@ -82,7 +84,9 @@ LinkReceiver::GetNextMessage(int32 &code, bigtime_t timeout)
 	fReadError = B_OK;
 
 	int32 remaining = fDataSize - (fRecvStart + fReplySize);
-	STRACE(("info: LinkReceiver GetNextReply() reports %ld bytes remaining in buffer.\n", remaining));
+	int32 remaining2 = fRecvStart + fReplySize - fRecvPosition;
+	if (remaining2 != 0)
+		fprintf(stderr, "[!] LinkReceiver: GetNextMessage() reports %" B_PRId32 " bytes remaining in buffer, previous code: %s(%" B_PRIu32 ").\n", remaining2, ServerLink::GetMessageName(Code()), Code());
 
 	// find the position of the next message header in the buffer
 	message_header *header;
@@ -101,14 +105,14 @@ LinkReceiver::GetNextMessage(int32 &code, bigtime_t timeout)
 	// check we have a well-formed message
 	if (remaining < (int32)sizeof(message_header)) {
 		// we don't have enough data for a complete header
-		STRACE(("error info: LinkReceiver remaining %ld bytes is less than header size.\n", remaining));
+		fprintf(stderr, "[!] LinkReceiver: remaining %" B_PRId32 " bytes is less than header size.\n", remaining);
 		ResetBuffer();
 		return B_ERROR;
 	}
 
 	fReplySize = header->size;
 	if (fReplySize > remaining || fReplySize < (int32)sizeof(message_header)) {
-		STRACE(("error info: LinkReceiver message size of %ld bytes smaller than header size.\n", fReplySize));
+		fprintf(stderr, "[!] LinkReceiver: message size of %" B_PRId32 " bytes smaller than header size.\n", fReplySize);
 		ResetBuffer();
 		return B_ERROR;
 	}
@@ -225,9 +229,10 @@ LinkReceiver::ReadFromPort(bigtime_t timeout)
 	ResetBuffer();
 
 	status_t err = AdjustReplyBuffer(timeout);
-	if (err < B_OK)
+	if (err < B_OK) {
+		fprintf(stderr, "[!] LinkReceiver: AdjustReplyBuffer failed\n");
 		return err;
-
+	}
 	int32 code;
 	ssize_t bytesRead;
 
@@ -246,8 +251,10 @@ LinkReceiver::ReadFromPort(bigtime_t timeout)
 		}
 
 		STRACE(("info: LinkReceiver read %ld bytes.\n", bytesRead));
-		if (bytesRead < B_OK)
+		if (bytesRead < B_OK) {
+			fprintf(stderr, "[!] LinkReceiver: read_port failed\n");
 			return bytesRead;
+		}
 
 		// we just ignore incorrect messages, and don't bother our caller
 
@@ -294,6 +301,7 @@ LinkReceiver::Read(void *data, ssize_t passedSize)
 
 	if (fRecvPosition + size > fRecvStart + fReplySize) {
 		// reading past the end of current message
+		fprintf(stderr, "[!] LinkReceiver: reading past the end of current message, code: %s(%" B_PRIu32 ")\n", ServerLink::GetMessageName(Code()), Code());
 		fReadError = B_BAD_VALUE;
 		return B_BAD_VALUE;
 	}
