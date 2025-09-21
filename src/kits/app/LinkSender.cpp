@@ -362,9 +362,10 @@ LinkSender::AdjustBuffer(size_t newSize, char **_oldBuffer)
 	// make sure the new size is within bounds
 	if (newSize <= kInitialBufferSize)
 		newSize = kInitialBufferSize;
-	else if (newSize > kMaxBufferSize)
+	else if (newSize > kMaxBufferSize) {
+		fprintf(stderr, "[!] LinkSender: buffer overflow, size: %" B_PRIuSIZE "\n", newSize);
 		return B_BUFFER_OVERFLOW;
-	else if (newSize > kInitialBufferSize)
+	} else if (newSize > kInitialBufferSize)
 		newSize = (newSize + B_PAGE_SIZE - 1) & ~(B_PAGE_SIZE - 1);
 
 	if (newSize == fBufferSize) {
@@ -447,8 +448,8 @@ LinkSender::Flush(bigtime_t timeout, bool needsReply)
 	}
 
 	if (err < B_OK) {
-		STRACE(("error info: LinkSender Flush() failed for %ld bytes (%s) on port %ld.\n",
-			fCurrentEnd, strerror(err), fPort));
+		fprintf(stderr, "[!] LinkSender: Flush() failed for %" B_PRId32 " bytes (%s) on port %" B_PRId32 ".\n",
+			fCurrentEnd, strerror(err), fPort);
 		return err;
 	}
 
