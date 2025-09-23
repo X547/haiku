@@ -1902,6 +1902,7 @@ ServerApp::_DispatchMessage(int32 code, BPrivate::LinkReceiver& link)
 				fLink.Attach<uint16>(font->Face());
 				fLink.Attach<uint32>(font->Flags());
 			}
+			fLink.AttachString(""); // terminator
 
 			fDesktop->UnlockSingleWindow();
 			fLink.Flush();
