@@ -1191,14 +1191,13 @@ BView::SetViewCursor(const BCursor* cursor, bool sync)
 	info.viewToken = _get_object_token_(this);
 	info.sync = sync;
 
-	BPrivate::AppServerLink link;
-	link.StartMessage(AS_SET_VIEW_CURSOR);
-	link.Attach<ViewSetViewCursorInfo>(info);
+	fOwner->fLink->StartMessage(AS_SET_VIEW_CURSOR);
+	fOwner->fLink->Attach<ViewSetViewCursorInfo>(info);
 
 	if (sync) {
 		// Make sure the server has processed the message.
 		int32 code;
-		link.FlushWithReply(code);
+		fOwner->fLink->FlushWithReply(code);
 	}
 }
 
