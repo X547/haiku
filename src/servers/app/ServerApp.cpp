@@ -1091,54 +1091,6 @@ ServerApp::_DispatchMessage(int32 code, BPrivate::LinkReceiver& link)
 			break;
 		}
 
-		case AS_SET_VIEW_CURSOR:
-		{
-			STRACE(("ServerApp %s: AS_SET_VIEW_CURSOR:\n", Signature()));
-
-			ViewSetViewCursorInfo info;
-			if (link.Read<ViewSetViewCursorInfo>(&info) != B_OK)
-				break;
-
-			if (fDesktop->GetCursorManager().Lock()) {
-				BReference<ServerCursor> cursor(fDesktop->GetCursorManager().FindCursor(
-					info.cursorToken), false);
-
-				fDesktop->GetCursorManager().Unlock();
-
-				// We need to acquire the write lock here, since we cannot
-				// afford that the window thread to which the view belongs
-				// is running and messing with that same view.
-				fDesktop->LockAllWindows();
-
-				// Find the corresponding view by the given token. It's ok
-				// if this view does not exist anymore, since it may have
-				// already be deleted in the window thread before this
-				// message got here.
-				View* view;
-				if (fViewTokens.GetToken(info.viewToken, B_HANDLER_TOKEN,
-					(void**)&view) == B_OK) {
-					// Set the cursor on the view.
-					view->SetCursor(cursor);
-
-					// The cursor might need to be updated now.
-					Window* window = view->Window();
-					if (window != NULL && window->IsFocus()) {
-						if (fDesktop->ViewUnderMouse(window) == view->Token())
-							SetCurrentCursor(cursor);
-					}
-				}
-
-				fDesktop->UnlockAllWindows();
-			}
-
-			if (info.sync) {
-				// sync the client (it can now delete the cursor)
-				fLink.StartMessage(B_OK);
-				fLink.Flush();
-			}
-			break;
-		}
-
 		case AS_CREATE_CURSOR:
 		{
 			STRACE(("ServerApp %s: Create Cursor\n", Signature()));
