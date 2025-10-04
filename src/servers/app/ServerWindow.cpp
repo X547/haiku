@@ -1073,6 +1073,47 @@ ServerWindow::_DispatchMessage(int32 code, BPrivate::LinkReceiver& link)
 			break;
 		}
 
+		case AS_SET_VIEW_CURSOR:
+		{
+			STRACE(("ServerWindow %s: AS_SET_VIEW_CURSOR:\n", fTitle));
+
+			ViewSetViewCursorInfo info;
+			if (link.Read<ViewSetViewCursorInfo>(&info) != B_OK)
+				break;
+
+			if (fDesktop->GetCursorManager().Lock()) {
+				BReference<ServerCursor> cursor(fDesktop->GetCursorManager().FindCursor(
+					info.cursorToken), false);
+
+				fDesktop->GetCursorManager().Unlock();
+
+				// Find the corresponding view by the given token. It's ok
+				// if this view does not exist anymore, since it may have
+				// already be deleted in the window thread before this
+				// message got here.
+				View* view;
+
+				if (App()->ViewTokens().GetToken(info.viewToken, B_HANDLER_TOKEN,
+					(void**)&view) == B_OK && view->Window()->ServerWindow() == this) {
+					// Set the cursor on the view.
+					view->SetCursor(cursor);
+
+					// The cursor might need to be updated now.
+					if (fWindow->IsFocus()) {
+						if (fDesktop->ViewUnderMouse(fWindow.Get()) == view->Token())
+							App()->SetCurrentCursor(cursor);
+					}
+				}
+			}
+
+			if (info.sync) {
+				// sync the client (it can now delete the cursor)
+				fLink.StartMessage(B_OK);
+				fLink.Flush();
+			}
+			break;
+		}
+
 		// BDirectWindow communication
 
 		case AS_DIRECT_WINDOW_GET_SYNC_DATA:
@@ -4541,6 +4582,7 @@ ServerWindow::_MessageNeedsAllWindowsLocked(uint32 code) const
 		case AS_SYSTEM_FONT_CHANGED:
 		case AS_SET_DECORATOR_SETTINGS:
 		case AS_GET_MOUSE:
+		case AS_SET_VIEW_CURSOR:
 		case AS_DIRECT_WINDOW_SET_FULLSCREEN:
 //		case AS_VIEW_SET_EVENT_MASK:
 //		case AS_VIEW_SET_MOUSE_EVENT_MASK:
