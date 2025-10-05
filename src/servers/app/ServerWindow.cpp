@@ -375,6 +375,35 @@ ServerWindow::_Hide()
 
 
 void
+ServerWindow::AddViewToken(int32 token, View* view)
+{
+	try {
+		fViewTokens.insert(std::make_pair(token, view));
+	} catch (const std::bad_alloc&) {
+	}
+}
+
+
+void
+ServerWindow::RemoveViewToken(int32 token)
+{
+	fViewTokens.erase(token);
+}
+
+
+status_t
+ServerWindow::GetViewToken(int32 token, View** view)
+{
+	std::map<int32, View*>::iterator it = fViewTokens.find(token);
+	if (it == fViewTokens.end())
+		return B_ENTRY_NOT_FOUND;
+
+	*view = it->second;
+	return B_OK;
+}
+
+
+void
 ServerWindow::RequestRedraw()
 {
 	PostMessage(AS_REDRAW, 0);
@@ -577,8 +606,7 @@ fDesktop->LockAllWindows();
 
 	if (_parent) {
 		View *parent;
-		if (App()->ViewTokens().GetToken(parentToken, B_HANDLER_TOKEN,
-				(void**)&parent) != B_OK
+		if (GetViewToken(parentToken, &parent) != B_OK
 			|| parent->Window()->ServerWindow() != this) {
 			debug_printf("View token not found!\n");
 			parent = NULL;
@@ -1093,8 +1121,8 @@ ServerWindow::_DispatchMessage(int32 code, BPrivate::LinkReceiver& link)
 				// message got here.
 				View* view;
 
-				if (App()->ViewTokens().GetToken(info.viewToken, B_HANDLER_TOKEN,
-					(void**)&view) == B_OK && view->Window()->ServerWindow() == this) {
+				if (GetViewToken(info.viewToken,
+					&view) == B_OK && view->Window()->ServerWindow() == this) {
 					// Set the cursor on the view.
 					view->SetCursor(cursor);
 
@@ -1157,8 +1185,7 @@ ServerWindow::_DispatchMessage(int32 code, BPrivate::LinkReceiver& link)
 				break;
 
 			View *current;
-			if (App()->ViewTokens().GetToken(token, B_HANDLER_TOKEN,
-					(void**)&current) != B_OK
+			if (GetViewToken(token, &current) != B_OK
 				|| current->Window()->ServerWindow() != this) {
 				// TODO: if this happens, we probably want to kill the app and
 				// clean up
@@ -1294,8 +1321,7 @@ ServerWindow::_DispatchViewMessage(int32 code,
 				break;
 
 			View *view;
-			if (App()->ViewTokens().GetToken(token, B_HANDLER_TOKEN,
-					(void**)&view) == B_OK
+			if (GetViewToken(token, &view) == B_OK
 				&& view->Window()->ServerWindow() == this) {
 				View* parent = view->Parent();
 
