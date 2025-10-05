@@ -94,8 +94,6 @@ public:
 
 			const ServerFont&	PlainFont() const { return fPlainFont; }
 
-			BPrivate::BTokenSpace& ViewTokens() { return fViewTokens; }
-
 			AppFontManager*		FontManager() { return fAppFontManager; }
 
 private:
@@ -139,7 +137,6 @@ private:
 
 	mutable	BLocker				fWindowListLock;
 			BObjectList<ServerWindow> fWindowList;
-			BPrivate::BTokenSpace fViewTokens;
 
 			int32				fInitialWorkspace;
 			uint32				fTemporaryDisplayModeChange;

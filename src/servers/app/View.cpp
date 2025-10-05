@@ -176,10 +176,8 @@ View::AttachedToWindow(::Window* window)
 		fIsDesktopBackground = true;
 
 	// insert view into local token space
-	if (fWindow != NULL) {
-		fWindow->ServerWindow()->App()->ViewTokens().SetToken(fToken,
-			B_HANDLER_TOKEN, this);
-	}
+	if (fWindow != NULL)
+		fWindow->ServerWindow()->AddViewToken(fToken, this);
 
 	// attach child views as well
 	for (View* child = FirstChild(); child; child = child->NextSibling())
@@ -192,7 +190,7 @@ View::DetachedFromWindow()
 {
 	// remove view from local token space
 	if (fWindow != NULL && fWindow->ServerWindow()->App() != NULL)
-		fWindow->ServerWindow()->App()->ViewTokens().RemoveToken(fToken);
+		fWindow->ServerWindow()->RemoveViewToken(fToken);
 
 	fWindow = NULL;
 	// detach child views as well

@@ -95,6 +95,10 @@ public:
 	inline	int32				ClientToken() const { return fClientToken; }
 	inline	int32				ServerToken() const { return fServerToken; }
 
+			void				AddViewToken(int32 token, View* view);
+			void				RemoveViewToken(int32 token);
+			status_t			GetViewToken(int32 token, View** view);
+
 			void				RequestRedraw();
 
 			void				GetInfo(window_info& info);
@@ -165,6 +169,8 @@ private:
 
 			int32				fServerToken;
 			int32				fClientToken;
+
+			std::map<int32, View*> fViewTokens;
 
 			View*				fCurrentView;
 			BRegion				fCurrentDrawingRegion;
