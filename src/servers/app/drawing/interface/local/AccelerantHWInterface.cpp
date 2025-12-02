@@ -218,13 +218,14 @@ bool
 AccelerantHWInterface::_RecursiveScan(const char* directory, int deviceNumber, int &count,
 	char *_path)
 {
-	ATRACE(("_RecursiveScan directory: %s\n", directory));
+	debug_printf("app_server: _RecursiveScan(\"%s\")\n", directory);
 
 	BEntry entry;
 	BDirectory dir(directory);
 	while (dir.GetNextEntry(&entry) == B_OK) {
 		BPath path;
 		entry.GetPath(&path);
+		debug_printf("app_server:   deviceNumber: %d, count: %d, path: \"%s\"\n", deviceNumber, count, path.Path());
 		if (!strcmp(path.Path(), "/dev/graphics/vesa")
 			|| !strcmp(path.Path(), "/dev/graphics/framebuffer")) {
 			continue;
@@ -266,8 +267,10 @@ AccelerantHWInterface::_OpenGraphicsDevice(int deviceNumber)
 	int count = 0;
 	if (!use_fail_safe_video_mode()) {
 		char path[PATH_MAX];
-		if (_RecursiveScan("/dev/graphics/", deviceNumber, count, path))
+		if (_RecursiveScan("/dev/graphics/", deviceNumber, count, path)) {
 			device = open(path, B_READ_WRITE);
+			debug_printf("app_server: opening device \"%s\": %d\n", path, device);
+		}
 	}
 
 	// Open VESA or Framebuffer driver if we were not able to get a better one.
@@ -278,6 +281,7 @@ AccelerantHWInterface::_OpenGraphicsDevice(int deviceNumber)
 			fVGADevice = device;
 		} else {
 			device = open("/dev/graphics/framebuffer", B_READ_WRITE);
+			debug_printf("app_server: opening device \"%s\": %d\n", "/dev/graphics/framebuffer", device);
 		}
 
 		if (device < 0)
@@ -291,13 +295,14 @@ AccelerantHWInterface::_OpenGraphicsDevice(int deviceNumber)
 status_t
 AccelerantHWInterface::_OpenAccelerant(int device)
 {
+	debug_printf("app_server: _OpenAccelerant(%d)\n", device);
 	char signature[1024];
 	if (ioctl(device, B_GET_ACCELERANT_SIGNATURE,
 			&signature, sizeof(signature)) != B_OK) {
 		return B_ERROR;
 	}
 
-	ATRACE(("accelerant signature is: %s\n", signature));
+	debug_printf("app_server: accelerant signature: %s\n", signature);
 
 	fAccelerantImage = -1;
 
@@ -313,13 +318,13 @@ AccelerantHWInterface::_OpenAccelerant(int device)
 		if (stat(path, &accelerantStat) != 0)
 			continue;
 
-		ATRACE(("accelerant path is: %s\n", path));
+		debug_printf("app_server: accelerant path: \"%s\"\n", path);
 
 		fAccelerantImage = load_add_on(path);
 		if (fAccelerantImage >= 0) {
 			if (get_image_symbol(fAccelerantImage, B_ACCELERANT_ENTRY_POINT,
 					B_SYMBOL_TYPE_ANY, (void**)(&fAccelerantHook)) != B_OK) {
-				ATRACE(("unable to get B_ACCELERANT_ENTRY_POINT\n"));
+				debug_printf("app_server: unable to get B_ACCELERANT_ENTRY_POINT\n");
 				unload_add_on(fAccelerantImage);
 				fAccelerantImage = -1;
 				return B_ERROR;
@@ -329,7 +334,7 @@ AccelerantHWInterface::_OpenAccelerant(int device)
 			initAccelerant = (init_accelerant)fAccelerantHook(
 				B_INIT_ACCELERANT, NULL);
 			if (!initAccelerant || initAccelerant(device) != B_OK) {
-				ATRACE(("InitAccelerant unsuccessful\n"));
+				debug_printf("app_server: InitAccelerant unsuccessful\n");
 				unload_add_on(fAccelerantImage);
 				fAccelerantImage = -1;
 				return B_ERROR;
