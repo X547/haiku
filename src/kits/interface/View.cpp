@@ -3633,10 +3633,28 @@ void
 BView::StrokePolygon(const BPoint* pointArray, int32 numPoints, bool closed,
 	::pattern pattern)
 {
-	BPolygon polygon(pointArray, numPoints);
+	if (pointArray == NULL
+		|| numPoints <= 1
+		|| fOwner == NULL)
+		return;
 
-	StrokePolygon(polygon.fPoints, polygon.fCount, polygon.Frame(), closed,
-		pattern);
+	BRect bounds = BPolygon::_ComputeBounds(pointArray, numPoints);
+
+	_CheckLockAndSwitchCurrent();
+	_UpdatePattern(pattern);
+
+	if (fOwner->fLink->StartMessage(AS_STROKE_POLYGON,
+			numPoints * sizeof(BPoint) + sizeof(BRect) + sizeof(bool)
+				+ sizeof(int32)) == B_OK) {
+		fOwner->fLink->Attach<BRect>(bounds);
+		fOwner->fLink->Attach<bool>(closed);
+		fOwner->fLink->Attach<int32>(numPoints);
+		fOwner->fLink->Attach(pointArray, numPoints * sizeof(BPoint));
+
+		_FlushIfNotInTransaction();
+	} else {
+		fprintf(stderr, "ERROR: Can't send polygon to app_server!\n");
+	}
 }
 
 
@@ -3685,10 +3703,28 @@ void
 BView::StrokePolygon(const BPoint* pointArray, int32 numPoints, bool closed,
 	const BGradient& gradient)
 {
-	BPolygon polygon(pointArray, numPoints);
+	if (pointArray == NULL
+		|| numPoints <= 1
+		|| fOwner == NULL)
+		return;
 
-	StrokePolygon(polygon.fPoints, polygon.fCount, polygon.Frame(), closed,
-		gradient);
+	BRect bounds = BPolygon::_ComputeBounds(pointArray, numPoints);
+
+	_CheckLockAndSwitchCurrent();
+
+	if (fOwner->fLink->StartMessage(AS_STROKE_POLYGON_GRADIENT,
+			numPoints * sizeof(BPoint) + sizeof(BRect) + sizeof(bool)
+				+ sizeof(int32)) == B_OK) {
+		fOwner->fLink->Attach<BRect>(bounds);
+		fOwner->fLink->Attach<bool>(closed);
+		fOwner->fLink->Attach<int32>(numPoints);
+		fOwner->fLink->Attach(pointArray, numPoints * sizeof(BPoint));
+		fOwner->fLink->AttachGradient(gradient);
+
+		_FlushIfNotInTransaction();
+	} else {
+		fprintf(stderr, "ERROR: Can't send polygon to app_server!\n");
+	}
 }
 
 
@@ -3777,11 +3813,27 @@ BView::FillPolygon(const BPolygon* polygon, const BGradient& gradient)
 void
 BView::FillPolygon(const BPoint* pointArray, int32 numPoints, ::pattern pattern)
 {
-	if (pointArray == NULL)
+	if (pointArray == NULL
+		|| numPoints <= 2
+		|| fOwner == NULL)
 		return;
 
-	BPolygon polygon(pointArray, numPoints);
-	FillPolygon(&polygon, pattern);
+	BRect bounds = BPolygon::_ComputeBounds(pointArray, numPoints);
+
+	_CheckLockAndSwitchCurrent();
+	_UpdatePattern(pattern);
+
+	if (fOwner->fLink->StartMessage(AS_FILL_POLYGON,
+			numPoints * sizeof(BPoint) + sizeof(BRect) + sizeof(int32))
+				== B_OK) {
+		fOwner->fLink->Attach<BRect>(bounds);
+		fOwner->fLink->Attach<int32>(numPoints);
+		fOwner->fLink->Attach(pointArray, numPoints * sizeof(BPoint));
+
+		_FlushIfNotInTransaction();
+	} else {
+		fprintf(stderr, "ERROR: Can't send polygon to app_server!\n");
+	}
 }
 
 
@@ -3789,11 +3841,27 @@ void
 BView::FillPolygon(const BPoint* pointArray, int32 numPoints,
 	const BGradient& gradient)
 {
-	if (pointArray == NULL)
+	if (pointArray == NULL
+		|| numPoints <= 2
+		|| fOwner == NULL)
 		return;
 
-	BPolygon polygon(pointArray, numPoints);
-	FillPolygon(&polygon, gradient);
+	BRect bounds = BPolygon::_ComputeBounds(pointArray, numPoints);
+
+	_CheckLockAndSwitchCurrent();
+
+	if (fOwner->fLink->StartMessage(AS_FILL_POLYGON_GRADIENT,
+			numPoints * sizeof(BPoint) + sizeof(BRect) + sizeof(int32))
+				== B_OK) {
+		fOwner->fLink->Attach<BRect>(bounds);
+		fOwner->fLink->Attach<int32>(numPoints);
+		fOwner->fLink->Attach(pointArray, numPoints * sizeof(BPoint));
+		fOwner->fLink->AttachGradient(gradient);
+
+		_FlushIfNotInTransaction();
+	} else {
+		fprintf(stderr, "ERROR: Can't send polygon to app_server!\n");
+	}
 }
 
 
