@@ -294,33 +294,12 @@ TabletDevice::_ControlThread()
 		if (movements.has_contact) {
 			// Send single messages for each event
 
-			movements.buttons |= (movements.switches & B_TIP_SWITCH);
-			movements.buttons |= (movements.switches & B_BARREL_SWITCH) >> 1;
 			bool eraser = (movements.switches & B_ERASER) != 0;
-
-			uint32 buttons = lastButtons ^ movements.buttons;
-			if (buttons != 0) {
-				bool pressedButton = (buttons & movements.buttons) > 0;
-				BMessage* message = _BuildMouseMessage(
-					pressedButton ? B_MOUSE_DOWN : B_MOUSE_UP,
-					movements.timestamp, movements.buttons, movements.xpos,
-					movements.ypos);
-				if (message != NULL) {
-					if (pressedButton) {
-						message->AddInt32("clicks", movements.clicks);
-						LOG_EVENT("B_MOUSE_DOWN\n");
-					} else
-						LOG_EVENT("B_MOUSE_UP\n");
-
-					fTarget.EnqueueMessage(message);
-					lastButtons = movements.buttons;
-				}
-			}
 
 			if (movements.xpos != lastXPosition
 				|| movements.ypos != lastYPosition) {
 				BMessage* message = _BuildMouseMessage(B_MOUSE_MOVED,
-					movements.timestamp, movements.buttons, movements.xpos,
+					movements.timestamp, lastButtons, movements.xpos,
 					movements.ypos);
 				if (message != NULL) {
 					message->AddFloat("be:tablet_x", movements.xpos);
@@ -354,6 +333,28 @@ TabletDevice::_ControlThread()
 					fTarget.EnqueueMessage(message);
 				else
 					delete message;
+			}
+
+			movements.buttons |= (movements.switches & B_TIP_SWITCH);
+			movements.buttons |= (movements.switches & B_BARREL_SWITCH) >> 1;
+
+			uint32 buttons = lastButtons ^ movements.buttons;
+			if (buttons != 0) {
+				bool pressedButton = (buttons & movements.buttons) > 0;
+				BMessage* message = _BuildMouseMessage(
+					pressedButton ? B_MOUSE_DOWN : B_MOUSE_UP,
+					movements.timestamp, movements.buttons, movements.xpos,
+					movements.ypos);
+				if (message != NULL) {
+					if (pressedButton) {
+						message->AddInt32("clicks", movements.clicks);
+						LOG_EVENT("B_MOUSE_DOWN\n");
+					} else
+						LOG_EVENT("B_MOUSE_UP\n");
+
+					fTarget.EnqueueMessage(message);
+					lastButtons = movements.buttons;
+				}
 			}
 		}
 	}
