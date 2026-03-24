@@ -88,7 +88,7 @@ public:
 									const bool& fill);
 			status_t			WriteDrawBezier(const BPoint points[4],
 									const bool& fill);
-			status_t			WriteDrawString(const BPoint& where,
+			status_t			WriteDrawString(
 									const char* string, const int32& length,
 									const escapement_delta& delta);
 			status_t			WriteDrawString(const char* string,
