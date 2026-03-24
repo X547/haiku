@@ -15,6 +15,7 @@
 #include <new>
 #include <stdio.h>
 #include <stack>
+#include <strings.h>
 
 #include "AlphaMask.h"
 #include "DrawingEngine.h"
@@ -1057,7 +1058,9 @@ CanvasCallbacks::ClipToShape(int32 opCount, const uint32 opList[],
 ServerPicture::ServerPicture()
 	:
 	fFile(NULL),
-	fOwner(NULL)
+	fOwner(NULL),
+	fChangedStateMask(kInitialPictureStateMask),
+	fChangedFontStateMask(kInitialPictureFontStateMask)
 {
 	fToken = gTokenSpace.NewToken(kPictureToken, this);
 	fData.SetTo(new(std::nothrow) BMallocIO());
@@ -1070,7 +1073,9 @@ ServerPicture::ServerPicture(const ServerPicture& picture)
 	:
 	fFile(NULL),
 	fData(NULL),
-	fOwner(NULL)
+	fOwner(NULL),
+	fChangedStateMask(kInitialPictureStateMask),
+	fChangedFontStateMask(kInitialPictureFontStateMask)
 {
 	fToken = gTokenSpace.NewToken(kPictureToken, this);
 
@@ -1095,7 +1100,9 @@ ServerPicture::ServerPicture(const char* fileName, int32 offset)
 	:
 	fFile(NULL),
 	fData(NULL),
-	fOwner(NULL)
+	fOwner(NULL),
+	fChangedStateMask(kInitialPictureStateMask),
+	fChangedFontStateMask(kInitialPictureFontStateMask)
 {
 	fToken = gTokenSpace.NewToken(kPictureToken, this);
 
@@ -1179,66 +1186,136 @@ ServerPicture::ExitStateChange()
 void
 ServerPicture::SyncState(Canvas* canvas)
 {
-	// TODO: Finish this
+	if (fChangedStateMask == 0)
+		return;
+
+	uint32 mask = fChangedStateMask;
+	fChangedStateMask = 0;
+
+	DrawState* state = canvas->CurrentState();
+
 	EnterStateChange();
 
-	WriteSetOrigin(canvas->CurrentState()->Origin());
-	WriteSetPenLocation(canvas->CurrentState()->PenLocation());
-	WriteSetPenSize(canvas->CurrentState()->UnscaledPenSize());
-	WriteSetScale(canvas->CurrentState()->Scale());
-	WriteSetLineMode(canvas->CurrentState()->LineCapMode(),
-		canvas->CurrentState()->LineJoinMode(),
-		canvas->CurrentState()->MiterLimit());
-	//WriteSetPattern(*canvas->CurrentState()->GetPattern().GetInt8());
-	WriteSetDrawingMode(canvas->CurrentState()->GetDrawingMode());
-
-	WriteSetHighColor(canvas->CurrentState()->HighColor());
-	WriteSetLowColor(canvas->CurrentState()->LowColor());
+	while (mask != 0) {
+		uint32 field = ffsl(mask) - 1;
+		mask &= ~(1U << field);
+		switch (field) {
+			case PictureState_penLocation:
+				WriteSetPenLocation(state->PenLocation());
+				break;
+			case PictureState_penSize:
+				WriteSetPenSize(state->UnscaledPenSize());
+				break;
+			case PictureState_lineMode:
+				WriteSetLineMode(state->LineCapMode(),
+					state->LineJoinMode(),
+					state->MiterLimit());
+				break;
+			case PictureState_pattern:
+				WriteSetPattern(state->GetPattern().GetPattern());
+				break;
+			case PictureState_drawingMode:
+				WriteSetDrawingMode(state->GetDrawingMode());
+				break;
+			case PictureState_blendingMode:
+				WriteSetBlendingMode(state->AlphaSrcMode(), state->AlphaFncMode());
+				break;
+			case PictureState_scale:
+				WriteSetScale(state->Scale());
+				break;
+			case PictureState_highColor:
+				WriteSetHighColor(state->HighColor());
+				break;
+			case PictureState_lowColor:
+				WriteSetLowColor(state->LowColor());
+				break;
+			case PictureState_origin:
+				WriteSetOrigin(state->Origin());
+				break;
+			case PictureState_clip:
+			{
+				PictureAlphaMask* pictAlphaMask
+					= dynamic_cast<PictureAlphaMask*>(state->GetAlphaMask());
+				if (pictAlphaMask != NULL) {
+					int32 subPictureIndex = NestPicture(pictAlphaMask->Picture());
+					if (subPictureIndex >= 0) {
+						WriteClipToPicture(subPictureIndex, pictAlphaMask->Where(),
+							pictAlphaMask->IsInverted());
+					} else {
+						WriteClearClipping();
+					}
+				} else {
+					const BRegion* clippingRegion = state->ClippingRegion();
+					if (clippingRegion != NULL)
+						WriteSetClipping(*clippingRegion);
+					else
+						WriteClearClipping();
+				}
+				break;
+			}
+			case PictureState_fillRule:
+				WriteSetFillRule(state->FillRule());
+				break;
+			case PictureState_transform:
+				WriteSetTransform(state->Transform());
+				break;
+			case PictureState_font:
+				SyncFontState(state->Font());
+				break;
+		}
+	}
 
 	ExitStateChange();
 }
 
 
 void
-ServerPicture::WriteFontState(const ServerFont& font, uint16 mask)
+ServerPicture::SyncFontState(const ServerFont& font)
 {
+	uint32 mask = fChangedFontStateMask;
+	fChangedFontStateMask = 0;
+
 	BeginOp(B_PIC_ENTER_FONT_STATE);
 
-	if (mask & B_FONT_FAMILY_AND_STYLE) {
-		WriteSetFontFamily(font.Family());
-		WriteSetFontStyle(font.Style());
-	}
-
-	if (mask & B_FONT_SIZE) {
-		WriteSetFontSize(font.Size());
-	}
-
-	if (mask & B_FONT_SHEAR) {
-		WriteSetFontShear((font.Shear() - 90) * (M_PI / 180));
-	}
-
-	if (mask & B_FONT_ROTATION) {
-		WriteSetFontRotation(font.Rotation());
-	}
-
-	if (mask & B_FONT_FALSE_BOLD_WIDTH) {
-		WriteSetFontFalseBoldWidth(font.FalseBoldWidth());
-	}
-
-	if (mask & B_FONT_SPACING) {
-		WriteSetFontSpacing(font.Spacing());
-	}
-
-	if (mask & B_FONT_ENCODING) {
-		WriteSetFontEncoding(font.Encoding());
-	}
-
-	if (mask & B_FONT_FACE) {
-		WriteSetFontFace(font.Face());
-	}
-
-	if (mask & B_FONT_FLAGS) {
-		WriteSetFontFlags(font.Flags());
+	while (mask != 0) {
+		uint32 field = ffsl(mask) - 1;
+		mask &= ~(1U << field);
+		switch (field) {
+			case PictureFontState_fontStyle:
+				WriteSetFontFamily(font.Family());
+				WriteSetFontStyle(font.Style());
+				break;
+			case PictureFontState_size:
+				WriteSetFontSize(font.Size());
+				break;
+			case PictureFontState_encoding:
+				WriteSetFontEncoding(font.Encoding());
+				break;
+			case PictureFontState_shear:
+				WriteSetFontShear((font.Shear() - 90) * (M_PI / 180));
+				break;
+			case PictureFontState_rotation:
+				WriteSetFontRotation(font.Rotation());
+				break;
+			case PictureFontState_falseBoldWidth:
+				WriteSetFontFalseBoldWidth(font.FalseBoldWidth());
+				break;
+			case PictureFontState_spacing:
+				WriteSetFontSpacing(font.Spacing());
+				break;
+			case PictureFontState_bpp:
+				// Obsolete BeOS field, ignored on read.
+				BeginOp(B_PIC_SET_FONT_BPP);
+				Write<int32>(3);
+				EndOp();
+				break;
+			case PictureFontState_flags:
+				WriteSetFontFlags(font.Flags());
+				break;
+			case PictureFontState_face:
+				WriteSetFontFace(font.Face());
+				break;
+		}
 	}
 
 	EndOp();
@@ -1300,7 +1377,11 @@ ServerPicture::NestPicture(ServerPicture* picture)
 	if (!fPictures.IsSet())
 		return -1;
 
-	int32 index = fPictures->CountItems();
+	int32 index = fPictures->IndexOf(picture);
+	if (index >= 0)
+		return index;
+
+	index = fPictures->CountItems();
 	if (!fPictures->AddItem(picture))
 		return -1;
 

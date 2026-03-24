@@ -77,6 +77,9 @@ public:
 								{ return fCombinedTransform; }
 		void				SetTransformEnabled(bool enabled);
 
+		const BRegion*		ClippingRegion() const
+								{ return fClippingRegion.Get(); }
+
 		DrawState*			Squash() const;
 
 							// additional clipping as requested by client

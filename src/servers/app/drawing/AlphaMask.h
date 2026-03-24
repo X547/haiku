@@ -122,6 +122,9 @@ public:
 								VectorAlphaMask(AlphaMask* previousMask,
 									VectorAlphaMask* other);
 
+			BPoint				Where() const
+									{ return fWhere; }
+
 private:
 	virtual	ServerBitmap*		_RenderSource(const IntRect& canvasBounds);
 	virtual	IntPoint			_Offset();
@@ -141,6 +144,9 @@ public:
 									const DrawState& drawState, BPoint where,
 									bool inverse);
 	virtual						~PictureAlphaMask();
+
+			ServerPicture*		Picture() const
+									{ return fPicture.Get(); }
 
 			void				DrawVectors(Canvas* canvas);
 			BRect				DetermineBoundingBox() const;

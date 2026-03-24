@@ -498,14 +498,10 @@ PictureDataWriter::WriteStrokeLine(const BPoint& start, const BPoint& end)
 
 
 status_t
-PictureDataWriter::WriteDrawString(const BPoint& where, const char* string,
+PictureDataWriter::WriteDrawString(const char* string,
 	const int32& length, const escapement_delta& escapement)
 {
 	try {
-		BeginOp(B_PIC_SET_PEN_LOCATION);
-		Write<BPoint>(where);
-		EndOp();
-
 		BeginOp(B_PIC_DRAW_STRING);
 		Write<int32>(length);
 		WriteData(string, length);

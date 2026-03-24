@@ -2463,10 +2463,9 @@ fDesktop->LockSingleWindow();
 			DTRACE(("ServerWindow %s: Message AS_VIEW_BEGIN_PICTURE\n",
 				Title()));
 			BReference<ServerPicture> picture(App()->CreatePicture(), true);
-			if (picture != NULL) {
-				picture->SyncState(fCurrentView);
+			if (picture != NULL)
 				fCurrentView->SetPicture(picture);
-			}
+
 			break;
 		}
 
@@ -2479,9 +2478,6 @@ fDesktop->LockSingleWindow();
 			link.Read<int32>(&token);
 
 			BReference<ServerPicture> picture(App()->GetPicture(token), true);
-			if (picture != NULL)
-				picture->SyncState(fCurrentView);
-
 			fCurrentView->SetPicture(picture);
 
 			break;
@@ -3366,8 +3362,9 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			link.Read<float>(&x);
 			link.Read<float>(&y);
 
+			picture->ChangeStateField(PictureState_origin);
+
 			fCurrentView->SetDrawingOrigin(BPoint(x, y));
-			picture->WriteSetOrigin(BPoint(x, y));
 			break;
 		}
 
@@ -3375,12 +3372,14 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 		{
 			BRect rect;
 			link.Read<BRect>(&rect);
+			picture->SyncState(fCurrentView);
 			picture->WriteInvertRect(rect);
 			break;
 		}
 
 		case AS_VIEW_PUSH_STATE:
 		{
+			picture->SyncState(fCurrentView);
 			fCurrentView->PushState();
 			picture->WritePushState();
 			break;
@@ -3388,6 +3387,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 
 		case AS_VIEW_POP_STATE:
 		{
+			picture->ResetStateFields();
 			fCurrentView->PopState();
 			picture->WritePopState();
 			break;
@@ -3398,7 +3398,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			int8 drawingMode;
 			link.Read<int8>(&drawingMode);
 
-			picture->WriteSetDrawingMode((drawing_mode)drawingMode);
+			picture->ChangeStateField(PictureState_drawingMode);
 
 			fCurrentView->CurrentState()->SetDrawingMode(
 				(drawing_mode)drawingMode);
@@ -3411,7 +3411,8 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 		{
 			BPoint location;
 			link.Read<BPoint>(&location);
-			picture->WriteSetPenLocation(location);
+
+			picture->ChangeStateField(PictureState_penLocation);
 
 			fCurrentView->CurrentState()->SetPenLocation(location);
 			break;
@@ -3423,6 +3424,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			if (link.Read<BPoint>(&offset) != B_OK)
 				break;
 
+			picture->SyncState(fCurrentView);
 			picture->WriteMovePenBy(offset);
 
 			BPoint location = fCurrentView->CurrentState()->PenLocation();
@@ -3434,7 +3436,8 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 		{
 			float penSize;
 			link.Read<float>(&penSize);
-			picture->WriteSetPenSize(penSize);
+
+			picture->ChangeStateField(PictureState_penSize);
 
 			fCurrentView->CurrentState()->SetPenSize(penSize);
 			fWindow->GetDrawingEngine()->SetPenSize(
@@ -3448,8 +3451,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			ViewSetLineModeInfo info;
 			link.Read<ViewSetLineModeInfo>(&info);
 
-			picture->WriteSetLineMode(info.lineCap, info.lineJoin,
-				info.miterLimit);
+			picture->ChangeStateField(PictureState_lineMode);
 
 			fCurrentView->CurrentState()->SetLineCapMode(info.lineCap);
 			fCurrentView->CurrentState()->SetLineJoinMode(info.lineJoin);
@@ -3465,7 +3467,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			if (link.Read<int32>(&fillRule) != B_OK)
 				break;
 
-			picture->WriteSetFillRule(fillRule);
+			picture->ChangeStateField(PictureState_fillRule);
 
 			fCurrentView->CurrentState()->SetFillRule(fillRule);
 			fWindow->GetDrawingEngine()->SetFillRule(fillRule);
@@ -3478,7 +3480,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			if (link.Read<float>(&scale) != B_OK)
 				break;
 
-			picture->WriteSetScale(scale);
+			picture->ChangeStateField(PictureState_scale);
 
 			fCurrentView->SetScale(scale);
 			_UpdateDrawState(fCurrentView);
@@ -3490,7 +3492,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			if (link.ReadAffineTransform(&transform) != B_OK)
 				break;
 
-			picture->WriteSetTransform(transform);
+			picture->ChangeStateField(PictureState_transform);
 
 			fCurrentView->CurrentState()->SetTransform(transform);
 			_UpdateDrawState(fCurrentView);
@@ -3503,6 +3505,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			link.Read<double>(&x);
 			link.Read<double>(&y);
 
+			picture->SyncState(fCurrentView);
 			picture->WriteTranslateBy(x, y);
 
 			BAffineTransform current =
@@ -3519,6 +3522,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			link.Read<double>(&x);
 			link.Read<double>(&y);
 
+			picture->SyncState(fCurrentView);
 			picture->WriteScaleBy(x, y);
 
 			BAffineTransform current =
@@ -3534,6 +3538,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			double angleRadians;
 			link.Read<double>(&angleRadians);
 
+			picture->SyncState(fCurrentView);
 			picture->WriteRotateBy(angleRadians);
 
 			BAffineTransform current =
@@ -3549,7 +3554,11 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 		{
 			pattern pat;
 			link.Read(&pat, sizeof(pattern));
-			picture->WriteSetPattern(pat);
+
+			fCurrentView->CurrentState()->SetPattern(Pattern(pat));
+
+			picture->ChangeStateField(PictureState_pattern);
+			fWindow->GetDrawingEngine()->SetPattern(pat);
 			break;
 		}
 
@@ -3559,7 +3568,38 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			fWindow->GetDrawingEngine()->SetFont(
 				fCurrentView->CurrentState());
 
-			picture->WriteFontState(fCurrentView->CurrentState()->Font(), mask);
+			if (mask == 0)
+				break;
+
+			picture->ChangeStateField(PictureState_font);
+
+			if ((mask & B_FONT_FAMILY_AND_STYLE) != 0)
+				picture->ChangeFontStateField(PictureFontState_fontStyle);
+
+			if ((mask & B_FONT_SIZE) != 0)
+				picture->ChangeFontStateField(PictureFontState_size);
+
+			if ((mask & B_FONT_SHEAR) != 0)
+				picture->ChangeFontStateField(PictureFontState_shear);
+
+			if ((mask & B_FONT_ROTATION) != 0)
+				picture->ChangeFontStateField(PictureFontState_rotation);
+
+			if ((mask & B_FONT_SPACING) != 0)
+				picture->ChangeFontStateField(PictureFontState_spacing);
+
+			if ((mask & B_FONT_ENCODING) != 0)
+				picture->ChangeFontStateField(PictureFontState_encoding);
+
+			if ((mask & B_FONT_FACE) != 0)
+				picture->ChangeFontStateField(PictureFontState_face);
+
+			if ((mask & B_FONT_FLAGS) != 0)
+				picture->ChangeFontStateField(PictureFontState_flags);
+
+			if ((mask & B_FONT_FALSE_BOLD_WIDTH) != 0)
+				picture->ChangeFontStateField(PictureFontState_falseBoldWidth);
+
 			break;
 		}
 
@@ -3569,6 +3609,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			BRect rect;
 			link.Read<BRect>(&rect);
 
+			picture->SyncState(fCurrentView);
 			picture->WriteDrawRect(rect, code == AS_FILL_RECT);
 			break;
 		}
@@ -3580,6 +3621,11 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			BRegion region;
 			if (link.ReadRegion(&region) < B_OK)
 				break;
+
+			if (region.CountRects() == 0)
+				break;
+
+			picture->SyncState(fCurrentView);
 			for (int32 i = 0; i < region.CountRects(); i++)
 				picture->WriteDrawRect(region.RectAt(i), true);
 			break;
@@ -3595,6 +3641,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			link.Read<float>(&radii.x);
 			link.Read<float>(&radii.y);
 
+			picture->SyncState(fCurrentView);
 			picture->WriteDrawRoundRect(rect, radii, code == AS_FILL_ROUNDRECT);
 			break;
 		}
@@ -3604,6 +3651,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 		{
 			BRect rect;
 			link.Read<BRect>(&rect);
+			picture->SyncState(fCurrentView);
 			picture->WriteDrawEllipse(rect, code == AS_FILL_ELLIPSE);
 			break;
 		}
@@ -3620,6 +3668,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			BPoint radii((rect.Width() + 1) / 2, (rect.Height() + 1) / 2);
 			BPoint center = rect.LeftTop() + radii;
 
+			picture->SyncState(fCurrentView);
 			picture->WriteDrawArc(center, radii, startTheta, arcTheta,
 				code == AS_FILL_ARC);
 			break;
@@ -3639,6 +3688,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			BRect rect;
 			link.Read<BRect>(&rect);
 
+			picture->SyncState(fCurrentView);
 			picture->WriteDrawPolygon(3, points,
 					true, code == AS_FILL_TRIANGLE);
 			break;
@@ -3658,6 +3708,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 
 			BPoint* pointList = new(nothrow) BPoint[pointCount];
 			if (link.Read(pointList, pointCount * sizeof(BPoint)) >= B_OK) {
+				picture->SyncState(fCurrentView);
 				picture->WriteDrawPolygon(pointCount, pointList,
 					isClosed && pointCount > 2, fill);
 			}
@@ -3672,6 +3723,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			for (int32 i = 0; i < 4; i++) {
 				link.Read<BPoint>(&(points[i]));
 			}
+			picture->SyncState(fCurrentView);
 			picture->WriteDrawBezier(points, code == AS_FILL_BEZIER);
 			break;
 		}
@@ -3686,6 +3738,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 				break;
 			ObjectDeleter<BGradient> gradientDeleter(gradient);
 
+			picture->SyncState(fCurrentView);
 			picture->WriteDrawRectGradient(rect, *gradient, code == AS_FILL_RECT_GRADIENT);
 			break;
 		}
@@ -3706,6 +3759,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			BPoint radii((rect.Width() + 1) / 2, (rect.Height() + 1) / 2);
 			BPoint center = rect.LeftTop() + radii;
 
+			picture->SyncState(fCurrentView);
 			picture->WriteDrawArcGradient(center, radii, startTheta, arcTheta, *gradient,
 				code == AS_FILL_ARC_GRADIENT);
 			break;
@@ -3723,6 +3777,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 				break;
 			ObjectDeleter<BGradient> gradientDeleter(gradient);
 
+			picture->SyncState(fCurrentView);
 			picture->WriteDrawBezierGradient(points, *gradient, code == AS_FILL_BEZIER_GRADIENT);
 			break;
 		}
@@ -3737,6 +3792,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 				break;
 			ObjectDeleter<BGradient> gradientDeleter(gradient);
 
+			picture->SyncState(fCurrentView);
 			picture->WriteDrawEllipseGradient(rect, *gradient, code == AS_FILL_ELLIPSE_GRADIENT);
 			break;
 		}
@@ -3755,6 +3811,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 				break;
 			ObjectDeleter<BGradient> gradientDeleter(gradient);
 
+			picture->SyncState(fCurrentView);
 			picture->WriteDrawRoundRectGradient(rect, radii, *gradient, code == AS_FILL_ROUNDRECT_GRADIENT);
 			break;
 		}
@@ -3777,6 +3834,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 				break;
 			ObjectDeleter<BGradient> gradientDeleter(gradient);
 
+			picture->SyncState(fCurrentView);
 			picture->WriteDrawPolygonGradient(3, points,
 					true, *gradient, code == AS_FILL_TRIANGLE_GRADIENT);
 			break;
@@ -3804,6 +3862,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 				break;
 			ObjectDeleter<BGradient> gradientDeleter(gradient);
 
+			picture->SyncState(fCurrentView);
 			picture->WriteDrawPolygonGradient(pointCount, pointList.Get(),
 				isClosed && pointCount > 2, *gradient, fill);
 			break;
@@ -3840,6 +3899,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 				ptList.Get()[i] += penLocation;
 			}
 			const bool fill = (code == AS_FILL_SHAPE_GRADIENT);
+			picture->SyncState(fCurrentView);
 			picture->WriteDrawShapeGradient(opCount, opList.Get(), ptCount, ptList.Get(), *gradient, fill);
 
 			break;
@@ -3858,6 +3918,10 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 				break;
 			ObjectDeleter<BGradient> gradientDeleter(gradient);
 
+			if (region.CountRects() == 0)
+				break;
+
+			picture->SyncState(fCurrentView);
 			for (int32 i = 0; i < region.CountRects(); i++)
 				picture->WriteDrawRectGradient(region.RectAt(i), *gradient, true);
 			break;
@@ -3868,7 +3932,9 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			ViewStrokeLineInfo info;
 			link.Read<ViewStrokeLineInfo>(&info);
 
+			picture->SyncState(fCurrentView);
 			picture->WriteStrokeLine(info.startPoint, info.endPoint);
+			picture->ChangeStateField(PictureState_penLocation);
 
 			BPoint penPos = info.endPoint;
 			const SimpleTransform transform =
@@ -3888,7 +3954,9 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 				break;
 			ObjectDeleter<BGradient> gradientDeleter(gradient);
 
+			picture->SyncState(fCurrentView);
 			picture->WriteStrokeLineGradient(info.startPoint, info.endPoint, *gradient);
+			picture->ChangeStateField(PictureState_penLocation);
 
 			BPoint penPos = info.endPoint;
 			const SimpleTransform transform =
@@ -3924,10 +3992,16 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 				break;
 			}
 
+			picture->SyncState(fCurrentView);
 			picture->WritePushState();
 
 			for (int32 i = 0; i < lineCount; i++) {
+				picture->EnterStateChange();
+				if (i == 0 && fCurrentView->CurrentState()->GetPattern().GetPattern() != B_SOLID_HIGH)
+					picture->WriteSetPattern(B_SOLID_HIGH);
+
 				picture->WriteSetHighColor(lineData[i].color);
+				picture->ExitStateChange();
 				picture->WriteStrokeLine(lineData[i].startPoint,
 					lineData[i].endPoint);
 			}
@@ -3946,11 +4020,11 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			link.Read(&color, sizeof(rgb_color));
 
 			if (code == AS_VIEW_SET_HIGH_COLOR) {
-				picture->WriteSetHighColor(color);
+				picture->ChangeStateField(PictureState_highColor);
 				fCurrentView->CurrentState()->SetHighColor(color);
 				fWindow->GetDrawingEngine()->SetHighColor(color);
 			} else {
-				picture->WriteSetLowColor(color);
+				picture->ChangeStateField(PictureState_lowColor);
 				fCurrentView->CurrentState()->SetLowColor(color);
 				fWindow->GetDrawingEngine()->SetLowColor(color);
 			}
@@ -3979,8 +4053,13 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			// Terminate the string
 			string[info.stringLength] = '\0';
 
-			picture->WriteDrawString(info.location, string, info.stringLength,
+			picture->ChangeStateField(PictureState_penLocation);
+			fCurrentView->CurrentState()->SetPenLocation(info.location);
+
+			picture->SyncState(fCurrentView);
+			picture->WriteDrawString(string, info.stringLength,
 				info.delta);
+			picture->ChangeStateField(PictureState_penLocation);
 
 			// We need to update the pen location
 			fCurrentView->PenToScreenTransform().Apply(&info.location);
@@ -4031,8 +4110,10 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			for (int32 i = 0; i < glyphCount; i++)
 				transform.Apply(&locations[i]);
 
+			picture->SyncState(fCurrentView);
 			picture->WriteDrawString(string, stringLength, locations,
 				glyphCount);
+			picture->ChangeStateField(PictureState_penLocation);
 
 			DrawingEngine* drawingEngine = fWindow->GetDrawingEngine();
 			if (drawingEngine->LockParallelAccess()) {
@@ -4067,6 +4148,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 				|| link.Read(ptList, ptCount * sizeof(BPoint)) < B_OK) {
 				break;
 			}
+			picture->SyncState(fCurrentView);
 			picture->WriteDrawShape(opCount, opList, ptCount,
 				ptList, code == AS_FILL_SHAPE);
 
@@ -4082,6 +4164,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			if (bitmap == NULL)
 				break;
 
+			picture->SyncState(fCurrentView);
 			picture->WriteDrawBitmap(info.bitmapRect, info.viewRect,
 				bitmap->Width(), bitmap->Height(), bitmap->BytesPerRow(),
 				bitmap->ColorSpace(), info.options, bitmap->Bits(),
@@ -4103,8 +4186,10 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 					// change after it has been drawn
 					BReference<ServerPicture> copy(App()->CreatePicture(pictureToDraw), true);
 					int32 subPictureIndex = picture->NestPicture(copy);
-					if (subPictureIndex >= 0)
+					if (subPictureIndex >= 0) {
+						picture->SyncState(fCurrentView);
 						picture->WriteDrawPicture(where, subPictureIndex);
+					}
 				}
 			}
 			break;
@@ -4112,25 +4197,22 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 
 		case AS_VIEW_SET_CLIP_REGION:
 		{
-			int32 rectCount;
-			status_t status = link.Read<int32>(&rectCount);
-				// a negative count means no
-				// region for the current draw state,
-				// but an *empty* region is actually valid!
-				// even if it means no drawing is allowed
+			bool hasClipRegion;
+			status_t status = link.Read<bool>(&hasClipRegion);
 
 			if (status < B_OK)
 				break;
 
-			if (rectCount >= 0) {
-				// we are supposed to set the clipping region
+			if (hasClipRegion) {
 				BRegion region;
-				if (rectCount > 0 && link.ReadRegion(&region) < B_OK)
+				if (link.ReadRegion(&region) < B_OK)
 					break;
-				picture->WriteSetClipping(region);
+
+				picture->ChangeStateField(PictureState_clip);
+				fCurrentView->CurrentState()->SetClippingRegion(&region);
 			} else {
-				// we are supposed to clear the clipping region
-				picture->WriteClearClipping();
+				picture->ChangeStateField(PictureState_clip);
+				fCurrentView->CurrentState()->SetClippingRegion(NULL);
 			}
 			break;
 		}
@@ -4142,22 +4224,30 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			bool inverse = false;
 
 			link.Read<int32>(&pictureToken);
-			if (pictureToken < 0)
+			if (pictureToken < 0) {
+				picture->ChangeStateField(PictureState_clip);
+
+				fCurrentView->SetAlphaMask(NULL);
+				_UpdateDrawState(fCurrentView);
 				break;
+			}
 
 			link.Read<BPoint>(&where);
 			if (link.Read<bool>(&inverse) != B_OK)
 				break;
 
-			BReference<ServerPicture> pictureToClip(fServerApp->GetPicture(pictureToken), true);
-			if (pictureToClip != NULL) {
-				// We need to make a copy of the picture, since it can
-				// change after it has been drawn
-				BReference<ServerPicture> copy(App()->CreatePicture(pictureToClip), true);
-				int32 subPictureIndex = picture->NestPicture(copy);
-				if (subPictureIndex >= 0)
-					picture->WriteClipToPicture(subPictureIndex, where, inverse);
-			}
+			BReference<ServerPicture> picture(fServerApp->GetPicture(pictureToken), true);
+			if (picture == NULL)
+				break;
+
+			picture->ChangeStateField(PictureState_clip);
+
+			BReference<AlphaMask> const mask(new(std::nothrow) PictureAlphaMask(
+				fCurrentView->GetAlphaMask(), picture,
+				*fCurrentView->CurrentState(), where, inverse), true);
+			fCurrentView->SetAlphaMask(mask);
+
+			_UpdateDrawState(fCurrentView);
 			break;
 		}
 
@@ -4200,7 +4290,6 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			BReference <ServerPicture> newPicture(App()->CreatePicture(), true);
 			if (newPicture != NULL) {
 				newPicture->PushPicture(picture);
-				newPicture->SyncState(fCurrentView);
 				fCurrentView->SetPicture(newPicture);
 			}
 			break;
@@ -4212,10 +4301,8 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			link.Read<int32>(&token);
 
 			BReference<ServerPicture> appendPicture(App()->GetPicture(token), true);
-			if (appendPicture != NULL) {
-				//picture->SyncState(fCurrentView);
+			if (appendPicture != NULL)
 				appendPicture->AppendPicture(picture);
-			}
 
 			fCurrentView->SetPicture(appendPicture);
 
@@ -4271,6 +4358,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			}
 			fCurrentView->SetPicture(previousLayer);
 
+			previousLayer->SyncState(fCurrentView);
 			previousLayer->WriteBlendLayer(layer);
 			break;
 		}
@@ -4283,6 +4371,7 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			link.Read<ViewBlendingModeInfo>(&info);
 
 			picture->WriteSetBlendingMode(info.sourceAlpha, info.alphaFunction);
+			picture->ChangeStateField(PictureState_blendingMode);
 
 			fCurrentView->CurrentState()->SetBlendingMode(info.sourceAlpha,
 				info.alphaFunction);
