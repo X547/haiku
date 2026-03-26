@@ -1791,6 +1791,16 @@ fDesktop->LockSingleWindow();
 
 			break;
 		}
+		case AS_VIEW_MOVE_PEN_BY:
+		{
+			BPoint offset;
+			if (link.Read<BPoint>(&offset) != B_OK)
+				break;
+
+			BPoint location = fCurrentView->CurrentState()->PenLocation();
+			fCurrentView->CurrentState()->SetPenLocation(location + offset);
+			break;
+		}
 		case AS_VIEW_SET_PEN_SIZE:
 		{
 			float penSize;
@@ -3404,6 +3414,19 @@ ServerWindow::_DispatchPictureMessage(int32 code, BPrivate::LinkReceiver& link)
 			picture->WriteSetPenLocation(location);
 
 			fCurrentView->CurrentState()->SetPenLocation(location);
+			break;
+		}
+
+		case AS_VIEW_MOVE_PEN_BY:
+		{
+			BPoint offset;
+			if (link.Read<BPoint>(&offset) != B_OK)
+				break;
+
+			picture->WriteMovePenBy(offset);
+
+			BPoint location = fCurrentView->CurrentState()->PenLocation();
+			fCurrentView->CurrentState()->SetPenLocation(location + offset);
 			break;
 		}
 
