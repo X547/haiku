@@ -68,6 +68,7 @@ public:
 			status_t			WriteSetFontFlags(const int32& flags);
 			status_t			WriteSetFontShear(const float& shear);
 			status_t			WriteSetFontFace(const int32& face);
+			status_t			WriteSetFontFalseBoldWidth(float width);
 
 			status_t			WriteStrokeLine(const BPoint& start,
 									const BPoint& end);

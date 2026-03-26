@@ -899,6 +899,21 @@ PictureDataWriter::WriteSetFontFace(const int32& face)
 
 
 status_t
+PictureDataWriter::WriteSetFontFalseBoldWidth(float width)
+{
+	try {
+		BeginOp(B_PIC_SET_FONT_FALSE_BOLD_WIDTH);
+		Write<float>(width);
+		EndOp();
+	} catch (status_t& status) {
+		return status;
+	}
+
+	return B_OK;
+}
+
+
+status_t
 PictureDataWriter::WritePushState()
 {
 	try {

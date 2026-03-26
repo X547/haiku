@@ -140,6 +140,7 @@ struct picture_player_callbacks_compat {
 
 	/* 71 */ void (*stroke_line_gradient)(void* user, BPoint start, BPoint end,
 		const BGradient& gradient);
+	/* 72 */ void (*set_font_false_bold_width)(void* user, float width);
 };
 
 
@@ -186,6 +187,7 @@ public:
 	virtual void SetFontFlags(uint32 flags) {}
 	virtual void SetFontShear(float shear) {}
 	virtual void SetFontFace(uint16 face) {}
+	virtual void SetFontFalseBoldWidth(float width) {}
 	virtual void SetBlendingMode(source_alpha alphaSourceMode, alpha_function alphaFunctionMode) {}
 	virtual void SetTransform(const BAffineTransform& transform) {}
 	virtual void TranslateBy(double x, double y) {}
