@@ -282,6 +282,7 @@ public:
 	virtual void SetFontFlags(uint32 flags);
 	virtual void SetFontShear(float shear);
 	virtual void SetFontFace(uint16 face);
+	virtual void SetFontFalseBoldWidth(float width);
 	virtual void SetBlendingMode(source_alpha alphaSourceMode, alpha_function alphaFunctionMode);
 	virtual void SetTransform(const BAffineTransform& transform);
 	virtual void TranslateBy(double x, double y);
@@ -925,6 +926,15 @@ CanvasCallbacks::SetFontFace(uint16 face)
 
 
 void
+CanvasCallbacks::SetFontFalseBoldWidth(float width)
+{
+	ServerFont font;
+	font.SetFalseBoldWidth(width);
+	fCanvas->CurrentState()->SetFont(font, B_FONT_FALSE_BOLD_WIDTH);
+}
+
+
+void
 CanvasCallbacks::SetBlendingMode(source_alpha alphaSrcMode,
 	alpha_function alphaFncMode)
 {
@@ -1212,8 +1222,7 @@ ServerPicture::WriteFontState(const ServerFont& font, uint16 mask)
 	}
 
 	if (mask & B_FONT_FALSE_BOLD_WIDTH) {
-		// TODO: Implement
-//		WriteSetFalseBoldWidth(font.FalseBoldWidth());
+		WriteSetFontFalseBoldWidth(font.FalseBoldWidth());
 	}
 
 	if (mask & B_FONT_SPACING) {

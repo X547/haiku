@@ -78,6 +78,7 @@ public:
 	virtual void SetFontFlags(uint32 flags);
 	virtual void SetFontShear(float shear);
 	virtual void SetFontFace(uint16 face);
+	virtual void SetFontFalseBoldWidth(float width);
 	virtual void SetBlendingMode(source_alpha alphaSourceMode, alpha_function alphaFunctionMode);
 	virtual void SetTransform(const BAffineTransform& transform);
 	virtual void TranslateBy(double x, double y);
@@ -461,6 +462,13 @@ CallbackAdapterPlayer::SetFontFace(uint16 face)
 
 
 void
+CallbackAdapterPlayer::SetFontFalseBoldWidth(float width)
+{
+	fCallbacks->set_font_false_bold_width(fUserData, width);
+}
+
+
+void
 CallbackAdapterPlayer::SetBlendingMode(source_alpha alphaSrcMode,
 	alpha_function alphaFncMode)
 {
@@ -705,6 +713,7 @@ PictureOpToString(int op)
 		RETURN_STRING(B_PIC_SET_FONT_SHEAR);
 		RETURN_STRING(B_PIC_SET_FONT_BPP);
 		RETURN_STRING(B_PIC_SET_FONT_FACE);
+		RETURN_STRING(B_PIC_SET_FONT_FALSE_BOLD_WIDTH);
 
 		RETURN_STRING(B_PIC_AFFINE_TRANSLATE);
 		RETURN_STRING(B_PIC_AFFINE_SCALE);
@@ -868,7 +877,7 @@ PicturePlayer::_Play(PicturePlayerCallbacks& callbacks,
 
 			case B_PIC_ENTER_FONT_STATE:
 				if (header->op < B_PIC_SET_FONT_FAMILY
-					|| header->op > B_PIC_SET_FONT_FACE) {
+					|| header->op > B_PIC_SET_FONT_FALSE_BOLD_WIDTH) {
 					return B_BAD_DATA;
 					}
 				break;
@@ -1488,6 +1497,16 @@ PicturePlayer::_Play(PicturePlayerCallbacks& callbacks,
 					break;
 
 				callbacks.SetFontFace(*face);
+				break;
+			}
+
+			case B_PIC_SET_FONT_FALSE_BOLD_WIDTH:
+			{
+				const float* width;
+				if (!reader.Get(width))
+					break;
+
+				callbacks.SetFontFalseBoldWidth(*width);
 				break;
 			}
 
