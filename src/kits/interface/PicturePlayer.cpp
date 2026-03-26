@@ -24,7 +24,6 @@
 #include <PictureProtocol.h>
 #include <Shape.h>
 #include <ShapePrivate.h>
-
 #include <AutoDeleter.h>
 #include <StackOrHeapArray.h>
 
