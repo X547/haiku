@@ -59,6 +59,21 @@ PictureDataWriter::SetTo(BPositionIO* data)
 
 
 status_t
+PictureDataWriter::WriteMovePenBy(const BPoint& offset)
+{
+	try {
+		BeginOp(B_PIC_MOVE_PEN_BY);
+		Write<BPoint>(offset);
+		EndOp();
+	} catch (status_t& status) {
+		return status;
+	}
+
+	return B_OK;
+}
+
+
+status_t
 PictureDataWriter::WriteSetOrigin(const BPoint& point)
 {
 	try {
