@@ -32,6 +32,7 @@ public:
 
 			status_t			SetTo(BPositionIO* data);
 
+			status_t			WriteMovePenBy(const BPoint& offset);
 			status_t			WriteSetHighColor(const rgb_color& color);
 			status_t			WriteSetLowColor(const rgb_color& color);
 			status_t			WriteSetOrigin(const BPoint& point);

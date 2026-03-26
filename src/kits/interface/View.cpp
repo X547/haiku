@@ -2351,11 +2351,16 @@ BView::MovePenTo(float x, float y)
 void
 BView::MovePenBy(float x, float y)
 {
-	// this will update the pen location if necessary
-	if (!fState->IsValid(B_VIEW_PEN_LOCATION_BIT))
-		PenLocation();
+	if (fOwner != NULL) {
+		_CheckLockAndSwitchCurrent();
 
-	MovePenTo(fState->pen_location.x + x, fState->pen_location.y + y);
+		fOwner->fLink->StartMessage(AS_VIEW_MOVE_PEN_BY);
+		fOwner->fLink->Attach<BPoint>(BPoint(x, y));
+
+		fState->valid_flags &= ~B_VIEW_PEN_LOCATION_BIT;
+	}
+
+	fState->archiving_flags |= B_VIEW_PEN_LOCATION_BIT;
 }
 
 
