@@ -315,7 +315,7 @@ CardMessageFilter::Filter(BMessage* message, BHandler** target)
 CardWindow::CardWindow(BRect frame)
 	:
 	BWindow(frame, "Haiku App Server", B_TITLED_WINDOW,
-		B_NOT_ZOOMABLE | B_NOT_RESIZABLE | B_NO_SERVER_SIDE_WINDOW_MODIFIERS),
+		B_NOT_CLOSABLE | B_NOT_ZOOMABLE | B_NOT_RESIZABLE | B_NO_SERVER_SIDE_WINDOW_MODIFIERS),
 	fUpdateRegion(),
 	fUpdateLock("update lock")
 {
@@ -366,6 +366,7 @@ CardWindow::MessageReceived(BMessage* msg)
 bool
 CardWindow::QuitRequested()
 {
+#if 0
 	port_id serverport = find_port(SERVER_PORT_NAME);
 
 	if (serverport >= 0) {
@@ -377,6 +378,8 @@ CardWindow::QuitRequested()
 
 	// we don't quit on ourself, we let us be Quit()!
 	return false;
+#endif
+	return true;
 }
 
 
@@ -420,8 +423,8 @@ ViewHWInterface::~ViewHWInterface()
 		fWindow->Quit();
 	}
 
-	be_app->Lock();
-	be_app->Quit();
+//	be_app->Lock();
+//	be_app->Quit();
 }
 
 

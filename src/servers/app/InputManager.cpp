@@ -53,7 +53,7 @@ EventStream*
 InputManager::GetStream()
 {
 	BAutolock _(this);
-	
+
 	EventStream* stream = NULL;
 	do {
 		delete stream;

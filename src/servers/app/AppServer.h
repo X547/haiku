@@ -22,13 +22,8 @@
 #include "ServerConfig.h"
 
 
-#ifndef HAIKU_TARGET_PLATFORM_LIBBE_TEST
-#	include <Server.h>
-#	define SERVER_BASE BServer
-#else
-#	include "TestServerLoopAdapter.h"
-#	define SERVER_BASE TestServerLoopAdapter
-#endif
+#include <Server.h>
+#define SERVER_BASE BServer
 
 
 class ServerApp;
