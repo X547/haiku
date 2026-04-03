@@ -99,7 +99,7 @@ DesktopSettingsPrivate::_GetPath(BPath& path)
 	if (status < B_OK)
 		return status;
 
-	status = path.Append("system/app_server");
+	status = path.Append("system/test_app_server");
 	if (status < B_OK)
 		return status;
 

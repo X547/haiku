@@ -30,7 +30,6 @@ using std::nothrow;
 #else
 #	include "ViewHWInterface.h"
 #	include "DWindowHWInterface.h"
-#	include "VideoProducerHWInterface.h"
 #endif
 
 

@@ -50,7 +50,7 @@ uint32 gAppServerSIMDFlags = 0;
 */
 AppServer::AppServer(status_t* status)
 	:
-	SERVER_BASE("application/x-vnd.Haiku-app_server", "picasso", -1, false,
+	SERVER_BASE("application/x-vnd.Haiku-test_app_server", "picasso", -1, true,
 		status),
 	fDesktopLock("AppServerDesktopLock")
 {
@@ -154,7 +154,6 @@ AppServer::MessageReceived(BMessage* message)
 bool
 AppServer::QuitRequested()
 {
-#if TEST_MODE
 	while (fDesktops.CountItems() > 0) {
 		Desktop *desktop = fDesktops.RemoveItemAt(0);
 
@@ -166,14 +165,7 @@ AppServer::QuitRequested()
 		wait_for_thread(thread, &status);
 	}
 
-	delete this;
-	exit(0);
-
 	return SERVER_BASE::QuitRequested();
-#else
-	return false;
-#endif
-
 }
 
 
