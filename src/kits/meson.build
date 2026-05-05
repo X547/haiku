@@ -23,5 +23,6 @@ libbe = shared_library(
 		dependency('zlib'),
 		dependency('libzstd'),
 		dependency('icu-i18n'),
-	]
+	],
+	install: true
 )
