@@ -79,7 +79,7 @@ prog_keymap = find_program('keymap')
 system_keymap_h = custom_target(
 	output: 'SystemKeymap.h',
 	input: 'src/data/keymaps/US-International.keymap',
-	command: [prog_keymap, '-o', '@OUTPUT@', '-h', '@INPUT@'],
+	command: [prog_keymap, '-o', '@OUTPUT@', '-H', '@INPUT@'],
 )
 
 subdir('src')

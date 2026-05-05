@@ -125,6 +125,7 @@ libinterface_kit = static_library(
 		hdr_private_input,
 		hdr_private_print,
 		hdr_private_tracker,
+		hdr_private_media,
 	],
 	link_with: [
 		libinterface_kit_layouter,
