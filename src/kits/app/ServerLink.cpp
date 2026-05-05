@@ -17,6 +17,9 @@
 #include <string.h>
 #include <new>
 
+#include <stdio.h>
+#include <pthread.h>
+
 #include <AppDefs.h>
 #include <ServerProtocol.h>
 
@@ -327,6 +330,19 @@ ServerLink::GetMessageName(int32 code)
 		case B_QUIT_REQUESTED: return "B_QUIT_REQUESTED";
 		default: return "?";
 	}
+}
+
+
+void
+ServerLink::LogMessage(int32 code)
+{
+	static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+
+	pthread_mutex_lock(&mutex);
+	FILE* f = fopen("app_server.log", "a");
+	fprintf(f, "[%" B_PRId32 ":%" B_PRId32 "] StartMessage(%s (%" B_PRId32 "))\n", find_thread(NULL), SenderPort(), GetMessageName(code), code);
+	fclose(f);
+	pthread_mutex_unlock(&mutex);
 }
 
 
