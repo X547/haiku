@@ -2248,6 +2248,7 @@ XHCI::ConfigureEndpoint(xhci_endpoint* ep, uint8 slot, uint8 number, uint8 type,
 	if (speed == USB_SPEED_HIGHSPEED && (type & (USB_OBJECT_INTERRUPT_PIPE
 			| USB_OBJECT_ISO_PIPE)) != 0) {
 		maxBurst = (maxPacketSize & 0x1800) >> 11;
+		maxPacketSize &= 0x7FF;
 	} else if (speed < USB_SPEED_SUPERSPEED) {
 		maxBurst = 0;
 	}
