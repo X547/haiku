@@ -293,6 +293,8 @@ DynamicThreadVector::_ResizeVector(unsigned minimumSize)
 		fGeneration = new Generation;
 		if (fGeneration == NULL)
 			return B_NO_MEMORY;
+
+		fGeneration->SetCounter(TLSBlockTemplates::Get().GetGeneration(-1));
 	}
 
 	*(Generation**)*fVector = fGeneration;
