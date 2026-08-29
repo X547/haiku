@@ -36,8 +36,10 @@
 #include <util/DoublyLinkedList.h>
 
 
+#if defined(HANDOVER_USE_DEBUGGER)
 static const char* kDebuggerSignature = "application/x-vnd.Haiku-Debugger";
 static const int32 MSG_DEBUG_THIS_TEAM = 'dbtt';
+#endif
 
 
 //#define TRACE_DEBUG_SERVER
