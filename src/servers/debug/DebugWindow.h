@@ -19,8 +19,8 @@ enum {
 };
 
 
-//#define HANDOVER_USE_GDB 1
-#define HANDOVER_USE_DEBUGGER 1
+#define HANDOVER_USE_GDB 1
+//#define HANDOVER_USE_DEBUGGER 1
 
 #define USE_GUI true
 	// define to false if the debug server shouldn't use GUI (i.e. an alert)
