@@ -164,10 +164,13 @@ EFIEthernetInterface::Init()
 	status = kSystemTable->BootServices->HandleProtocol(
 		kImage, &sLoadedImageProtocolGUID, (void**)&loadedImageProtocol);
 
-	if (status == EFI_SUCCESS) {
+	if (status == EFI_SUCCESS && loadedImageProtocol->LoadOptions != NULL
+			&& loadedImageProtocol->LoadOptionsSize > 0) {
 		char buffer[256];
-		utf16le_to_utf8((uint16*)loadedImageProtocol->LoadOptions,
-			loadedImageProtocol->LoadOptionsSize / 2, buffer, sizeof(buffer));
+		if (utf16le_to_utf8((uint16*)loadedImageProtocol->LoadOptions,
+				loadedImageProtocol->LoadOptionsSize / 2, buffer, sizeof(buffer)) < B_OK)
+			buffer[0] = '\0';
+
 		TRACE("Load options: %s\n", buffer);
 
 		char* base = buffer;
@@ -176,10 +179,7 @@ EFIEthernetInterface::Init()
 			if (*ptr == '=') {
 				TRACE("Key at %ld: %s\n", ptr - base, base);
 				// Found a key-value separator, see if it's a known option
-				if (ptr - base != 2)
-					continue;
-
-				if (strncmp(base, "ip", 2) == 0) {
+				if (ptr - base == 2 && strncmp(base, "ip", 2) == 0) {
 					TRACE("Found ip configuration in command line\n");
 					break;
 				}
