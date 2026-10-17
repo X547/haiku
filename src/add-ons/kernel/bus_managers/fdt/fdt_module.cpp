@@ -440,20 +440,20 @@ fdt_device_get_reg(fdt_device* dev, uint32 ord, uint64* regs, uint64* len)
 
 	switch (addressCells) {
 		case 1:
-			*regs = fdt32_to_cpu(*(const uint32*)addressPtr);
+			*regs = fdt32_ld((const fdt32_t*)addressPtr);
 			break;
 		case 2:
-			*regs = fdt64_to_cpu(*(const uint64*)addressPtr);
+			*regs = fdt64_ld((const fdt64_t*)addressPtr);
 			break;
 		default:
 			return false;
 	}
 	switch (sizeCells) {
 		case 1:
-			*len = fdt32_to_cpu(*(const uint32*)sizePtr);
+			*len = fdt32_ld((const fdt32_t*)sizePtr);
 			break;
 		case 2:
-			*len = fdt64_to_cpu(*(const uint64*)sizePtr);
+			*len = fdt64_ld((const fdt64_t*)sizePtr);
 			break;
 		default:
 			return false;

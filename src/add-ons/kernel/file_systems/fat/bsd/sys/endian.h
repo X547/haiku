@@ -39,32 +39,34 @@
 static __inline uint16_t
 le16dec(const void* pp)
 {
-	uint16 const* twoBytes = (uint16 const*)pp;
-	return B_LENDIAN_TO_HOST_INT16(*twoBytes);
+	uint16 twoBytes;
+	memcpy(&twoBytes, pp, sizeof(twoBytes));
+	return B_LENDIAN_TO_HOST_INT16(twoBytes);
 }
 
 
 static __inline uint32_t
 le32dec(const void* pp)
 {
-	uint32 const* fourBytes = (uint32 const*)pp;
-	return B_LENDIAN_TO_HOST_INT32(*fourBytes);
+	uint32 fourBytes;
+	memcpy(&fourBytes, pp, sizeof(fourBytes));
+	return B_LENDIAN_TO_HOST_INT32(fourBytes);
 }
 
 
 static __inline void
 le16enc(void* pp, uint16_t u)
 {
-	uint16* twoBytes = (uint16*)pp;
-	*twoBytes = B_HOST_TO_LENDIAN_INT16(u);
+	uint16 twoBytes = B_HOST_TO_LENDIAN_INT16(u);
+	memcpy(pp, &twoBytes, sizeof(twoBytes));
 }
 
 
 static __inline void
 le32enc(void* pp, uint32_t u)
 {
-	uint32* fourBytes = (uint32*)pp;
-	*fourBytes = B_HOST_TO_LENDIAN_INT32(u);
+	uint32 fourBytes = B_HOST_TO_LENDIAN_INT32(u);
+	memcpy(pp, &fourBytes, sizeof(fourBytes));
 }
 
 

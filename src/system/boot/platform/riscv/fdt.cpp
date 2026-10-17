@@ -68,12 +68,12 @@ GetReg(const void* fdt, int node, uint32 addressCells, uint32 sizeCells, size_t 
 
 	switch (addressCells) {
 		case 1: range.start = fdt32_to_cpu(*(uint32*)prop); prop += 4; break;
-		case 2: range.start = fdt64_to_cpu(*(uint64*)prop); prop += 8; break;
+		case 2: range.start = fdt64_ld((const fdt64_t*)prop); prop += 8; break;
 		default: panic("unsupported addressCells");
 	}
 	switch (sizeCells) {
 		case 1: range.size = fdt32_to_cpu(*(uint32*)prop); prop += 4; break;
-		case 2: range.size = fdt64_to_cpu(*(uint64*)prop); prop += 8; break;
+		case 2: range.size = fdt64_ld((const fdt64_t*)prop); prop += 8; break;
 		default: panic("unsupported sizeCells");
 	}
 	return true;
@@ -167,10 +167,10 @@ HandleFdt(const void* fdt, int node, uint32 addressCells, uint32 sizeCells,
 		sUart.clock = (prop == NULL) ? 0 : fdt32_to_cpu(*(uint32*)prop);
 	} else if (HasFdtString(compatible, compatibleLen, "qemu,fw-cfg-mmio")) {
 		gFwCfgRegs = (FwCfgRegs *volatile)
-			fdt64_to_cpu(*(uint64*)fdt_getprop(fdt, node, "reg", NULL));
+			fdt64_ld((const fdt64_t*)fdt_getprop(fdt, node, "reg", NULL));
 	} else if (HasFdtString(compatible, compatibleLen, "simple-framebuffer")) {
 		gFramebuf.colors = (uint32*)fdt64_to_cpu(
-			*(uint64*)fdt_getprop(fdt, node, "reg", NULL));
+			fdt64_ld((const fdt64_t*)fdt_getprop(fdt, node, "reg", NULL)));
 		gFramebuf.stride = fdt32_to_cpu(
 			*(uint32*)fdt_getprop(fdt, node, "stride", NULL)) / 4;
 		gFramebuf.width = fdt32_to_cpu(

@@ -75,7 +75,7 @@ arch_start_kernel(addr_t kernelEntry)
 	// between calls to ExitBootServices.
 	size_t actualMemoryMapSize = memoryMapSize * 2;
 	efi_memory_descriptor *memoryMap
-		= (efi_memory_descriptor *)kernel_args_malloc(actualMemoryMapSize);
+		= (efi_memory_descriptor *)kernel_args_malloc(actualMemoryMapSize, 8);
 
 	if (memoryMap == NULL)
 		panic("Unable to allocate memory map.");

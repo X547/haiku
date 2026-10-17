@@ -214,7 +214,7 @@ dump_fdt(const void *fdt)
 					case 0x03000000: dprintf("MMIO_64BIT"); break;
 					}
 					dprintf(" (0x%08" PRIx32 "), child: 0x%08" PRIx64 ", parent: 0x%08" PRIx64 ", len: 0x%08" PRIx64 "\n",
-						kind, fdt64_to_cpu(*(uint64_t*)(it + 1)), fdt64_to_cpu(*(uint64_t*)(it + 3)), fdt64_to_cpu(*(uint64_t*)(it + 5)));
+						kind, fdt64_ld((const fdt64_t*)(it + 1)), fdt64_ld((const fdt64_t*)(it + 3)), fdt64_ld((const fdt64_t*)(it + 5)));
 				}
 				for (int i = 0; i < depth; i++)
 					dprintf("  ");
@@ -394,12 +394,12 @@ dtb_get_reg(const void* fdt, int node, size_t idx, addr_range& range)
 
 	switch (addressCells) {
 		case 1: range.start = fdt32_to_cpu(*(uint32*)prop); prop += 4; break;
-		case 2: range.start = fdt64_to_cpu(*(uint64*)prop); prop += 8; break;
+		case 2: range.start = fdt64_ld((const fdt64_t*)prop); prop += 8; break;
 		default: panic("unsupported addressCells");
 	}
 	switch (sizeCells) {
 		case 1: range.size = fdt32_to_cpu(*(uint32*)prop); prop += 4; break;
-		case 2: range.size = fdt64_to_cpu(*(uint64*)prop); prop += 8; break;
+		case 2: range.size = fdt64_ld((const fdt64_t*)prop); prop += 8; break;
 		default: panic("unsupported sizeCells");
 	}
 
@@ -421,21 +421,21 @@ dtb_get_reg(const void* fdt, int node, size_t idx, addr_range& range)
 			if (addressCells == 1) {
 				childAddress = fdt32_to_cpu(*(uint32*)(ranges+rangesPos));
 			} else {
-				childAddress = fdt64_to_cpu(*(uint64*)(ranges+rangesPos));
+				childAddress = fdt64_ld((const fdt64_t*)(ranges+rangesPos));
 			}
 			rangesPos += addressCells;
 
 			if (parentAddressCells == 1) {
 				parentAddress = fdt32_to_cpu(*(uint32*)(ranges+rangesPos));
 			} else {
-				parentAddress = fdt64_to_cpu(*(uint64*)(ranges+rangesPos));
+				parentAddress = fdt64_ld((const fdt64_t*)(ranges+rangesPos));
 			}
 			rangesPos += parentAddressCells;
 
 			if (sizeCells == 1) {
 				rangeSize = fdt32_to_cpu(*(uint32*)(ranges+rangesPos));
 			} else {
-				rangeSize = fdt64_to_cpu(*(uint64*)(ranges+rangesPos));
+				rangeSize = fdt64_ld((const fdt64_t*)(ranges+rangesPos));
 			}
 			rangesPos += sizeCells;
 

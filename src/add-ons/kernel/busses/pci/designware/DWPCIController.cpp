@@ -14,6 +14,35 @@
 #include <new>
 
 
+typedef uint32_t fdt32_t;
+typedef uint64_t fdt64_t;
+
+
+static inline uint32_t fdt32_ld(const fdt32_t *p)
+{
+	const uint8_t *bp = (const uint8_t *)p;
+
+	return ((uint32_t)bp[0] << 24)
+		| ((uint32_t)bp[1] << 16)
+		| ((uint32_t)bp[2] << 8)
+		| bp[3];
+}
+
+static inline uint64_t fdt64_ld(const fdt64_t *p)
+{
+	const uint8_t *bp = (const uint8_t *)p;
+
+	return ((uint64_t)bp[0] << 56)
+		| ((uint64_t)bp[1] << 48)
+		| ((uint64_t)bp[2] << 40)
+		| ((uint64_t)bp[3] << 32)
+		| ((uint64_t)bp[4] << 24)
+		| ((uint64_t)bp[5] << 16)
+		| ((uint64_t)bp[6] << 8)
+		| bp[7];
+}
+
+
 static uint32
 ReadReg8(addr_t adr)
 {
@@ -196,10 +225,10 @@ DWPCIController::ReadResourceInfo()
 	dprintf("  ranges:\n");
 	for (uint32_t *it = (uint32_t*)prop; (uint8_t*)it - (uint8_t*)prop < propLen; it += 7) {
 		dprintf("    ");
-		uint32_t type      = B_BENDIAN_TO_HOST_INT32(*(it + 0));
-		uint64_t childAdr  = B_BENDIAN_TO_HOST_INT64(*(uint64_t*)(it + 1));
-		uint64_t parentAdr = B_BENDIAN_TO_HOST_INT64(*(uint64_t*)(it + 3));
-		uint64_t len       = B_BENDIAN_TO_HOST_INT64(*(uint64_t*)(it + 5));
+		uint32_t type      = fdt32_ld((const fdt32_t*)(it + 0));
+		uint64_t childAdr  = fdt64_ld((const fdt64_t*)(it + 1));
+		uint64_t parentAdr = fdt64_ld((const fdt64_t*)(it + 3));
+		uint64_t len       = fdt64_ld((const fdt64_t*)(it + 5));
 
 		pci_resource_range range = {};
 		range.host_address = parentAdr;
