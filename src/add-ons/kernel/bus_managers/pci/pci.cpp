@@ -594,7 +594,7 @@ PCI::PCI()
 	fVirtualBusMap(),
 	fNextVirtualBus(0)
 {
-	#if defined(__POWERPC__) || defined(__M68K__)
+	#if !defined(__i386__) && !defined(__x86_64__)
 		fBusEnumeration = true;
 	#endif
 }
@@ -2674,13 +2674,17 @@ PCIResourceWindow::AllocateResource(uint64 size, uint64 alignment,
 	// that matches the requested prefetchability and
 	// is within the 32-bit address space (if required)
 	for (int i = 0; i < fResources.Count(); i++) {
-		uint64 resourceAddrAligned = (fResources[i].pci_address + alignment - 1)
+		uint64 resourcePciAddress = fResources[i].pci_address;
+		if (resourcePciAddress == 0)
+			resourcePciAddress = 1;
+
+		uint64 resourceAddrAligned = (resourcePciAddress + alignment - 1)
 			& ~(alignment - 1);
-		uint64 resourcePaddingSize = resourceAddrAligned - fResources[i].pci_address;
+		uint64 resourcePaddingSize = resourceAddrAligned - resourcePciAddress;
 		uint64 resourceUsableSize = fResources[i].size - resourcePaddingSize;
 		if (fResources[i].size > resourcePaddingSize
 			&& resourceUsableSize >= size
-			&& ((flags & PCI_address_type_64) || fResources[i].pci_address < 0x100000000)
+			&& ((flags & PCI_address_type_64) || resourcePciAddress < 0x100000000)
 			&& ((flags & PCI_address_prefetchable)
 				== (fResources[i].address_type & PCI_address_prefetchable)))
 			return ReserveResource(resourceAddrAligned, size, newResource);
