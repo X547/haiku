@@ -531,9 +531,9 @@ XHCI::XHCI(pci_info* info, pci_device_module_info* pci, pci_device* device,
 	if (fIRQ == 0xFF)
 		fIRQ = 0;
 
-#if 0
+#if 1
 	if (fPci->get_msix_count(fDevice) >= 1) {
-		uint8 msiVector = 0;
+		uint32 msiVector = 0;
 		if (fPci->configure_msix(fDevice, 1, &msiVector) == B_OK
 			&& fPci->enable_msix(fDevice) == B_OK) {
 			TRACE_ALWAYS("using MSI-X\n");
