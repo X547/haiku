@@ -302,6 +302,17 @@ arch_mmu_post_efi_setup(size_t memory_map_size,
 	build_physical_allocated_list(memory_map_size, memory_map,
 		descriptor_size, descriptor_version);
 
+	// Set virtual addresses for UEFI data that will be used after exiting boot services.
+	// `VirtualStart` initial value is undefined and it is zero in some implementations.
+	addr_t addr = (addr_t)memory_map;
+	for (size_t i = 0; i < memory_map_size / descriptor_size; ++i) {
+		efi_memory_descriptor *entry
+			= (efi_memory_descriptor *)(addr + i * descriptor_size);
+
+		if ((entry->Attribute & EFI_MEMORY_RUNTIME) != 0)
+			entry->VirtualStart = entry->PhysicalStart;
+	}
+
 	// Switch EFI to virtual mode, using the kernel pmap.
 	kRuntimeServices->SetVirtualAddressMap(memory_map_size, descriptor_size,
 		descriptor_version, memory_map);
@@ -389,11 +400,12 @@ arch_mmu_generate_post_efi_page_tables(size_t memoryMapSize, efi_memory_descript
 	// Boot loader
 	TRACE("Boot loader:\n");
 	for (size_t i = 0; i < memoryMapSize / descriptorSize; ++i) {
-		efi_memory_descriptor* entry = &memoryMap[i];
+		efi_memory_descriptor *entry
+			= (efi_memory_descriptor *)((addr_t)memoryMap + i * descriptorSize);
 		switch (entry->Type) {
 		case EfiLoaderCode:
 		case EfiLoaderData:
-			MapRange(entry->VirtualStart, entry->PhysicalStart, entry->NumberOfPages * B_PAGE_SIZE,
+			MapRange(entry->PhysicalStart, entry->PhysicalStart, entry->NumberOfPages * B_PAGE_SIZE,
 				Pte {.isRead = true, .isWrite = true, .isExec = true}.val);
 			break;
 		default:
@@ -407,9 +419,10 @@ arch_mmu_generate_post_efi_page_tables(size_t memoryMapSize, efi_memory_descript
 	// EFI runtime services
 	TRACE("EFI runtime services:\n");
 	for (size_t i = 0; i < memoryMapSize / descriptorSize; ++i) {
-		efi_memory_descriptor* entry = &memoryMap[i];
+		efi_memory_descriptor *entry
+			= (efi_memory_descriptor *)((addr_t)memoryMap + i * descriptorSize);
 		if ((entry->Attribute & EFI_MEMORY_RUNTIME) != 0)
-			MapRange(entry->VirtualStart, entry->PhysicalStart, entry->NumberOfPages * B_PAGE_SIZE,
+			MapRange(entry->PhysicalStart, entry->PhysicalStart, entry->NumberOfPages * B_PAGE_SIZE,
 				Pte {.isRead = true, .isWrite = true, .isExec = true}.val);
 	}
 
