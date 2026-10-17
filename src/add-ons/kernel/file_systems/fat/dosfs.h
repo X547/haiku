@@ -12,6 +12,7 @@
 #else
 #include <Drivers.h>
 #include <SupportDefs.h>
+#include <ByteOrder.h>
 #endif
 
 
@@ -23,9 +24,24 @@
 // the value given to the VFS as the preferred length of a read and write
 #define FAT_IO_SIZE 65536
 
-#define read16(buffer, off) B_LENDIAN_TO_HOST_INT16(*(uint16*)&buffer[off])
 
-#define read32(buffer, off) B_LENDIAN_TO_HOST_INT32(*(uint32*)&buffer[off])
+inline uint16
+read16(const uint8* buffer, size_t off)
+{
+	uint16 val;
+	memcpy(&val, &buffer[off], sizeof(val));
+	return B_LENDIAN_TO_HOST_INT16(val);
+}
+
+
+inline uint32
+read32(const uint8* buffer, size_t off)
+{
+	uint32 val;
+	memcpy(&val, &buffer[off], sizeof(val));
+	return B_LENDIAN_TO_HOST_INT32(val);
+}
+
 
 // true only for the root directory in a FAT12/FAT16 volume
 #define IS_FIXED_ROOT(fatNode) ((fatNode)->de_StartCluster == 0)

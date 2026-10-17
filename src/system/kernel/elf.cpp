@@ -1388,7 +1388,9 @@ insert_preloaded_image(preloaded_elf_image *preloadedImage, bool kernel)
 {
 	status_t status;
 
-	status = verify_eheader(&preloadedImage->elf_header);
+	elf_ehdr elf_header;
+	memcpy(&elf_header, &preloadedImage->elf_header, sizeof(elf_header));
+	status = verify_eheader(&elf_header);
 	if (status != B_OK)
 		return status;
 

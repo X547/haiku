@@ -61,17 +61,47 @@ compareKeys(uint32 type, const void* key1, size_t length1, const void* key2,
 {
 	switch (type) {
 		case B_INT32_TYPE:
-			return compare_integral(*(int32*)key1, *(int32*)key2);
+		{
+			int32 key1_val, key2_val;
+			memcpy(&key1_val, key1, sizeof(key1_val));
+			memcpy(&key2_val, key2, sizeof(key2_val));
+			return compare_integral(key1_val, key2_val);
+		}
 		case B_UINT32_TYPE:
-			return compare_integral(*(uint32*)key1, *(uint32*)key2);
+		{
+			uint32 key1_val, key2_val;
+			memcpy(&key1_val, key1, sizeof(key1_val));
+			memcpy(&key2_val, key2, sizeof(key2_val));
+			return compare_integral(key1_val, key2_val);
+		}
 		case B_INT64_TYPE:
-			return compare_integral(*(int64*)key1, *(int64*)key2);
+		{
+			int64 key1_val, key2_val;
+			memcpy(&key1_val, key1, sizeof(key1_val));
+			memcpy(&key2_val, key2, sizeof(key2_val));
+			return compare_integral(key1_val, key2_val);
+		}
 		case B_UINT64_TYPE:
-			return compare_integral(*(uint64*)key1, *(uint64*)key2);
+		{
+			uint64 key1_val, key2_val;
+			memcpy(&key1_val, key1, sizeof(key1_val));
+			memcpy(&key2_val, key2, sizeof(key2_val));
+			return compare_integral(key1_val, key2_val);
+		}
 		case B_FLOAT_TYPE:
-			return compare_integral(*(float*)key1, *(float*)key2);
+		{
+			float key1_val, key2_val;
+			memcpy(&key1_val, key1, sizeof(key1_val));
+			memcpy(&key2_val, key2, sizeof(key2_val));
+			return compare_integral(key1_val, key2_val);
+		}
 		case B_DOUBLE_TYPE:
-			return compare_integral(*(double*)key1, *(double*)key2);
+		{
+			double key1_val, key2_val;
+			memcpy(&key1_val, key1, sizeof(key1_val));
+			memcpy(&key2_val, key2, sizeof(key2_val));
+			return compare_integral(key1_val, key2_val);
+		}
 		case B_STRING_TYPE:
 		case B_MIME_STRING_TYPE:
 		{
