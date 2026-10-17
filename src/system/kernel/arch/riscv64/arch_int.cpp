@@ -86,50 +86,6 @@ AfterInterrupt()
 }
 
 
-static bool
-SetAccessedFlags(addr_t addr, bool isWrite)
-{
-	VMAddressSpacePutter addressSpace;
-	if (IS_KERNEL_ADDRESS(addr))
-		addressSpace.SetTo(VMAddressSpace::GetKernel());
-	else if (IS_USER_ADDRESS(addr))
-		addressSpace.SetTo(VMAddressSpace::GetCurrent());
-
-	if(!addressSpace.IsSet())
-		return false;
-
-	RISCV64VMTranslationMap* map
-		= (RISCV64VMTranslationMap*)addressSpace->TranslationMap();
-
-	phys_addr_t physAdr;
-	uint32 pageFlags;
-	map->QueryInterrupt(addr, &physAdr, &pageFlags);
-
-	if ((PAGE_PRESENT & pageFlags) == 0)
-		return false;
-
-	if (isWrite) {
-		if (
-			((B_WRITE_AREA | B_KERNEL_WRITE_AREA) & pageFlags) != 0
-			&& ((PAGE_ACCESSED | PAGE_MODIFIED) & pageFlags)
-				!= (PAGE_ACCESSED | PAGE_MODIFIED)
-		) {
-			map->SetFlags(addr, PAGE_ACCESSED | PAGE_MODIFIED);
-			return true;
-		}
-	} else {
-		if (
-			((B_READ_AREA | B_KERNEL_READ_AREA) & pageFlags) != 0
-			&& (PAGE_ACCESSED & pageFlags) == 0
-		) {
-			map->SetFlags(addr, PAGE_ACCESSED);
-			return true;
-		}
-	}
-	return false;
-}
-
-
 extern "C" void
 STrap(iframe* frame)
 {
@@ -137,8 +93,21 @@ STrap(iframe* frame)
 		case causeExecPageFault:
 		case causeLoadPageFault:
 		case causeStorePageFault: {
-			if (SetAccessedFlags(Stval(), frame->cause == causeStorePageFault))
-				return;
+			addr_t addr = Stval();
+
+			VMAddressSpacePutter addressSpace;
+			if (IS_KERNEL_ADDRESS(addr))
+				addressSpace.SetTo(VMAddressSpace::GetKernel());
+			else if (IS_USER_ADDRESS(addr))
+				addressSpace.SetTo(VMAddressSpace::GetCurrent());
+
+			if (addressSpace.IsSet()) {
+				RISCV64VMTranslationMap* map
+						= (RISCV64VMTranslationMap*)addressSpace->TranslationMap();
+
+				if (map->SetAccessedFlags(addr, frame->cause, SstatusReg{.val = frame->status}))
+					return;
+			}
 		}
 	}
 

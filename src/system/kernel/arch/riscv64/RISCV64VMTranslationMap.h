@@ -90,6 +90,8 @@ struct RISCV64VMTranslationMap: public VMTranslationMap {
 	inline	CPUSet&				ActiveOnCpus();
 	inline	void				InvalidatePage(addr_t address);
 
+			bool				SetAccessedFlags(addr_t address, uint64 cause, SstatusReg status);
+
 private:
 			std::atomic<Pte>*	LookupPte(addr_t virtAdr, bool alloc,
 									vm_page_reservation* reservation);

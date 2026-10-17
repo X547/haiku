@@ -620,6 +620,61 @@ RISCV64VMTranslationMap::ClearAccessedAndModified(VMArea* area, addr_t address,
 }
 
 
+bool
+RISCV64VMTranslationMap::SetAccessedFlags(addr_t address, uint64 cause, SstatusReg status)
+{
+	std::atomic<Pte>* pte = LookupPte(address, false, NULL);
+	if (pte == NULL)
+		return false;
+
+	Pte oldPte = pte->load();
+	if (!oldPte.isValid || (oldPte.isWrite && !oldPte.isRead))
+		return false;
+
+	if (status.spp == modeU) {
+		if (!oldPte.isUser)
+			return false;
+	} else if (oldPte.isUser && (cause == causeExecPageFault || !status.sum)) {
+		return false;
+	}
+
+	bool isWrite = false;
+	switch (cause) {
+		case causeExecPageFault:
+			if (!oldPte.isExec)
+				return false;
+
+			break;
+		case causeLoadPageFault:
+			if (!oldPte.isRead && !(status.mxr && oldPte.isExec))
+				return false;
+
+			break;
+		case causeStorePageFault:
+			if (!oldPte.isWrite)
+				return false;
+
+			isWrite = true;
+			break;
+		default:
+			return false;
+	}
+
+	Pte pteFlags {
+		.isAccessed = true,
+		.isDirty = isWrite,
+	};
+	*(std::atomic<uint64>*)pte |= pteFlags.val;
+
+	if (IS_KERNEL_ADDRESS(address))
+		FlushTlbPage(address);
+	else
+		FlushTlbPageAsid(address, 0);
+
+	return true;
+}
+
+
 void
 RISCV64VMTranslationMap::Flush()
 {
