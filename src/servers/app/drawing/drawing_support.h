@@ -21,6 +21,11 @@ static inline void
 gfxset32(uint8* dst, uint32 color, int32 numBytes)
 {
 	uint64 s64 = ((uint64)color << 32) | color;
+	if (numBytes >= 8 && ((addr_t)dst % 8 != 0)) {
+		*(uint32*)dst = color;
+		numBytes -= 4;
+		dst += 4;
+	}
 	while (numBytes >= 8) {
 		*(uint64*)dst = s64;
 		numBytes -= 8;
