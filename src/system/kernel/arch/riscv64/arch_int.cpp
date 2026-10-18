@@ -17,6 +17,7 @@
 #include <arch_thread_types.h>
 #include <arch/debug.h>
 #include <util/AutoLock.h>
+#include <platform/sbi/sbi_syscalls.h>
 #include <Htif.h>
 #include <Plic.h>
 #include <Clint.h>
@@ -25,6 +26,9 @@
 #include "RISCV64VMTranslationMap.h"
 
 #include <algorithm>
+
+
+extern uint32 gPlatform;
 
 
 static uint32 sPlicContexts[SMP_MAX_CPUS];
@@ -233,6 +237,9 @@ STrap(iframe* frame)
 		}
 		case causeInterrupt + sTimerInt: {
 			ClearBitsSie(1 << sTimerInt);
+			if (gPlatform == kPlatformSbi)
+				sbi_set_timer(UINT64_MAX);
+
 			// dprintf("sTimerInt(%" B_PRId32 ")\n", smp_get_current_cpu());
 			timer_interrupt();
 			AfterInterrupt();

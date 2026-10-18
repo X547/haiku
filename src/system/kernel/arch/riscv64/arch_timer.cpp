@@ -60,9 +60,7 @@ arch_timer_clear_hardware_timer()
 			MSyscall(kMSyscallSetTimer, false);
 			break;
 		case kPlatformSbi: {
-			// Do nothing, it is not possible to clear SBI timer, so we only disable supervisor
-			// timer interrupt. SBI timer still can be triggered, but its interrupt will be not
-			// delivered to kernel.
+			sbi_set_timer(UINT64_MAX);
 			break;
 		}
 		default:
