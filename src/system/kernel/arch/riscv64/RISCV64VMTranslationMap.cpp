@@ -681,6 +681,8 @@ RISCV64VMTranslationMap::Flush()
 	if (fInvalidPagesCount <= 0)
 		return;
 
+	memory_full_barrier();
+
 	ThreadCPUPinner pinner(thread_get_current_thread());
 
 	if (fInvalidPagesCount > PAGE_INVALIDATE_CACHE_SIZE) {
