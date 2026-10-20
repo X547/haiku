@@ -82,16 +82,21 @@ arch_thread_context_switch(Thread *from, Thread *to)
 	auto fromMap = (RISCV64VMTranslationMap*)from->team->address_space->TranslationMap();
 	auto toMap = (RISCV64VMTranslationMap*)to->team->address_space->TranslationMap();
 
-	int cpu = to->cpu->cpu_num;
-	toMap->ActiveOnCpus().SetBitAtomic(cpu);
-	fromMap->ActiveOnCpus().ClearBitAtomic(cpu);
+	if (fromMap != toMap) {
+		int cpu = to->cpu->cpu_num;
+		toMap->ActiveOnCpus().SetBitAtomic(cpu);
+		fromMap->ActiveOnCpus().ClearBitAtomic(cpu);
+	}
 
 	// TODO: save/restore FPU only if needed
 	save_fpu(&from->arch_info.fpuContext);
 	restore_fpu(&to->arch_info.fpuContext);
 
-	SetSatp(toMap->Satp());
-	FlushTlbAllAsid(0);
+	if (fromMap != toMap) {
+		SetSatp(toMap->Satp());
+		FlushTlbAllAsid(0);
+		FenceI();
+	}
 
 	arch_context_switch(&from->arch_info.context, &to->arch_info.context);
 }
