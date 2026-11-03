@@ -13,7 +13,7 @@ hdr_app_server = include_directories('.')
 
 hdr_private = include_directories('/boot/system/develop/headers/private')
 hdr_private_shared = include_directories('/boot/system/develop/headers/private/shared')
-hdr_private_kernel = include_directories('/boot/system/develop/headers/private/kernel')
+hdr_private_kernel = include_directories('/boot/system/develop/headers/private/kernel', '/boot/system/develop/headers/private/kernel/arch/x86')
 hdr_private_system = include_directories(
 	'/boot/system/develop/headers/private/system',
 	'/boot/system/develop/headers/private/system/arch/x86_64',
