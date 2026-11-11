@@ -594,9 +594,11 @@ PCI::PCI()
 	fVirtualBusMap(),
 	fNextVirtualBus(0)
 {
+#if 0
 	#if !defined(__i386__) && !defined(__x86_64__)
 		fBusEnumeration = true;
 	#endif
+#endif
 }
 
 
