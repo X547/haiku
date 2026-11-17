@@ -78,7 +78,8 @@ arch_handle_fdt(const void* fdt, int node)
 	}
 
 	if (dtb_has_fdt_string(compatible, compatibleLen, "riscv,plic0")
-		|| dtb_has_fdt_string(compatible, compatibleLen, "sifive,plic-1.0.0")) {
+		|| dtb_has_fdt_string(compatible, compatibleLen, "sifive,plic-1.0.0")
+		|| dtb_has_fdt_string(compatible, compatibleLen, "ultrarisc,dp1000-plic")) {
 		dtb_get_reg(fdt, node, 0, sPlic);
 		int propSize;
 		if (uint32* prop = (uint32*)fdt_getprop(fdt, node, "interrupts-extended", &propSize)) {

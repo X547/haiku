@@ -299,7 +299,7 @@ arch_int_init(kernel_args* args)
 		sPlicContexts[i] = args->arch_args.plicContexts[i];
 
 	// TODO: read from FDT
-	reserve_io_interrupt_vectors(128, 0, INTERRUPT_TYPE_IRQ);
+	reserve_io_interrupt_vectors(192, 0, INTERRUPT_TYPE_IRQ);
 
 	for (uint32 i = 0; i < args->num_cpus; i++)
 		gPlicRegs->contexts[sPlicContexts[i]].priorityThreshold = 0;
