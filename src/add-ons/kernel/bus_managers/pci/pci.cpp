@@ -1477,7 +1477,7 @@ PCI::_ReadConfig(domain_data *domain, uint8 bus, uint8 device,
 
 	status_t status = (*domain->controller->read_pci_config)(domain->controller_cookie,
 		bus, device, function, offset, size, value);
-	if (status != B_OK) {
+	if (status != B_OK && status != ERANGE) {
 		dprintf("PCI: failed to read config for domain %p, %u:%u:%u, offset %u, size %u\n",
 			domain, bus, device, function, offset, size);
 	}
