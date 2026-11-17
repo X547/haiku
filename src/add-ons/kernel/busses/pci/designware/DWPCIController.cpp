@@ -116,9 +116,8 @@ DWPCIController::SupportsDevice(device_node* parent)
 	if (status < B_OK)
 		return -1.0f;
 
-	// Support only a variant used in HiFive Unmatched board.
-	// TODO: Support more Synapsis Designware IP core based PCIe host controllers.
-	if (strcmp(compatible, "sifive,fu740-pcie") != 0)
+	if (strcmp(compatible, "sifive,fu740-pcie") != 0
+			&& strcmp(compatible, "ultrarisc,dw-pcie") != 0)
 		return 0.0f;
 
 	return 1.0f;
