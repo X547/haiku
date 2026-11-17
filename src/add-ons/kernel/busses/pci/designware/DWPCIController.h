@@ -211,6 +211,8 @@ public:
 
 	status_t GetRange(uint32 index, pci_resource_range* range);
 
+	class MSIInterface* MSIInterface() {return &fIrqCtrl;}
+
 private:
 	status_t ReadResourceInfo();
 	inline status_t InitDriverInt(device_node* node);

@@ -51,6 +51,9 @@ pci_controller_module_info gPciControllerDriver = {
 	},
 	.get_range = [](void *cookie, uint32 index, pci_resource_range* range) {
 		return static_cast<DWPCIController*>(cookie)->GetRange(index, range);
+	},
+	.msi_interface = [](void *cookie) -> MSIInterface* {
+		return static_cast<DWPCIController*>(cookie)->MSIInterface();
 	}
 };
 

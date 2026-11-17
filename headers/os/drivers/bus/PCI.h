@@ -12,6 +12,13 @@
 
 typedef struct pci_device pci_device;
 
+#ifdef __cplusplus
+class MSIInterface;
+#else
+typedef struct MSIInterface MSIInterface;
+#endif
+
+
 typedef struct pci_device_module_info {
 	driver_module_info info;
 
@@ -93,6 +100,8 @@ typedef struct pci_controller_module_info {
 	status_t	(*get_range)(void *cookie, uint32 index, pci_resource_range *range);
 
 	status_t	(*finalize)(void *cookie);
+
+	MSIInterface* (*msi_interface)(void *cookie);
 
 } pci_controller_module_info;
 

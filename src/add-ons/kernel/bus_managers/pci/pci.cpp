@@ -703,6 +703,10 @@ PCI::AddController(pci_controller_module_info *controller,
 	data.controller_cookie = controllerCookie;
 	data.root_node = rootNode;
 
+	data.msi_interface = controller->msi_interface == NULL
+			? NULL
+			: controller->msi_interface(data.controller_cookie);
+
 	data.bus = new(std::nothrow) PCIBus {
 		.domain = domain,
 		.io_window = PCIResourceWindow(),
@@ -2191,7 +2195,9 @@ PCI::SetPowerstate(uint8 domain, uint8 bus, uint8 _device, uint8 function,
 uint32
 PCI::GetMSICount(PCIDev *device)
 {
-	if (!msi_supported())
+	domain_data *domain = &fDomainData[device->domain];
+
+	if (domain->msi_interface == NULL)
 		return 0;
 
 	msi_info *info = &device->msi;
@@ -2205,7 +2211,9 @@ PCI::GetMSICount(PCIDev *device)
 status_t
 PCI::ConfigureMSI(PCIDev *device, uint32 count, uint32 *startVector)
 {
-	if (!msi_supported())
+	domain_data *domain = &fDomainData[device->domain];
+
+	if (domain->msi_interface == NULL)
 		return B_UNSUPPORTED;
 
 	if (count == 0 || startVector == NULL)
@@ -2222,9 +2230,9 @@ PCI::ConfigureMSI(PCIDev *device, uint32 count, uint32 *startVector)
 
 	if (info->configured_count != 0)
 		return B_BUSY;
-
-	status_t result = msi_allocate_vectors(count, &info->start_vector,
-		&info->address_value, &info->data_value);
+	
+	status_t result = domain->msi_interface->AllocateVectors(count, info->start_vector,
+		info->address_value, info->data_value);
 	if (result != B_OK)
 		return result;
 
@@ -2252,7 +2260,9 @@ PCI::ConfigureMSI(PCIDev *device, uint32 count, uint32 *startVector)
 status_t
 PCI::UnconfigureMSI(PCIDev *device)
 {
-	if (!msi_supported())
+	domain_data *domain = &fDomainData[device->domain];
+
+	if (domain->msi_interface == NULL)
 		return B_UNSUPPORTED;
 
 	// try MSI-X
@@ -2267,7 +2277,7 @@ PCI::UnconfigureMSI(PCIDev *device)
 	if (info->configured_count == 0)
 		return B_NO_INIT;
 
-	msi_free_vectors(info->configured_count, info->start_vector);
+	domain->msi_interface->FreeVectors(info->configured_count, info->start_vector);
 
 	info->control_value &= ~PCI_msi_control_mme_mask;
 	WriteConfig(device, info->capability_offset + PCI_msi_control, 2,
@@ -2283,7 +2293,9 @@ PCI::UnconfigureMSI(PCIDev *device)
 status_t
 PCI::EnableMSI(PCIDev *device)
 {
-	if (!msi_supported())
+	domain_data *domain = &fDomainData[device->domain];
+
+	if (domain->msi_interface == NULL)
 		return B_UNSUPPORTED;
 
 	msi_info *info =  &device->msi;
@@ -2317,7 +2329,9 @@ PCI::EnableMSI(PCIDev *device)
 status_t
 PCI::DisableMSI(PCIDev *device)
 {
-	if (!msi_supported())
+	domain_data *domain = &fDomainData[device->domain];
+
+	if (domain->msi_interface == NULL)
 		return B_UNSUPPORTED;
 
 	// try MSI-X
@@ -2347,7 +2361,9 @@ PCI::DisableMSI(PCIDev *device)
 uint32
 PCI::GetMSIXCount(PCIDev *device)
 {
-	if (!msi_supported())
+	domain_data *domain = &fDomainData[device->domain];
+
+	if (domain->msi_interface == NULL)
 		return 0;
 
 	msix_info *info = &device->msix;
@@ -2361,7 +2377,9 @@ PCI::GetMSIXCount(PCIDev *device)
 status_t
 PCI::ConfigureMSIX(PCIDev *device, uint32 count, uint32 *startVector)
 {
-	if (!msi_supported())
+	domain_data *domain = &fDomainData[device->domain];
+
+	if (domain->msi_interface == NULL)
 		return B_UNSUPPORTED;
 
 	if (count == 0 || startVector == NULL)
@@ -2418,8 +2436,8 @@ PCI::ConfigureMSIX(PCIDev *device, uint32 count, uint32 *startVector)
 		info->pba_area_id = -1;
 	info->pba_address = address + info->pba_offset;
 
-	status_t result = msi_allocate_vectors(count, &info->start_vector,
-		&info->address_value, &info->data_value);
+	status_t result = domain->msi_interface->AllocateVectors(count, info->start_vector,
+		info->address_value, info->data_value);
 	if (result != B_OK) {
 		delete_area(info->pba_area_id);
 		delete_area(info->table_area_id);
@@ -2452,7 +2470,9 @@ PCI::ConfigureMSIX(PCIDev *device, uint32 count, uint32 *startVector)
 status_t
 PCI::EnableMSIX(PCIDev *device)
 {
-	if (!msi_supported())
+	domain_data *domain = &fDomainData[device->domain];
+
+	if (domain->msi_interface == NULL)
 		return B_UNSUPPORTED;
 
 	msix_info *info = &device->msix;
@@ -2509,7 +2529,9 @@ PCI::_HtMSIMap(PCIDev *device, uint64 address)
 void
 PCI::_ReadMSIInfo(PCIDev *device)
 {
-	if (!msi_supported())
+	domain_data *domain = &fDomainData[device->domain];
+
+	if (domain->msi_interface == NULL)
 		return;
 
 	msi_info *info = &device->msi;
@@ -2535,7 +2557,9 @@ PCI::_ReadMSIInfo(PCIDev *device)
 void
 PCI::_ReadMSIXInfo(PCIDev *device)
 {
-	if (!msi_supported())
+	domain_data *domain = &fDomainData[device->domain];
+
+	if (domain->msi_interface == NULL)
 		return;
 
 	msix_info *info = &device->msix;
@@ -2574,7 +2598,9 @@ PCI::_ReadMSIXInfo(PCIDev *device)
 void
 PCI::_ReadHtMappingInfo(PCIDev *device)
 {
-	if (!msi_supported())
+	domain_data *domain = &fDomainData[device->domain];
+
+	if (domain->msi_interface == NULL)
 		return;
 
 	ht_mapping_info *info = &device->ht_mapping;
@@ -2611,6 +2637,11 @@ PCI::_ReadHtMappingInfo(PCIDev *device)
 status_t
 PCI::_UnconfigureMSIX(PCIDev *device)
 {
+	domain_data *domain = &fDomainData[device->domain];
+
+	if (domain->msi_interface == NULL)
+		return B_UNSUPPORTED;
+
 	msix_info *info =  &device->msix;
 	if (!info->msix_capable)
 		return B_UNSUPPORTED;
@@ -2623,7 +2654,7 @@ PCI::_UnconfigureMSIX(PCIDev *device)
 	WriteConfig(device, info->capability_offset + PCI_msix_control, 2,
 		info->control_value);
 
-	msi_free_vectors(info->configured_count, info->start_vector);
+	domain->msi_interface->FreeVectors(info->configured_count, info->start_vector);
 	for (uint8 index = 0; index < info->configured_count; index++) {
 		volatile uint32 *entry = (uint32*)(info->table_address + 16 * index);
 		if ((*(entry + 3) & PCI_msix_vctrl_mask) == 0)

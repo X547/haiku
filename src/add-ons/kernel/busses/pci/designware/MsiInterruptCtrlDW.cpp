@@ -44,8 +44,6 @@ MsiInterruptCtrlDW::Init(PciDbiRegs volatile* dbiRegs, int32 msiIrq)
 		return result;
 	}
 
-	msi_set_interface(static_cast<MSIInterface*>(this));
-
 	dprintf("  fMsiStartIrq: %" B_PRId32 "\n", fMsiStartIrq);
 
 	return B_OK;

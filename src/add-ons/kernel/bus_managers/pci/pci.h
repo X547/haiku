@@ -78,6 +78,7 @@ struct domain_data {
 	// These two are set in PCI::AddController:
 	pci_controller_module_info *controller;
 	void *				controller_cookie;
+	MSIInterface *		msi_interface = NULL;
 	device_node *		root_node;
 	PCIBus *			bus;
 
