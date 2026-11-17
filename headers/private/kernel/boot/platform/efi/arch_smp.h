@@ -17,6 +17,8 @@ struct platform_cpu_info {
 };
 
 extern uint32 gBootHart;
+extern bool gBootHartValid;
+
 void arch_smp_register_cpu(platform_cpu_info** cpu);
 platform_cpu_info* arch_smp_find_cpu(uint32 phandle);
 #elif defined(__ARM__)

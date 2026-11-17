@@ -18,6 +18,8 @@
 #include <boot/menu.h>
 #include <platform/sbi/sbi_syscalls.h>
 
+#include <efi/protocol/riscv-boot.h>
+
 #include "mmu.h"
 
 
@@ -39,6 +41,9 @@ struct CpuEntryInfo {
 	KernelEntry kernelEntry;// 24
 };
 
+
+uint32 gBootHart = 0;
+bool gBootHartValid = false;
 
 static platform_cpu_info sCpus[SMP_MAX_CPUS];
 uint32 sCpuCount = 0;
@@ -252,4 +257,18 @@ arch_smp_add_safemode_menus(Menu *menu)
 void
 arch_smp_init(void)
 {
+	if (!gBootHartValid) {
+		efi_guid riscvBootProtocolGUID = RISCV_EFI_BOOT_PROTOCOL_GUID;
+		riscv_efi_boot_protocol* riscv_boot = NULL;
+
+		efi_status status = kSystemTable->BootServices->LocateProtocol(
+			&riscvBootProtocolGUID, NULL, (void**)&riscv_boot);
+
+		uint64_t val;
+		if (status == EFI_SUCCESS && riscv_boot != NULL
+				&& riscv_boot->GetBootHartId(riscv_boot, &val) == EFI_SUCCESS) {
+			gBootHart = (uint32)val;
+			gBootHartValid = true;
+		}
+	}
 }

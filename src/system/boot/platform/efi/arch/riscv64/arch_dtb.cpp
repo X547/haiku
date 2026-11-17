@@ -19,7 +19,6 @@ extern "C" {
 #include "dtb.h"
 
 
-uint32 gBootHart = 0;
 static uint64 sTimerFrequency = 10000000;
 
 static addr_range sPlic = {0};
@@ -34,8 +33,12 @@ arch_handle_fdt(const void* fdt, int node)
 
 	const char* name = fdt_get_name(fdt, node, NULL);
 	if (strcmp(name, "chosen") == 0) {
-		if (uint32* prop = (uint32*)fdt_getprop(fdt, node, "boot-hartid", NULL))
-			gBootHart = fdt32_to_cpu(*prop);
+		if (uint32* prop = (uint32*)fdt_getprop(fdt, node, "boot-hartid", NULL)) {
+			if (!gBootHartValid) {
+				gBootHart = fdt32_to_cpu(*prop);
+				gBootHartValid = true;
+			}
+		}
 	} else if (strcmp(name, "cpus") == 0) {
 		if (uint32* prop = (uint32*)fdt_getprop(fdt, node, "timebase-frequency", NULL))
 			sTimerFrequency = fdt32_to_cpu(*prop);
@@ -107,6 +110,7 @@ arch_handle_fdt(const void* fdt, int node)
 void
 arch_dtb_set_kernel_args(void)
 {
+	dprintf("bootHartValid: %d\n", gBootHartValid);
 	dprintf("bootHart: %" B_PRIu32 "\n", gBootHart);
 	dprintf("timerFrequency: %" B_PRIu64 "\n", sTimerFrequency);
 	gKernelArgs.arch_args.timerFrequency = sTimerFrequency;
