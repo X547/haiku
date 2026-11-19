@@ -93,7 +93,7 @@ DebugUART8250::InitPort(uint32 baud)
 {
 	Disable();
 
-	uint16 baudDivisor = Clock() / (16 * baud);
+	uint16 baudDivisor = (Clock() + 8 * baud) / (16 * baud);
 
 	// Write standard uart settings
 	Out8(UART_LCR, LCR_8N1);
