@@ -117,7 +117,8 @@ DWPCIController::SupportsDevice(device_node* parent)
 		return -1.0f;
 
 	if (strcmp(compatible, "sifive,fu740-pcie") != 0
-			&& strcmp(compatible, "ultrarisc,dw-pcie") != 0)
+			&& strcmp(compatible, "ultrarisc,dw-pcie") != 0
+			&& strcmp(compatible, "ultrarisc,dp1000-pcie") != 0)
 		return 0.0f;
 
 	return 1.0f;
