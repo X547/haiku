@@ -330,9 +330,12 @@ DWPCIController::ConfigAddress(uint8 bus, uint8 device, uint8 function, uint16 o
 		if (device != 0 || function != 0)
 			return 0;
 		return fDbiBase + offset;
-	} else if (bus == 1)
+	} else if (bus == 1) {
+		if (device != 0)
+			return 0;
+
 		atuType = kPciAtuTypeCfg0;
-	else
+	} else
 		atuType = kPciAtuTypeCfg1;
 
 	uint64 address = (uint64)(PciAddress {
