@@ -75,18 +75,31 @@ EfiDevice::ReadAt(void *cookie, off_t pos, void *buffer, size_t bufferSize)
 	uint32 numBlocks = (offset + bufferSize + BlockSize() - 1) / BlockSize();
 
 	// TODO: We really should implement memalign and align all requests to
-	// fBlockIo->Media->IoAlign. This static alignment is large enough though
-	// to catch most required alignments.
-	char readBuffer[numBlocks * BlockSize()]
-		__attribute__((aligned(2048)));
+	// fBlockIo->Media->IoAlign.
+
+	size_t align = fBlockIo->Media->IoAlign;
+	if (align == 0)
+		align = 1;
+
+	size_t readSize = numBlocks * BlockSize();
+	void* readBufferMem = malloc(readSize + (align - 1));
+	if (readBufferMem == NULL) {
+		dprintf("%s: out of memory!\n", __func__);
+		return B_NO_MEMORY;
+	}
+
+	char* readBuffer = (char*)(((addr_t)readBufferMem + (align - 1)) & ~(addr_t)(align - 1));
 
 	if (fBlockIo->ReadBlocks(fBlockIo, fBlockIo->Media->MediaId,
-		pos, sizeof(readBuffer), readBuffer) != EFI_SUCCESS) {
+		pos, readSize, readBuffer) != EFI_SUCCESS) {
 		dprintf("%s: blockIo error reading from device!\n", __func__);
+		free(readBufferMem);
 		return B_ERROR;
 	}
 
 	memcpy(buffer, readBuffer + offset, bufferSize);
+
+	free(readBufferMem);
 
 	return bufferSize;
 }
