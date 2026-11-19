@@ -33,6 +33,8 @@ extern uint32 gPlatform;
 
 static uint32 sPlicContexts[SMP_MAX_CPUS];
 
+static constexpr uint32 kPlicIntCount = 192; // TODO: read from FDT
+
 
 //#pragma mark -
 
@@ -298,8 +300,7 @@ arch_int_init(kernel_args* args)
 	for (uint32 i = 0; i < args->num_cpus; i++)
 		sPlicContexts[i] = args->arch_args.plicContexts[i];
 
-	// TODO: read from FDT
-	reserve_io_interrupt_vectors(192, 0, INTERRUPT_TYPE_IRQ);
+	reserve_io_interrupt_vectors(kPlicIntCount, 0, INTERRUPT_TYPE_IRQ);
 
 	for (uint32 i = 0; i < args->num_cpus; i++)
 		gPlicRegs->contexts[sPlicContexts[i]].priorityThreshold = 0;
@@ -333,8 +334,10 @@ void
 arch_int_enable_io_interrupt(int32 irq)
 {
 	dprintf("arch_int_enable_io_interrupt(%" B_PRId32 ")\n", irq);
-	gPlicRegs->priority[irq] = 1;
-	gPlicRegs->enable[sPlicContexts[0]][irq / 32] |= 1 << (irq % 32);
+	if (irq >= 0 && (uint32)irq < kPlicIntCount) {
+		gPlicRegs->priority[irq] = 1;
+		gPlicRegs->enable[sPlicContexts[0]][irq / 32] |= 1 << (irq % 32);
+	}
 }
 
 
@@ -342,8 +345,10 @@ void
 arch_int_disable_io_interrupt(int32 irq)
 {
 	dprintf("arch_int_disable_io_interrupt(%" B_PRId32 ")\n", irq);
-	gPlicRegs->priority[irq] = 0;
-	gPlicRegs->enable[sPlicContexts[0]][irq / 32] &= ~(1 << (irq % 32));
+	if (irq >= 0 && (uint32)irq < kPlicIntCount) {
+		gPlicRegs->priority[irq] = 0;
+		gPlicRegs->enable[sPlicContexts[0]][irq / 32] &= ~(1 << (irq % 32));
+	}
 }
 
 
